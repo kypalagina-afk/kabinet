@@ -204,7 +204,6 @@ export default defineConfig({
               name: "firebase",
               test: /node_modules[\\/](@firebase|firebase)[\\/]/,
               priority: 20,
-              maxSize: 350_000,
             },
             {
               name: "react",

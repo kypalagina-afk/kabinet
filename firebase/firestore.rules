@@ -1,0 +1,345 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserProfile() {
+      return signedIn() && exists(userPath());
+    }
+
+    function userProfile() {
+      return get(userPath()).data;
+    }
+
+    function isTeacher() {
+      return hasUserProfile() && userProfile().role == "teacher";
+    }
+
+    function isStudent() {
+      return hasUserProfile() && userProfile().role == "student";
+    }
+
+    function myStudentId() {
+      return userProfile().studentId;
+    }
+
+    function teacherOwns(data) {
+      return isTeacher() && data.teacherId == request.auth.uid;
+    }
+
+    function teacherCreatesOwned(data) {
+      return isTeacher() && data.teacherId == request.auth.uid;
+    }
+
+    function studentOwns(data) {
+      return isStudent() && data.studentId == myStudentId();
+    }
+
+    function ownershipUnchanged() {
+      return request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.studentId == resource.data.studentId;
+    }
+
+    function teacherCanReadOwnedStudentUser(uid) {
+      return isTeacher()
+        && exists(/databases/$(database)/documents/students/$(uid))
+        && get(/databases/$(database)/documents/students/$(uid)).data.teacherId
+          == request.auth.uid
+        && resource.data.role == "student"
+        && resource.data.studentId == uid
+        && resource.data.teacherId == request.auth.uid;
+    }
+
+    function homeworkMatchesSubmission(data) {
+      return data.homeworkId is string
+        && exists(/databases/$(database)/documents/homeworks/$(data.homeworkId))
+        && get(/databases/$(database)/documents/homeworks/$(data.homeworkId)).data.studentId
+          == data.studentId
+        && get(/databases/$(database)/documents/homeworks/$(data.homeworkId)).data.teacherId
+          == data.teacherId;
+    }
+
+    function studentProgramMatches(data) {
+      return data.studentProgramId is string
+        && exists(/databases/$(database)/documents/studentPrograms/$(data.studentProgramId))
+        && get(/databases/$(database)/documents/studentPrograms/$(data.studentProgramId)).data.studentId
+          == data.studentId
+        && get(/databases/$(database)/documents/studentPrograms/$(data.studentProgramId)).data.teacherId
+          == data.teacherId;
+    }
+
+    function activeStudentProgramMatches(data) {
+      return studentProgramMatches(data)
+        && get(/databases/$(database)/documents/studentPrograms/$(data.studentProgramId)).data.status
+          == "active";
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || teacherCanReadOwnedStudentUser(uid));
+      allow list: if false;
+      allow update: if signedIn()
+        && (
+          request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["preferences", "avatarKey", "updatedAt"])
+        );
+      allow create: if isTeacher()
+        && request.resource.data.role == "student"
+        && request.resource.data.teacherId == request.auth.uid
+        && request.resource.data.studentId == uid;
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      allow read: if teacherOwns(resource.data)
+        || (isStudent() && myStudentId() == studentId);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /programProfiles/{id} {
+      allow read: if signedIn();
+      allow create, update: if isTeacher();
+      allow delete: if false;
+    }
+
+    match /examBlueprints/{id} {
+      allow read: if signedIn();
+      allow create, update: if isTeacher();
+      allow delete: if false;
+    }
+
+    match /studentPrograms/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /lessonSeries/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /lessons/{id} {
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/lessons/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /homeworks/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data)
+        && activeStudentProgramMatches(request.resource.data);
+      allow update: if (
+          teacherOwns(resource.data)
+          && ownershipUnchanged()
+          && studentProgramMatches(request.resource.data)
+        ) || (
+          studentOwns(resource.data)
+          && ownershipUnchanged()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "updatedAt"])
+          && request.resource.data.status == "submitted"
+          && resource.data.status in ["assigned", "overdue", "needs_revision"]
+        );
+      allow delete: if false;
+    }
+
+    match /homeworkSubmissions/{id} {
+      allow get: if (
+          signedIn()
+          && !exists(/databases/$(database)/documents/homeworkSubmissions/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
+
+      allow create: if teacherCreatesOwned(request.resource.data)
+        || (
+          isStudent()
+          && request.resource.data.studentId == myStudentId()
+          && homeworkMatchesSubmission(request.resource.data)
+          && request.resource.data.keys().hasAll([
+            "teacherId","studentId","homeworkId","submissionNumber",
+            "studentInput","status","createdAt","updatedAt","schemaVersion"
+          ])
+          && request.resource.data.keys().hasOnly([
+            "teacherId","studentId","homeworkId","submissionNumber",
+            "studentInput","teacherEvaluation","status","submittedAt",
+            "createdAt","updatedAt","schemaVersion"
+          ])
+          && request.resource.data.status == "submitted"
+          && request.resource.data.studentInput.externalAttachmentUrls.size() == 0
+          && (
+            !("teacherEvaluation" in request.resource.data)
+            || request.resource.data.teacherEvaluation == null
+          )
+        );
+
+      allow update: if (
+          teacherOwns(resource.data) && ownershipUnchanged()
+        ) || (
+          studentOwns(resource.data)
+          && homeworkMatchesSubmission(request.resource.data)
+          && (
+            (
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(["studentInput","submittedAt","updatedAt","status"])
+              && request.resource.data.status == "submitted"
+            ) || (
+              resource.data.status == "checked"
+              && request.resource.data.status == "checked"
+              && request.resource.data.reviewedUnread == false
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(["reviewedUnread","reviewedOpenedAt","updatedAt"])
+            )
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /mockExams/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data)
+        && activeStudentProgramMatches(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && ownershipUnchanged()
+        && studentProgramMatches(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /materials/{id} {
+      allow read: if teacherOwns(resource.data)
+        || (isStudent() && myStudentId() in resource.data.allowedStudentIds);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /materialFolders/{id} {
+      allow read: if teacherOwns(resource.data)
+        || (isStudent() && myStudentId() in resource.data.allowedStudentIds);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /homeworkTemplates/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /lessonTeacherNotes/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /taskMasteryOverrides/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /studentTaskMasteryPublic/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /studentTaskCoverage/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /studentPaymentAccounts/{id} {
+      allow get: if teacherOwns(resource.data)
+        || (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/studentPaymentAccounts/$(id))
+          && exists(/databases/$(database)/documents/students/$(id))
+          && get(/databases/$(database)/documents/students/$(id)).data.teacherId
+            == request.auth.uid
+        );
+      allow list: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /paymentCreditEvents/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /teacherAuditEvents/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /achievementDefinitions/{id} {
+      allow read: if signedIn();
+      allow create, update: if isTeacher();
+      allow delete: if false;
+    }
+
+    match /studentAchievements/{id} {
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/studentAchievements/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data) && ownershipUnchanged();
+      allow delete: if false;
+    }
+
+    match /gamificationEvents/{id} {
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/gamificationEvents/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /appSettings/{id} {
+      allow read: if signedIn();
+      allow create, update: if isTeacher();
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

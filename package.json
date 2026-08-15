@@ -1,0 +1,59 @@
+{
+  "name": "kabinet-student-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint .",
+    "test": "npm run test:provisioning && npm run test:schedule && npm run test:analytics && npm run test:gamification && npm run test:payments && npm run test:rules && npm run test:storage-rules && npm run test:auth && npm run test:responsive",
+    "test:provisioning": "vitest run tests/tools",
+    "test:schedule": "vitest run tests/schedule",
+    "test:analytics": "vitest run tests/analytics",
+    "test:gamification": "vitest run tests/gamification",
+    "test:payments": "vitest run tests/payments",
+    "test:rules": "firebase emulators:exec --project demo-kabinet-25 --only firestore \"vitest run tests/rules\"",
+    "test:storage-rules": "firebase emulators:exec --project demo-kabinet-25 --only firestore,storage \"vitest run tests/storage\"",
+    "test:auth": "firebase emulators:exec --project demo-kabinet-25 --only auth,firestore,storage \"playwright test --config=playwright.auth.config.ts\"",
+    "test:responsive": "playwright test",
+    "seed:plan": "tsx tools/seed.ts --plan",
+    "seed:apply": "tsx tools/seed.ts --apply",
+    "pilot:plan": "tsx tools/seed.ts --plan --input=private/pilot-lera.phase3.json",
+    "pilot:inspect": "tsx tools/seed.ts --plan --inspect-production --input=private/pilot-lera.phase3.json",
+    "pilot:apply": "tsx tools/seed.ts --apply --input=private/pilot-lera.phase3.json",
+    "pilot:verify": "tsx tools/verifyPilot.ts --input=private/pilot-lera.phase3.json",
+    "rules:inspect-production": "tsx tools/inspectProductionRules.ts",
+    "rules:deploy-production": "tsx tools/deployProductionRules.ts",
+    "smoke:production": "tsx tools/smokeProduction.ts"
+  },
+  "dependencies": {
+    "firebase": "^12.17.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "firebase-admin": "^14.2.0",
+    "firebase-tools": "^15.27.0",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  }
+}

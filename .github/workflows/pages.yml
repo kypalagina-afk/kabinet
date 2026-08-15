@@ -1,0 +1,58 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build production frontend
+        run: npm run build
+        env:
+          VITE_BASE_PATH: /kabinet/
+          VITE_FIREBASE_TARGET: production
+          VITE_FIREBASE_API_KEY: AIzaSyD9y31waufGoalQY_V1wKDdmPPWDhAI8A0
+          VITE_FIREBASE_AUTH_DOMAIN: kabinet-25.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: kabinet-25
+          VITE_FIREBASE_STORAGE_BUCKET: kabinet-25.firebasestorage.app
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "816919605254"
+          VITE_FIREBASE_APP_ID: 1:816919605254:web:ac26e6a847a71a88d99387
+          VITE_AUTH_ALIAS_DOMAIN: kabinet25.example.com
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

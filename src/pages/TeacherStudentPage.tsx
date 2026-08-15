@@ -1,0 +1,634 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  Link,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import { DetailedMockExamForm } from "../features/analytics/DetailedMockExamForm";
+import { Avatar } from "../features/avatar/Avatar";
+import { useAuth } from "../features/auth/AuthProvider";
+import { calculateGamificationSummary } from "../features/gamification/gamification";
+import { useStudentGamification } from "../features/gamification/hooks";
+import { LessonJournal } from "../features/schedule/LessonJournal";
+import { useLessonTeacherNotes } from "../features/schedule/useLessonTeacherNotes";
+import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
+import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
+import {
+  formatDateTime,
+  formatHomeworkDueDate,
+  selectCurrentHomework,
+  selectLatestMockExam,
+  selectNearestLesson,
+} from "../features/vertical-slice/selectors";
+import { getFirebaseDb, isUsingFirebaseEmulators } from "../lib/firebase/client";
+import { syncStudentAchievements } from "../lib/firebase/services/gamificationWorkflow";
+import {
+  generateStudentPassword,
+  localStudentProvisioningService,
+} from "../lib/firebase/services/studentProvisioning";
+import {
+  setStudentArchived,
+  updateStudentConferenceLinks,
+  updateStudentProfile,
+} from "../lib/firebase/services/studentManagement";
+import type { Student } from "../lib/firebase/types";
+
+type Tab = "overview" | "lessons" | "homework" | "mocks" | "payment";
+const tabs: Array<[Tab, string]> = [
+  ["overview", "Обзор"],
+  ["lessons", "Занятия"],
+  ["homework", "Домашние задания"],
+  ["mocks", "Пробники"],
+  ["payment", "Оплата"],
+];
+type ConferenceLink = NonNullable<Student["conferenceLinks"]>[number];
+
+export function TeacherStudentPage() {
+  const provisioningAvailable = isUsingFirebaseEmulators();
+  const { studentId = "" } = useParams();
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const tab = (
+    tabs.some(([value]) => value === params.get("tab"))
+      ? params.get("tab")
+      : "overview"
+  ) as Tab;
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [credentialPassword, setCredentialPassword] = useState(
+    () =>
+      (location.state as { oneTimePassword?: string } | null)
+        ?.oneTimePassword ?? "",
+  );
+  const [notice, setNotice] = useState("");
+  const { data, loading, error } = useTeacherStudentWorkspace(
+    user?.uid ?? "",
+    studentId,
+  );
+  const gamification = useStudentGamification(studentId, user?.uid);
+  const lessonNotes = useLessonTeacherNotes(user?.uid ?? "", studentId);
+  const gamificationSummary = useMemo(
+    () =>
+      calculateGamificationSummary({
+        ...gamification.data,
+        submissions: data.homeworkSubmissions,
+        homeworks: data.homeworks,
+        mockExams: data.mockExams,
+      }),
+    [
+      data.homeworkSubmissions,
+      data.homeworks,
+      data.mockExams,
+      gamification.data,
+    ],
+  );
+  const suggestedKey = [...gamificationSummary.suggestedCodes].sort().join("|");
+  useEffect(() => {
+    if (
+      !user ||
+      !data.studentProgram ||
+      !suggestedKey ||
+      loading ||
+      gamification.loading
+    )
+      return;
+    void syncStudentAchievements(getFirebaseDb(), {
+      teacherId: user.uid,
+      studentId,
+      studentProgramId: data.studentProgram.id,
+      achievementCodes: suggestedKey.split("|"),
+    }).catch(() => undefined);
+  }, [
+    data.studentProgram,
+    gamification.loading,
+    loading,
+    studentId,
+    suggestedKey,
+    user,
+  ]);
+  if (loading && !data.student)
+    return (
+      <main className="shell-content content-state">Загружаем карточку…</main>
+    );
+  if (error || !data.student)
+    return (
+      <main className="shell-content">
+        <Link className="back-link" to="/teacher/students">
+          ← К ученикам
+        </Link>
+        <p className="shell-notice" role="alert">
+          {error ?? "Ученик не найден или недоступен."}
+        </p>
+      </main>
+    );
+  const student = data.student.data;
+  const nearestLesson = selectNearestLesson(data.lessons);
+  const currentHomework = selectCurrentHomework(data.homeworks);
+  const latestMock = selectLatestMockExam(data.mockExams);
+  const paidRemaining = data.lessons.filter(
+    ({ data: lesson }) =>
+      lesson.status === "planned" && lesson.paymentStatus === "paid",
+  ).length;
+  async function saveStudent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const form = new FormData(event.currentTarget);
+    const primary =
+      student.conferenceLinks?.find((item) => item.isDefault)?.joinUrl ??
+      student.defaultConference.joinUrl;
+    const secondary =
+      student.conferenceLinks?.find((item) => !item.isDefault)?.joinUrl ?? null;
+    await updateStudentProfile(getFirebaseDb(), {
+      teacherId: user.uid,
+      studentId,
+      displayName: String(form.get("displayName")),
+      classGrade: Number(form.get("classGrade")) || null,
+      avatarKey: student.avatarKey ?? "",
+      conferenceUrl: primary,
+      secondaryConferenceUrl: secondary,
+    });
+    setEditing(false);
+    setNotice("Карточка обновлена.");
+  }
+  async function resetPassword() {
+    if (!user) return;
+    if (!provisioningAvailable) {
+      setNotice(
+        "Сброс пароля временно недоступен в публичной версии: требуется защищённый серверный provisioning.",
+      );
+      return;
+    }
+    const password = generateStudentPassword();
+    await localStudentProvisioningService.resetPassword(
+      user,
+      studentId,
+      password,
+    );
+    setCredentialPassword(password);
+    setNotice("Новый пароль установлен. Он показывается только сейчас.");
+  }
+  return (
+    <main className="shell-content" aria-labelledby="student-profile-title">
+      <Link className="back-link" to="/teacher/students">
+        ← К ученикам
+      </Link>
+      <section className="student-profile-heading">
+        <Avatar
+          avatarKey={student.avatarKey}
+          label={student.displayName}
+          size="large"
+        />
+        <div>
+          <p className="eyebrow">Карточка ученика</p>
+          <h1 id="student-profile-title">{student.displayName}</h1>
+          <p>
+            {student.classGrade
+              ? `${student.classGrade} класс`
+              : "Класс не указан"}
+          </p>
+        </div>
+        <div className="student-profile-actions">
+          <Link
+            className="primary-button"
+            to={`/teacher/students/${studentId}?tab=homework`}
+          >
+            + Выдать ДЗ
+          </Link>
+          <Link
+            className="secondary-button"
+            to={`/teacher/students/${studentId}/preview`}
+          >
+            Посмотреть как ученик
+          </Link>
+          <button
+            className="secondary-button"
+            onClick={() => setEditing((value) => !value)}
+            type="button"
+          >
+            Редактировать
+          </button>
+          <button
+            className="secondary-button secondary-button--danger"
+            onClick={() =>
+              user &&
+              void setStudentArchived(getFirebaseDb(), {
+                teacherId: user.uid,
+                studentId,
+                archived: student.status !== "archived",
+              })
+            }
+            type="button"
+          >
+            {student.status === "archived" ? "Восстановить" : "Архивировать"}
+          </button>
+        </div>
+      </section>
+      <nav className="student-card-tabs" aria-label="Разделы карточки ученика">
+        {tabs.map(([value, label]) => (
+          <Link
+            aria-current={tab === value ? "page" : undefined}
+            key={value}
+            to={`/teacher/students/${studentId}?tab=${value}`}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
+      {notice ? (
+        <p className="form-success" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {editing ? (
+        <form
+          className="compact-edit-form"
+          onSubmit={(event) => void saveStudent(event)}
+        >
+          <label className="form-field">
+            <span>Имя</span>
+            <input
+              defaultValue={student.displayName}
+              name="displayName"
+              required
+            />
+          </label>
+          <label className="form-field">
+            <span>Класс</span>
+            <input
+              defaultValue={student.classGrade ?? ""}
+              name="classGrade"
+              type="number"
+            />
+          </label>
+          <button className="primary-button primary-button--fit">
+            Сохранить
+          </button>
+        </form>
+      ) : null}
+      {tab === "overview" ? (
+        <>
+          <section className="summary-grid">
+            <article className="summary-card">
+              <span className="summary-card__label">Программа</span>
+              <strong data-testid="teacher-program-title">
+                {data.programProfile?.data.title ?? "Не назначена"}
+              </strong>
+              <p>
+                {data.studentProgram?.data.goal.displayText ?? "Цель не задана"}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span className="summary-card__label">Ближайшее занятие</span>
+              <strong>
+                {nearestLesson
+                  ? formatDateTime(nearestLesson.data.startAt)
+                  : "Не запланировано"}
+              </strong>
+              <p>{nearestLesson?.data.topic ?? "Тема пока не указана"}</p>
+            </article>
+            <article className="summary-card">
+              <span className="summary-card__label">Актуальное ДЗ</span>
+              <strong>
+                {currentHomework?.data.title ?? "Нет активного ДЗ"}
+              </strong>
+              <p>
+                Срок:{" "}
+                {currentHomework
+                  ? formatHomeworkDueDate(currentHomework.data)
+                  : "—"}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span className="summary-card__label">Последний пробник</span>
+              <strong>{latestMock?.data.title ?? "Пока нет пробников"}</strong>
+              <p>
+                {latestMock
+                  ? `${latestMock.data.total.earned}/${latestMock.data.total.max} · оценка ${latestMock.data.grade}`
+                  : "—"}
+              </p>
+            </article>
+          </section>
+          <ConferenceLinksEditor
+            links={student.conferenceLinks ?? []}
+            onNotice={setNotice}
+            studentId={studentId}
+            teacherId={user?.uid ?? ""}
+          />
+          <Credentials
+            provisioningAvailable={provisioningAvailable}
+            password={credentialPassword}
+            username={data.studentUser?.data.username ?? ""}
+            onReset={() => void resetPassword()}
+          />
+          <LessonJournal
+            audience="teacher"
+            homeworks={data.homeworks}
+            lessons={data.lessons}
+            notes={lessonNotes}
+            teacherId={user?.uid ?? ""}
+          />
+          {data.studentProgram ? (
+            <CreateHomeworkForm
+              studentId={studentId}
+              studentProgramId={data.studentProgram.id}
+              teacherId={user?.uid ?? ""}
+            />
+          ) : null}
+          {data.studentProgram && data.programProfile?.data.examBlueprintId && data.examBlueprint ? (
+            <DetailedMockExamForm blueprint={data.examBlueprint.data} blueprintId={data.examBlueprint.id} studentId={studentId} studentProgramId={data.studentProgram.id} teacherId={user?.uid ?? ""} />
+          ) : null}
+        </>
+      ) : null}
+      {tab === "lessons" ? (
+        <LessonJournal
+          audience="teacher"
+          homeworks={data.homeworks}
+          initialLessonId={params.get("lesson")}
+          lessons={data.lessons}
+          notes={lessonNotes}
+          teacherId={user?.uid ?? ""}
+        />
+      ) : null}
+      {tab === "homework" && data.studentProgram ? (
+        <CreateHomeworkForm
+          studentId={studentId}
+          studentProgramId={data.studentProgram.id}
+          teacherId={user?.uid ?? ""}
+        />
+      ) : null}
+      {tab === "mocks" && data.studentProgram ? (
+        data.programProfile?.data.examBlueprintId && data.examBlueprint ? (
+          <DetailedMockExamForm
+            blueprint={data.examBlueprint.data}
+            blueprintId={data.examBlueprint.id}
+            studentId={studentId}
+            studentProgramId={data.studentProgram.id}
+            teacherId={user?.uid ?? ""}
+          />
+        ) : (
+          <p className="content-state">
+            Для пробника нужен exam blueprint программы.
+          </p>
+        )
+      ) : null}
+      {tab === "payment" ? (
+        <section
+          className={`summary-card${paidRemaining <= 1 ? " summary-card--warning" : ""}`}
+        >
+          <span className="summary-card__label">Оплаченные занятия</span>
+          <strong>{paidRemaining} осталось</strong>
+          <p>Изменить оплату и отдельные статусы можно в календаре.</p>
+          <Link
+            className="primary-button primary-button--fit"
+            to={`/teacher/calendar?student=${studentId}`}
+          >
+            Открыть оплату в календаре
+          </Link>
+        </section>
+      ) : null}
+    </main>
+  );
+}
+
+function Credentials({
+  username,
+  password,
+  onReset,
+  provisioningAvailable,
+}: {
+  username: string;
+  password: string;
+  onReset(): void;
+  provisioningAvailable: boolean;
+}) {
+  async function copy() {
+    await navigator.clipboard.writeText(
+      `${username}${password ? `\n${password}` : ""}`,
+    );
+  }
+  return (
+    <section className="credentials-card">
+      <div>
+        <span className="summary-card__label">Безопасный доступ</span>
+        <h2>Данные для входа</h2>
+        <p>Пароль не хранится в Firestore.</p>
+      </div>
+      <dl>
+        <div>
+          <dt>Логин</dt>
+          <dd>{username || "Не задан"}</dd>
+        </div>
+        {password ? (
+          <div>
+            <dt>Новый пароль</dt>
+            <dd className="credential-secret">{password}</dd>
+          </div>
+        ) : null}
+      </dl>
+      <div className="form-actions">
+        <button
+          className="secondary-button"
+          onClick={() => void navigator.clipboard.writeText(username)}
+          type="button"
+        >
+          Копировать логин
+        </button>
+        <button
+          className="secondary-button"
+          disabled={!provisioningAvailable}
+          onClick={onReset}
+          title={
+            provisioningAvailable
+              ? undefined
+              : "Сброс пароля требует защищённого серверного provisioning"
+          }
+          type="button"
+        >
+          Сгенерировать новый пароль
+        </button>
+        <button
+          className="primary-button primary-button--fit"
+          onClick={() => void copy()}
+          type="button"
+        >
+          Скопировать данные для входа
+        </button>
+      </div>
+      {!provisioningAvailable ? (
+        <p className="workflow-hint">
+          Создание аккаунтов и сброс паролей временно недоступны в публичной
+          версии.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ConferenceLinksEditor({
+  links,
+  teacherId,
+  studentId,
+  onNotice,
+}: {
+  links: ConferenceLink[];
+  teacherId: string;
+  studentId: string;
+  onNotice(value: string): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ConferenceLink[]>(links);
+  function patch(id: string, value: Partial<ConferenceLink>) {
+    setDraft((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...value } : item)),
+    );
+  }
+  async function save() {
+    await updateStudentConferenceLinks(getFirebaseDb(), {
+      teacherId,
+      studentId,
+      links: draft,
+    });
+    setEditing(false);
+    onNotice("Ссылки на занятия сохранены.");
+  }
+  return (
+    <section className="summary-card conference-links-card">
+      <div className="panel-heading">
+        <div>
+          <span className="summary-card__label">Постоянные ссылки</span>
+          <h2>Подключение к занятиям</h2>
+        </div>
+        <button
+          className="secondary-button"
+          onClick={() => {
+            if (!editing) setDraft(links);
+            setEditing((value) => !value);
+          }}
+          type="button"
+        >
+          {editing ? "Отмена" : "Изменить"}
+        </button>
+      </div>
+      {editing ? (
+        <div className="conference-link-list">
+          {draft.map((item) => (
+            <div className="conference-link-row" key={item.id}>
+              <label className="form-field">
+                <span>Название</span>
+                <input
+                  onChange={(event) =>
+                    patch(item.id, { label: event.target.value })
+                  }
+                  value={item.label}
+                />
+              </label>
+              <label className="form-field">
+                <span>Ссылка</span>
+                <input
+                  onChange={(event) =>
+                    patch(item.id, { joinUrl: event.target.value })
+                  }
+                  type="url"
+                  value={item.joinUrl}
+                />
+              </label>
+              <div className="form-actions">
+                <button
+                  className="secondary-button"
+                  disabled={item.isDefault}
+                  onClick={() =>
+                    setDraft((current) =>
+                      current.map((value) => ({
+                        ...value,
+                        isDefault: value.id === item.id,
+                      })),
+                    )
+                  }
+                  type="button"
+                >
+                  Сделать основной
+                </button>
+                <button
+                  className="secondary-button secondary-button--danger"
+                  onClick={() =>
+                    setDraft((current) =>
+                      current.filter((value) => value.id !== item.id),
+                    )
+                  }
+                  type="button"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          ))}
+          <div className="form-actions">
+            <button
+              className="secondary-button"
+              onClick={() =>
+                setDraft((current) => [
+                  ...current,
+                  {
+                    id: crypto.randomUUID(),
+                    label: "Новая ссылка",
+                    provider: "other",
+                    joinUrl: "",
+                    isDefault: !current.length,
+                  },
+                ])
+              }
+              type="button"
+            >
+              + Добавить ссылку
+            </button>
+            <button
+              className="primary-button primary-button--fit"
+              onClick={() => void save()}
+              type="button"
+            >
+              Сохранить ссылки
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="conference-link-list">
+          {links.length ? (
+            links.map((item) => (
+              <div className="conference-link-row" key={item.id}>
+                <strong>
+                  {item.label}
+                  {item.isDefault ? " · основная" : ""}
+                </strong>
+                <span>{item.joinUrl}</span>
+                <div className="form-actions">
+                  <a
+                    className="secondary-button"
+                    href={item.joinUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Открыть
+                  </a>
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(item.joinUrl)
+                    }
+                    type="button"
+                  >
+                    Копировать
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="content-state">
+              Постоянная ссылка пока не добавлена.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

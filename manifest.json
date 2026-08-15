@@ -1,0 +1,10 @@
+{
+  "package": "kabinet-codex-starter-v1",
+  "created": "2026-08-14",
+  "firebaseProjectId": "kabinet-25",
+  "firestoreDatabase": "(default)",
+  "references": [
+    "references/light-theme-reference.png",
+    "references/dark-theme-reference.png"
+  ]
+}

@@ -12,6 +12,8 @@ export * from "./services/scheduleOperations";
 export * from "./services/homeworkWorkflow";
 export * from "./services/mockExamWorkflow";
 export * from "./services/materialsWorkflow";
+export * from "./services/fileAssetService";
+export * from "./services/resourceMonitoring";
 export * from "./services/gamificationWorkflow";
 export * from "./services/studentManagement";
 export * from "./services/studentProvisioning";

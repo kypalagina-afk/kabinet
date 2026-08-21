@@ -38,6 +38,25 @@ export const localStudentProvisioningService: StudentProvisioningService = {
   async resetPassword(user, studentId, password) { await request(user, { action: "reset-password", studentId, password }); },
 };
 
+export const productionStudentProvisioningService: StudentProvisioningService = {
+  async create() {
+    throw new Error(
+      "Создание ученика в production отключено: требуется защищённый backend с Firebase Admin SDK.",
+    );
+  },
+  async resetPassword() {
+    throw new Error(
+      "Сброс пароля в production отключён: требуется защищённый backend с Firebase Admin SDK.",
+    );
+  },
+};
+
+export function getStudentProvisioningService(): StudentProvisioningService {
+  return isUsingFirebaseEmulators()
+    ? localStudentProvisioningService
+    : productionStudentProvisioningService;
+}
+
 export function generateStudentPassword(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
   const values = crypto.getRandomValues(new Uint32Array(12));

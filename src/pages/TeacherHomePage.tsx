@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
+import { useTeacherPlanner } from "../features/planner/hooks";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { isCurrentDashboardLesson } from "../features/schedule/dashboardLessons";
 
@@ -25,6 +26,11 @@ export function TeacherHomePage() {
   const range = useMemo(() => dayRange(now), [now]);
   const board = useTeacherHomeworkBoard(user?.uid ?? "");
   const schedule = useTeacherSchedule(user?.uid ?? "", range);
+  const planner = useTeacherPlanner(user?.uid ?? "");
+  const todayKey = new Intl.DateTimeFormat("en-CA").format(new Date(now));
+  const todayPlans = planner.data.items.filter(
+    ({ data }) => data.active && data.date === todayKey && data.status !== "done",
+  );
   const currentLessons = schedule.data.lessons.filter(({ data }) => isCurrentDashboardLesson(data.status));
   const overdue = board.data.homeworks.filter(
     ({ data }) =>
@@ -64,7 +70,7 @@ export function TeacherHomePage() {
       <header className="teacher-dashboard-hero">
         <div>
           <p className="eyebrow">Сегодня в кабинете</p>
-          <h1 id="teacher-page-title">Здравствуйте, {profile?.username}!</h1>
+          <h1 id="teacher-page-title">Здравствуйте, {profile?.displayName ?? profile?.username}!</h1>
           <p>Уроки, работы и ученики — в одном рабочем пространстве.</p>
         </div>
         <Link
@@ -199,6 +205,19 @@ export function TeacherHomePage() {
           ) : null}
         </aside>
       </div>
+      <section className="teacher-dashboard-panel planner-home-widget" data-testid="planner-home-widget">
+        <div className="panel-heading">
+          <div><p className="eyebrow">Личный план</p><h2>На сегодня</h2></div>
+          <Link to="/teacher/planner">Открыть планер →</Link>
+        </div>
+        {todayPlans.length ? (
+          <div className="planner-home-list">
+            {todayPlans.slice(0, 5).map(({ id, data }) => (
+              <Link key={id} to="/teacher/planner"><span>{data.startTime ?? "Без времени"}</span><strong>{data.title}</strong><small>{data.category === "work" ? "Работа" : data.category === "home" ? "Дом" : "Личное"}</small></Link>
+            ))}
+          </div>
+        ) : <p className="content-state">Личных задач на сегодня нет.</p>}
+      </section>
       <section className="teacher-dashboard-panel" id="students">
         <div className="panel-heading">
           <div>

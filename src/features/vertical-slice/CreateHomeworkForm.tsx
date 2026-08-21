@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, getDoc } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Link } from "react-router-dom";
 import { useTeacherMaterials } from "../materials/hooks";
 import {
@@ -13,6 +12,7 @@ import {
   subscribeHomeworkTemplates,
 } from "../../lib/firebase/services/homeworkTemplates";
 import { createHomework } from "../../lib/firebase/services/verticalSliceWrites";
+import { deleteFileAsset, uploadFileAsset } from "../../lib/firebase/services/fileAssetService";
 import type {
   Attachment,
   ExamBlueprint,
@@ -215,6 +215,17 @@ export function CreateHomeworkForm(props: Props) {
         : [...item.examTaskNumbers, task].sort((a, b) => a - b),
     });
   }
+  function removeAttachment(attachment: Attachment, itemId?: string) {
+    if (attachment.kind === "storage")
+      void deleteFileAsset(getFirebaseDb(), getFirebaseStorage(), attachment.id).catch(() =>
+        setMessage("Не удалось удалить файл. Попробуйте ещё раз."),
+      );
+    if (itemId)
+      setItems((current) => current.map((item) => item.itemId === itemId
+        ? { ...item, attachments: item.attachments.filter(({ id }) => id !== attachment.id) }
+        : item));
+    else setAttachments((current) => current.filter(({ id }) => id !== attachment.id));
+  }
   async function upload(files: FileList | null, itemId?: string) {
     if (!files?.length) return;
     if (!uploadsAvailable) {
@@ -226,17 +237,21 @@ export function CreateHomeworkForm(props: Props) {
     setMessage("Загружаем файлы…");
     const next: Attachment[] = [];
     for (const file of Array.from(files)) {
-      const path = `homework/${props.teacherId}/${props.studentId}/teacher/${crypto.randomUUID()}-${file.name}`;
-      const reference = ref(getFirebaseStorage(), path);
-      await uploadBytes(reference, file, { contentType: file.type });
-      next.push({
-        id: crypto.randomUUID(),
-        kind: "storage",
-        title: file.name,
-        url: await getDownloadURL(reference),
-        storagePath: path,
-        contentType: file.type,
-      });
+      const uploaded = await uploadFileAsset(
+        getFirebaseDb(),
+        getFirebaseStorage(),
+        file,
+        {
+          teacherId: props.teacherId,
+          studentId: props.studentId,
+          uploadedBy: props.teacherId,
+          ownerType: "teacher",
+          purpose: "homework",
+          homeworkId: null,
+          itemId: itemId ?? null,
+        },
+      );
+      next.push(uploaded.attachment);
     }
     if (itemId)
       setItems((current) =>
@@ -445,11 +460,10 @@ export function CreateHomeworkForm(props: Props) {
       {attachments.length ? (
         <AttachmentList
           attachments={attachments}
-          onRemove={(id) =>
-            setAttachments((current) =>
-              current.filter((item) => item.id !== id),
-            )
-          }
+          onRemove={(id) => {
+            const attachment = attachments.find((item) => item.id === id);
+            if (attachment) removeAttachment(attachment);
+          }}
         />
       ) : null}
       <section className="homework-item-editor">
@@ -555,13 +569,10 @@ export function CreateHomeworkForm(props: Props) {
               {item.attachments.length ? (
                 <AttachmentList
                   attachments={item.attachments}
-                  onRemove={(id) =>
-                    patchItem(item.itemId, {
-                      attachments: item.attachments.filter(
-                        (value) => value.id !== id,
-                      ),
-                    })
-                  }
+                  onRemove={(id) => {
+                    const attachment = item.attachments.find((value) => value.id === id);
+                    if (attachment) removeAttachment(attachment, item.itemId);
+                  }}
                 />
               ) : null}
               <div className="library-picker">

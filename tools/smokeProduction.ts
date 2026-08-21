@@ -15,6 +15,7 @@ import {
   getDoc,
   getDocs,
   getFirestore,
+  orderBy,
   query,
   setDoc,
   Timestamp,
@@ -311,6 +312,17 @@ async function runTeacherReads(report: SmokeReport, db: Firestore): Promise<void
     assert(Array.isArray(data?.taskResults) && data.taskResults.length === 11, "task detail mismatch");
     return "20/37 total, 7/11 test, 11 task results";
   });
+  await runCheck(report, "teacher", "planner query", async () => {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "plannerItems"),
+        where("teacherId", "==", TEACHER_UID),
+        where("active", "==", true),
+        orderBy("date", "asc"),
+      ),
+    );
+    return `plannerItems query succeeded; ${snapshot.size} active item(s)`;
+  });
 }
 
 async function runStudentReads(report: SmokeReport, db: Firestore): Promise<void> {
@@ -334,6 +346,12 @@ async function runStudentReads(report: SmokeReport, db: Firestore): Promise<void
   await runCheck(report, "student", "other student document denied", async () => {
     await expectPermissionDenied(() => getDoc(doc(db, "students", "another-student-smoke")));
     return "other student path returned Permission Denied";
+  });
+  await runCheck(report, "student", "planner query denied", async () => {
+    await expectPermissionDenied(() =>
+      getDocs(query(collection(db, "plannerItems"), where("teacherId", "==", TEACHER_UID))),
+    );
+    return "teacher planner query returned Permission Denied";
   });
   await runCheck(report, "student", "program and goal", async () => {
     const [studentProgram, programProfile] = await Promise.all([

@@ -12,7 +12,8 @@ import {
   useTeacherStudentPrograms,
   useTeacherStudents,
 } from "../features/vertical-slice/hooks";
-import { getFirebaseDb } from "../lib/firebase/client";
+import { getFirebaseDb, getFirebaseStorage, isFirebaseStorageUploadAvailable } from "../lib/firebase/client";
+import { uploadFileAsset } from "../lib/firebase/services/fileAssetService";
 import {
   archiveMaterial,
   createMaterial,
@@ -74,6 +75,8 @@ export function TeacherMaterialsPage() {
   const [blueprint, setBlueprint] = useState<ExamBlueprint | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [assignMaterial, setAssignMaterial] =
     useState<DocumentWithId<Material> | null>(null);
   const [assignFolder, setAssignFolder] = useState("");
@@ -135,6 +138,7 @@ export function TeacherMaterialsPage() {
   function openCreate() {
     setEditing(null);
     setInput(initialInput(programs.data[0]?.id));
+    setFile(null);
     setMaterialOpen(true);
   }
   function openEdit(item: DocumentWithId<Material>) {
@@ -151,7 +155,9 @@ export function TeacherMaterialsPage() {
       selectedStudentIds: item.data.selectedStudentIds ?? [],
       allowedStudentIds: item.data.allowedStudentIds ?? [],
       favorite: item.data.favorite ?? false,
+      storagePath: item.data.storagePath,
     });
+    setFile(null);
     setMaterialOpen(true);
   }
   async function submit(event: FormEvent) {
@@ -159,14 +165,39 @@ export function TeacherMaterialsPage() {
     if (!user || saving) return;
     setSaving(true);
     try {
+      const materialId = editing?.id ?? crypto.randomUUID();
+      let value = effectiveInput();
+      if (file) {
+        const uploaded = await uploadFileAsset(
+          getFirebaseDb(),
+          getFirebaseStorage(),
+          file,
+          {
+            teacherId: user.uid,
+            studentId: null,
+            uploadedBy: user.uid,
+            ownerType: "teacher",
+            purpose: "material",
+            materialId,
+            allowedStudentIds: value.allowedStudentIds,
+          },
+          setUploadProgress,
+        );
+        value = {
+          ...value,
+          externalUrl: uploaded.attachment.url ?? "",
+          storagePath: uploaded.attachment.storagePath,
+          type: uploaded.previewType === "image" ? "image" : uploaded.previewType === "pdf" ? "pdf" : "other",
+        };
+      }
       if (editing)
         await updateMaterial(
           getFirebaseDb(),
           user.uid,
           editing.id,
-          effectiveInput(),
+          value,
         );
-      else await createMaterial(getFirebaseDb(), user.uid, effectiveInput());
+      else await createMaterial(getFirebaseDb(), user.uid, value, materialId);
       setMaterialOpen(false);
       setMessage("Материал сохранён ✓");
     } catch (error) {
@@ -510,10 +541,20 @@ export function TeacherMaterialsPage() {
                 onChange={(event) =>
                   setInput({ ...input, externalUrl: event.target.value })
                 }
-                required
                 type="url"
                 value={input.externalUrl}
               />
+            </label>
+            <label className="file-drop" aria-disabled={!isFirebaseStorageUploadAvailable()}>
+              <span>{isFirebaseStorageUploadAvailable() ? "Или загрузите файл до 15 МБ" : "Загрузка файлов недоступна в публичной версии"}</span>
+              <input
+                accept="image/jpeg,image/png,image/webp,.pdf,.txt,.doc,.docx"
+                disabled={!isFirebaseStorageUploadAvailable()}
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                type="file"
+              />
+              {file ? <strong>{file.name}</strong> : null}
+              {uploadProgress > 0 && uploadProgress < 100 ? <progress max="100" value={uploadProgress} /> : null}
             </label>
             <div className="form-grid">
               <label className="form-field">

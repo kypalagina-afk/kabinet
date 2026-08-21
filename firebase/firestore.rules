@@ -235,6 +235,63 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /fileAssets/{id} {
+      allow read: if teacherOwns(resource.data)
+        || (
+          studentOwns(resource.data)
+          && (
+            resource.data.purpose == "submission"
+            || myStudentId() in resource.data.allowedStudentIds
+          )
+        );
+      allow create: if (
+          teacherCreatesOwned(request.resource.data)
+          && request.resource.data.ownerType == "teacher"
+          && request.resource.data.uploadedBy == request.auth.uid
+        ) || (
+          isStudent()
+          && request.resource.data.ownerType == "student"
+          && request.resource.data.purpose == "submission"
+          && request.resource.data.studentId == myStudentId()
+          && request.resource.data.uploadedBy == request.auth.uid
+          && exists(/databases/$(database)/documents/students/$(myStudentId()))
+          && get(/databases/$(database)/documents/students/$(myStudentId())).data.teacherId
+            == request.resource.data.teacherId
+        );
+      allow update: if (
+          teacherOwns(resource.data)
+          || (studentOwns(resource.data) && resource.data.ownerType == "student")
+        )
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["status", "deletedAt", "updatedAt"])
+        && request.resource.data.status == "deleted";
+      allow delete: if false;
+    }
+
+    match /plannerItems/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /plannerGoals/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
+    match /plannerSubgoals/{id} {
+      allow read: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data);
+      allow update: if teacherOwns(resource.data)
+        && request.resource.data.teacherId == resource.data.teacherId;
+      allow delete: if false;
+    }
+
     match /materialFolders/{id} {
       allow read: if teacherOwns(resource.data)
         || (isStudent() && myStudentId() in resource.data.allowedStudentIds);

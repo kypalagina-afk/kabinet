@@ -13,8 +13,8 @@ test("teacher manages an external material and student sees only the active prog
   const studentPage = await browser.newPage();
   await login(teacherPage, "test.teacher", "Teacher-test-2026!", "teacher");
   await login(studentPage, "test.student", "Student-test-2026!", "student");
-  await teacherPage.getByRole("link", { name: "Материалы" }).click();
-  await studentPage.getByRole("link", { name: "Материалы" }).click();
+  await teacherPage.getByRole("link", { name: "Материалы", exact: true }).click();
+  await studentPage.getByRole("link", { name: "Материалы", exact: true }).click();
 
   await expect(studentPage.getByText("Пунктуация в сложном предложении")).toBeVisible();
   await expect(studentPage.getByText("Материал другой программы")).toHaveCount(0);

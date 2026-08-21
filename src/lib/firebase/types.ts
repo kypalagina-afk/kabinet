@@ -15,6 +15,7 @@ export interface AuditedDocument extends VersionedDocument {
 
 export interface UserProfile extends AuditedDocument {
   role: UserRole;
+  displayName?: string | null;
   username: string;
   usernameNormalized: string;
   teacherId: string | null;
@@ -488,6 +489,66 @@ export interface GamificationEvent extends VersionedDocument {
   createdAt: Timestamp;
 }
 
+export type FilePreviewType = "image" | "pdf" | "document";
+
+export interface FileAsset extends AuditedDocument {
+  teacherId: string;
+  studentId: string | null;
+  ownerType: "teacher" | "student";
+  uploadedBy: string;
+  purpose: "homework" | "submission" | "material";
+  homeworkId: string | null;
+  materialId: string | null;
+  itemId: string | null;
+  submissionId: string | null;
+  originalName: string;
+  storagePath: string;
+  mimeType: string;
+  size: number;
+  previewType: FilePreviewType;
+  allowedStudentIds: string[];
+  status: "active" | "deleted";
+  deletedAt: Timestamp | null;
+}
+
+export type PlannerCategory = "work" | "home" | "personal" | "someday";
+export type PlannerItemStatus = "todo" | "done" | "backlog";
+
+export interface PlannerItem extends AuditedDocument {
+  teacherId: string;
+  itemType: "event" | "task";
+  title: string;
+  category: PlannerCategory;
+  status: PlannerItemStatus;
+  date: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  durationMinutes: number | null;
+  deadline: string | null;
+  notes: string | null;
+  goalId: string | null;
+  subgoalId: string | null;
+  sortOrder: number;
+  completedAt: Timestamp | null;
+  active: boolean;
+}
+
+export interface PlannerGoal extends AuditedDocument {
+  teacherId: string;
+  title: string;
+  description: string | null;
+  status: "active" | "completed" | "archived";
+  targetDate: string | null;
+}
+
+export interface PlannerSubgoal extends AuditedDocument {
+  teacherId: string;
+  goalId: string;
+  title: string;
+  status: "active" | "completed";
+  sortOrder: number;
+}
+
 export interface AppSettings extends VersionedDocument {
   schema: { currentVersion: 1 };
   gamification: { xpPerLevel: number };
@@ -525,6 +586,10 @@ export interface CollectionSchema {
   achievementDefinitions: AchievementDefinition;
   studentAchievements: StudentAchievement;
   gamificationEvents: GamificationEvent;
+  fileAssets: FileAsset;
+  plannerItems: PlannerItem;
+  plannerGoals: PlannerGoal;
+  plannerSubgoals: PlannerSubgoal;
   appSettings: AppSettings;
 }
 

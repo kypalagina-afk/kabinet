@@ -4,11 +4,11 @@ import { ChevronLeftIcon, ChevronRightIcon } from "../components/Icons";
 import { useAuth } from "../features/auth/AuthProvider";
 import { Avatar, AvatarPicker } from "../features/avatar/Avatar";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
-import { QuickCreate } from "../features/teacher/QuickCreate";
 
 const links = [
   ["/teacher", "Главная", "🏠", true],
   ["/teacher/calendar", "Расписание", "📅"],
+  ["/teacher/planner", "Планы", "◫"],
   ["/teacher/students", "Ученики", "👥"],
   ["/teacher/homeworks", "Домашние задания", "📝"],
   ["/teacher/materials", "Материалы", "📚"],
@@ -98,11 +98,11 @@ export function TeacherShell() {
           >
             <Avatar
               avatarKey={profile?.avatarKey}
-              label={profile?.username ?? "Преподаватель"}
+              label={profile?.displayName ?? profile?.username ?? "Преподаватель"}
             />
           </button>
           <span className="account-copy sidebar-label">
-            <strong>{profile?.username}</strong>
+            <strong>{profile?.displayName ?? profile?.username}</strong>
             <small>Преподаватель</small>
           </span>
           {avatarOpen ? (
@@ -120,10 +120,9 @@ export function TeacherShell() {
         <header className="shell-header">
           <div>
             <p className="shell-kicker">Рабочее пространство</p>
-            <p className="shell-title">Панель преподавателя</p>
+            <p className="shell-title">Здравствуйте, {profile?.displayName ?? profile?.username}</p>
           </div>
           <div className="shell-actions">
-            <QuickCreate />
             <ThemeToggle />
             <button
               className="secondary-button"

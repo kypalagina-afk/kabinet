@@ -1,11 +1,15 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import {
+  getFirebaseAuth,
   getFirebaseDb,
   getFirebaseStorage,
   isFirebaseStorageUploadAvailable,
 } from "../../lib/firebase/client";
-import { submitHomework } from "../../lib/firebase/services/homeworkWorkflow";
+import {
+  homeworkSubmissionId,
+  submitHomework,
+} from "../../lib/firebase/services/homeworkWorkflow";
+import { deleteFileAsset, uploadFileAsset } from "../../lib/firebase/services/fileAssetService";
 import type {
   Attachment,
   Homework,
@@ -57,23 +61,32 @@ export function StudentSubmissionForm({
     event.preventDefault();
     if (state === "saving") return;
     setState("saving");
+    const uploadedAssetIds: string[] = [];
     try {
       const attachments: Attachment[] = [];
       if (!uploadsAvailable && files.length > 0) {
         throw new Error("Production file upload is unavailable");
       }
+      const uploadedBy = getFirebaseAuth().currentUser?.uid;
+      if (!uploadedBy) throw new Error("Требуется вход в аккаунт.");
+      const submissionId = homeworkSubmissionId(homeworkId, submissionNumber);
       for (const file of files) {
-        const storagePath = `homework/${homework.teacherId}/${homework.studentId}/${homeworkId}/${crypto.randomUUID()}-${file.name}`;
-        const reference = ref(getFirebaseStorage(), storagePath);
-        await uploadBytes(reference, file, { contentType: file.type });
-        attachments.push({
-          id: crypto.randomUUID(),
-          kind: "storage",
-          title: file.name,
-          storagePath,
-          url: await getDownloadURL(reference),
-          contentType: file.type,
-        });
+        const uploaded = await uploadFileAsset(
+          getFirebaseDb(),
+          getFirebaseStorage(),
+          file,
+          {
+            teacherId: homework.teacherId,
+            studentId: homework.studentId,
+            uploadedBy,
+            ownerType: "student",
+            purpose: "submission",
+            homeworkId,
+            submissionId,
+          },
+        );
+        uploadedAssetIds.push(uploaded.assetId);
+        attachments.push(uploaded.attachment);
       }
       await submitHomework(getFirebaseDb(), {
         homeworkId,
@@ -101,6 +114,11 @@ export function StudentSubmissionForm({
       });
       setState("success");
     } catch {
+      await Promise.all(
+        uploadedAssetIds.map((assetId) =>
+          deleteFileAsset(getFirebaseDb(), getFirebaseStorage(), assetId).catch(() => undefined),
+        ),
+      );
       setState("error");
     }
   }

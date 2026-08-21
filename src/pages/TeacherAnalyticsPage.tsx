@@ -40,7 +40,7 @@ export function TeacherAnalyticsPage() {
           <h1 id="teacher-analytics-title">Прогресс и готовность к экзамену</h1>
           <p>ОГЭ · Русский язык · 2027</p>
         </div>
-        <div className="inline-control">
+        <div className="inline-control analytics-filters">
           <label className="form-field compact-filter">
             <span>Программа</span>
             <select
@@ -52,7 +52,7 @@ export function TeacherAnalyticsPage() {
               <option value="school">Школа</option>
             </select>
           </label>
-          <label className="form-field compact-filter">
+          <label className="form-field compact-filter analytics-student-filter">
             <span>Ученик</span>
             <select
               onChange={(event) => setStudentId(event.target.value)}

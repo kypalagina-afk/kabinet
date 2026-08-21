@@ -90,19 +90,27 @@ function localProvisioningPlugin(): Plugin {
             const password = String(body.password ?? "");
             if (!usernamePattern.test(username) || password.length < 6)
               throw new Error("Invalid login or password");
+            const programProfileId = String(body.programProfileId ?? "");
+            const programProfile = await db
+              .doc(`programProfiles/${programProfileId}`)
+              .get();
+            if (!programProfile.exists || programProfile.data()?.active === false)
+              throw new Error("Selected program is not available");
             const user = await getAuth(app).createUser({
               email: `${username}@${aliasDomain}`,
               password,
               displayName: String(body.displayName ?? ""),
             });
-            const now = Timestamp.now();
-            const studentId = user.uid;
-            const batch = db.batch();
-            const avatar = body.avatarKey
-              ? { avatarKey: String(body.avatarKey) }
-              : {};
-            batch.set(db.doc(`users/${studentId}`), {
+            try {
+              const now = Timestamp.now();
+              const studentId = user.uid;
+              const batch = db.batch();
+              const avatar = body.avatarKey
+                ? { avatarKey: String(body.avatarKey) }
+                : {};
+              batch.set(db.doc(`users/${studentId}`), {
               role: "student",
+              displayName: String(body.displayName ?? "Ученик"),
               username,
               usernameNormalized: username,
               teacherId: decoded.uid,
@@ -116,8 +124,8 @@ function localProvisioningPlugin(): Plugin {
               createdAt: now,
               updatedAt: now,
               schemaVersion: 1,
-            });
-            batch.set(db.doc(`students/${studentId}`), {
+              });
+              batch.set(db.doc(`students/${studentId}`), {
               teacherId: decoded.uid,
               displayName: String(body.displayName ?? "Ученик"),
               classGrade: Number(body.classGrade) || null,
@@ -134,12 +142,12 @@ function localProvisioningPlugin(): Plugin {
               createdAt: now,
               updatedAt: now,
               schemaVersion: 1,
-            });
-            const programId = `student-program__${studentId}`;
-            batch.set(db.doc(`studentPrograms/${programId}`), {
+              });
+              const programId = `student-program__${studentId}`;
+              batch.set(db.doc(`studentPrograms/${programId}`), {
               teacherId: decoded.uid,
               studentId,
-              programProfileId: String(body.programProfileId),
+              programProfileId,
               status: "active",
               goal: {
                 type: "custom",
@@ -152,13 +160,23 @@ function localProvisioningPlugin(): Plugin {
               createdAt: now,
               updatedAt: now,
               schemaVersion: 1,
-            });
-            if (body.scheduleWeekday && body.scheduleTime) {
+              });
+              batch.set(db.doc(`studentPaymentAccounts/${studentId}`), {
+                teacherId: decoded.uid,
+                studentId,
+                balanceLessons: 0,
+                lessonPrice: null,
+                currency: "RUB",
+                updatedAt: now,
+                createdAt: now,
+                schemaVersion: 1,
+              });
+              if (body.scheduleWeekday && body.scheduleTime) {
               const startsOn = new Date().toISOString().slice(0, 10);
               const time = String(body.scheduleTime);
               const weekday = Number(body.scheduleWeekday);
               const seriesId = `${studentId}__${startsOn}__w${weekday}__${time.replace(":", "")}__i1`;
-              batch.set(db.doc(`lessonSeries/${seriesId}`), {
+                batch.set(db.doc(`lessonSeries/${seriesId}`), {
                 teacherId: decoded.uid,
                 studentId,
                 studentProgramId: programId,
@@ -176,10 +194,14 @@ function localProvisioningPlugin(): Plugin {
                 createdAt: now,
                 updatedAt: now,
                 schemaVersion: 1,
-              });
+                });
+              }
+              await batch.commit();
+              reply(response, 200, { studentId, username });
+            } catch (error) {
+              await getAuth(app).deleteUser(user.uid).catch(() => undefined);
+              throw error;
             }
-            await batch.commit();
-            reply(response, 200, { studentId, username });
           } catch (error) {
             reply(response, 400, {
               error:

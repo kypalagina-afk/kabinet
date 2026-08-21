@@ -14,6 +14,7 @@ export interface MaterialInput {
   title: string;
   type: Material["type"];
   externalUrl: string;
+  storagePath?: string | null;
   programProfileIds: string[];
   examTaskNumbers: number[];
   tags: string[];
@@ -28,15 +29,16 @@ function normalize(input: MaterialInput): MaterialInput {
   const title = input.title.trim();
   const externalUrl = input.externalUrl.trim();
   if (!title) throw new Error("Название материала обязательно");
-  const parsed = new URL(externalUrl);
-  if (!new Set(["http:", "https:"]).has(parsed.protocol)) {
+  if (!externalUrl && !input.storagePath) throw new Error("Добавьте файл или ссылку");
+  const parsed = externalUrl ? new URL(externalUrl) : null;
+  if (parsed && !new Set(["http:", "https:"]).has(parsed.protocol))
     throw new Error("Поддерживаются только HTTP(S)-ссылки");
-  }
   if (!input.programProfileIds.length) throw new Error("Выберите программу");
   return {
     ...input,
     title,
-    externalUrl: parsed.toString(),
+    externalUrl: parsed?.toString() ?? "",
+    storagePath: input.storagePath ?? null,
     programProfileIds: [...new Set(input.programProfileIds.filter(Boolean))],
     examTaskNumbers: [...new Set(input.examTaskNumbers.filter((task) => Number.isInteger(task) && task > 0))].sort((a, b) => a - b),
     tags: [...new Set(input.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
@@ -49,14 +51,17 @@ export async function createMaterial(
   db: Firestore,
   teacherId: string,
   input: MaterialInput,
+  materialId?: string,
 ): Promise<string> {
   const value = normalize(input);
-  const reference = doc(collection(db, "materials"));
+  const reference = materialId
+    ? doc(db, "materials", materialId)
+    : doc(collection(db, "materials"));
   await runTransaction(db, async (transaction) => {
     transaction.set(reference, {
       teacherId,
       ...value,
-      storagePath: null,
+      storagePath: value.storagePath ?? null,
       active: true,
       folderId: value.folderId ?? null,
       visibility: value.visibility ?? "program",
@@ -102,7 +107,7 @@ export async function updateMaterial(
     if (!snapshot.exists() || (snapshot.data() as Material).teacherId !== teacherId) {
       throw new Error("Материал не найден");
     }
-    transaction.update(reference, { ...value, storagePath: null, updatedAt: serverTimestamp() });
+    transaction.update(reference, { ...value, storagePath: value.storagePath ?? null, updatedAt: serverTimestamp() });
   });
 }
 

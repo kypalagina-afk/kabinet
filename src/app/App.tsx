@@ -23,6 +23,7 @@ import { TeacherStudentsPage } from "../pages/TeacherStudentsPage";
 import { TeacherStudentPreviewPage } from "../pages/TeacherStudentPreviewPage";
 import { StudentLessonsPage } from "../pages/StudentLessonsPage";
 import { TeacherMockExamsPage } from "../pages/TeacherMockExamsPage";
+import { TeacherPlannerPage } from "../pages/TeacherPlannerPage";
 
 export function App() {
   return (
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/teacher" element={<TeacherShell />}>
             <Route index element={<TeacherHomePage />} />
             <Route path="calendar" element={<TeacherCalendarPage />} />
+            <Route path="planner" element={<TeacherPlannerPage />} />
             <Route path="homeworks" element={<TeacherHomeworksPage />} />
             <Route path="analytics" element={<TeacherAnalyticsPage />} />
             <Route path="mock-exams" element={<TeacherMockExamsPage />} />

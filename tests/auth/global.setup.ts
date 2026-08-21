@@ -82,6 +82,9 @@ export default async function globalSetup() {
   const teacherUid = await createAuthAccount(accounts[0]);
   const studentUid = await createAuthAccount(accounts[1]);
   const now = Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z"));
+  const freshMaterialCreatedAt = Timestamp.fromMillis(Date.now() - 86_400_000);
+  const localNow = new Date();
+  const localToday = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, "0")}-${String(localNow.getDate()).padStart(2, "0")}`;
   const literacyCriteria = [
     {
       code: "ГК1",
@@ -168,6 +171,7 @@ export default async function globalSetup() {
     ),
     db.doc(`users/${teacherUid}`).set({
       role: "teacher",
+      displayName: "Кристина",
       username: accounts[0].username,
       usernameNormalized: accounts[0].username,
       teacherId: null,
@@ -893,7 +897,7 @@ export default async function globalSetup() {
       folderId: "test-folder-russian",
       favorite: true,
       lastUsedAt: now,
-      createdAt: now,
+      createdAt: freshMaterialCreatedAt,
       updatedAt: now,
       schemaVersion: 1,
     }),
@@ -913,7 +917,7 @@ export default async function globalSetup() {
       folderId: "test-folder-russian",
       favorite: false,
       lastUsedAt: null,
-      createdAt: now,
+      createdAt: freshMaterialCreatedAt,
       updatedAt: now,
       schemaVersion: 1,
     }),
@@ -1161,5 +1165,49 @@ export default async function globalSetup() {
       metadata: {},
       schemaVersion: 1,
     }),
+    db.doc("plannerItems/test-planner-today").set({
+      teacherId: teacherUid,
+      itemType: "task",
+      title: "Подготовить материалы к занятию",
+      category: "work",
+      status: "todo",
+      date: localToday,
+      startTime: "09:00",
+      endTime: null,
+      durationMinutes: null,
+      deadline: null,
+      notes: null,
+      goalId: "test-planner-goal",
+      subgoalId: "test-planner-subgoal",
+      sortOrder: 1,
+      completedAt: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      schemaVersion: 1,
+    }),
+    db.doc("plannerItems/test-planner-someday").set({
+      teacherId: teacherUid,
+      itemType: "task",
+      title: "Обновить подборку диктантов",
+      category: "someday",
+      status: "backlog",
+      date: null,
+      startTime: null,
+      endTime: null,
+      durationMinutes: null,
+      deadline: null,
+      notes: null,
+      goalId: null,
+      subgoalId: null,
+      sortOrder: 2,
+      completedAt: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      schemaVersion: 1,
+    }),
+    db.doc("plannerGoals/test-planner-goal").set({ teacherId: teacherUid, title: "Сильный учебный месяц", description: "Рабочая цель преподавателя", status: "active", targetDate: null, createdAt: now, updatedAt: now, schemaVersion: 1 }),
+    db.doc("plannerSubgoals/test-planner-subgoal").set({ teacherId: teacherUid, goalId: "test-planner-goal", title: "Подготовить материалы", status: "active", sortOrder: 1, createdAt: now, updatedAt: now, schemaVersion: 1 }),
   ]);
 }

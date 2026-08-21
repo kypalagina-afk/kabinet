@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { User } from "firebase/auth";
 import {
   generateStudentPassword,
-  localStudentProvisioningService,
+  getStudentProvisioningService,
 } from "../../lib/firebase/services/studentProvisioning";
 import type { DocumentWithId, ProgramProfile } from "../../lib/firebase/types";
 
@@ -40,7 +40,7 @@ export function StudentWizard({
     const form = new FormData(event.currentTarget);
     setStatus("Создаём безопасный локальный аккаунт…");
     try {
-      const result = await localStudentProvisioningService.create(user, {
+      const result = await getStudentProvisioningService().create(user, {
         displayName: String(form.get("displayName")),
         classGrade: Number(form.get("classGrade")),
         programProfileId: String(form.get("programProfileId")),

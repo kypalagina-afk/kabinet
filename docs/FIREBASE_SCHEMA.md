@@ -312,6 +312,40 @@ Email reset не использовать; password reset через Admin SDK.
 Для одноразовых наград использовать deterministic event ID:
 `homework_completed__<homeworkId>`.
 
+## `fileAssets/{assetId}` (Phase 10, additive)
+
+Метаданные файла хранятся в Firestore, бинарное содержимое — только в Storage.
+
+```ts
+{
+  teacherId:string, studentId:string|null,
+  ownerType:"teacher"|"student", uploadedBy:string,
+  purpose:"homework"|"submission"|"material",
+  homeworkId:string|null, materialId:string|null,
+  itemId:string|null, submissionId:string|null,
+  originalName:string, storagePath:string, mimeType:string, size:number,
+  previewType:"image"|"pdf"|"document",
+  allowedStudentIds:string[], status:"active"|"deleted",
+  deletedAt:Timestamp|null, createdAt:Timestamp, updatedAt:Timestamp,
+  schemaVersion:1
+}
+```
+
+Storage paths:
+
+- `teachers/{teacherId}/homework/{studentId}/{homeworkId}/{assetId}/{fileName}`;
+- `students/{studentId}/submissions/{homeworkId}/{assetId}/{fileName}`;
+- `teachers/{teacherId}/materials/{materialId}/{assetId}/{fileName}`.
+
+## Teacher-only planner (Phase 10, additive)
+
+`plannerItems/{id}` stores a personal task/event with `teacherId`, `itemType`,
+`category`, `status`, `date`, optional time/deadline, goal links and soft-delete
+fields. `plannerGoals/{id}` stores a large goal. `plannerSubgoals/{id}` stores a
+goal step. Progress is derived from completed subgoals and linked planner items;
+it is not persisted as a competing source of truth. Existing lessons stay in
+`lessons` and are only rendered alongside private planner items.
+
 ## `appSettings/{id}`
 
 ```ts

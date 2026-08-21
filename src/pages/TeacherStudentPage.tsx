@@ -25,7 +25,7 @@ import { getFirebaseDb, isUsingFirebaseEmulators } from "../lib/firebase/client"
 import { syncStudentAchievements } from "../lib/firebase/services/gamificationWorkflow";
 import {
   generateStudentPassword,
-  localStudentProvisioningService,
+  getStudentProvisioningService,
 } from "../lib/firebase/services/studentProvisioning";
 import {
   setStudentArchived,
@@ -160,7 +160,7 @@ export function TeacherStudentPage() {
       return;
     }
     const password = generateStudentPassword();
-    await localStudentProvisioningService.resetPassword(
+    await getStudentProvisioningService().resetPassword(
       user,
       studentId,
       password,

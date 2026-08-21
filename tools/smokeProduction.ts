@@ -1,6 +1,7 @@
 import { emitKeypressEvents } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createConnection } from "node:net";
 import { deleteApp, initializeApp, type FirebaseOptions } from "firebase/app";
 import {
   getAuth,
@@ -113,6 +114,34 @@ async function promptHidden(message: string): Promise<string> {
   });
 }
 
+async function readPasswordsFromPipe(
+  pipeName: string,
+): Promise<{ teacher: string; student: string }> {
+  if (!/^[a-zA-Z0-9._-]+$/.test(pipeName)) {
+    throw new Error("Invalid password pipe name");
+  }
+  const pipePath = `\\\\.\\pipe\\${pipeName}`;
+  return new Promise((resolvePromise, rejectPromise) => {
+    let payload = "";
+    const socket = createConnection(pipePath);
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      payload += chunk;
+      if (payload.length > 1024) socket.destroy(new Error("Password pipe payload is too large"));
+    });
+    socket.on("error", rejectPromise);
+    socket.on("end", () => {
+      const [teacher = "", student = "", ...extra] = payload.split(/\r?\n/);
+      payload = "";
+      if (extra.some(Boolean) || teacher.length < 6 || student.length < 6) {
+        rejectPromise(new Error("Password pipe payload is invalid"));
+        return;
+      }
+      resolvePromise({ teacher, student });
+    });
+  });
+}
+
 async function expectPermissionDenied(operation: () => Promise<unknown>): Promise<void> {
   try {
     await operation();
@@ -206,7 +235,11 @@ async function main(): Promise<void> {
       return "same-value student update returned Permission Denied";
     });
 
-    let teacherPassword = await promptHidden("Пароль teacher kypalagina: ");
+    const passwordPipe = argumentValue("--password-pipe");
+    let pipedPasswords = passwordPipe
+      ? await readPasswordsFromPipe(passwordPipe)
+      : null;
+    let teacherPassword = pipedPasswords?.teacher ?? await promptHidden("Пароль teacher kypalagina: ");
     await runCheck(report, "teacher", "real password login", async () => {
       const credential = await signInWithEmailAndPassword(
         teacherAuth,
@@ -219,7 +252,8 @@ async function main(): Promise<void> {
     });
     teacherPassword = "";
 
-    let studentPassword = await promptHidden("Пароль student lera9: ");
+    let studentPassword = pipedPasswords?.student ?? await promptHidden("Пароль student lera9: ");
+    pipedPasswords = null;
     await runCheck(report, "student", "real password login", async () => {
       const credential = await signInWithEmailAndPassword(
         studentAuth,

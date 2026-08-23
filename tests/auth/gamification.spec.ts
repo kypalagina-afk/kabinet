@@ -9,7 +9,7 @@ test("student sees XP, level, streak and earned achievements", async ({ page }) 
 
   await expect(page.getByRole("heading", { name: "Тестовая ученица" })).toBeVisible();
   await expect(page.getByText("150 XP", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Серия: 1/)).toBeVisible();
+  await expect(page.getByText(/Серия: 0/)).toBeVisible();
   await expect(page.getByTestId("achievement-grid").getByText("Первый шаг")).toBeVisible();
   await expect(page.getByTestId("achievement-grid").getByText("Боевое крещение")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Новое достижение" })).toBeVisible();

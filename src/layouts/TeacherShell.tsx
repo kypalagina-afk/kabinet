@@ -16,10 +16,17 @@ const links = [
   ["/teacher/analytics", "Аналитика", "📊"],
   ["/teacher/mock-exams", "Пробники", "🎯"],
 ] as const;
+const primaryMobilePaths = new Set([
+  "/teacher",
+  "/teacher/calendar",
+  "/teacher/students",
+  "/teacher/homeworks",
+]);
 
 export function TeacherShell() {
   const { profile, error, logout, setAvatar, setTimezone } = useAuth();
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("teacher-sidebar-collapsed") === "true",
   );
@@ -51,21 +58,20 @@ export function TeacherShell() {
           </span>
         </div>
         <nav
-          className="teacher-navigation"
+          className={`teacher-navigation${mobileMoreOpen ? " teacher-navigation--more-open" : ""}`}
           aria-label="Навигация преподавателя"
         >
           {links.map(([to, label, icon, end]) => (
             <NavLink
               aria-label={label}
               className={({ isActive }) =>
-                isActive
-                  ? "navigation-item navigation-item--active"
-                  : "navigation-item"
+                `${isActive ? "navigation-item navigation-item--active" : "navigation-item"}${primaryMobilePaths.has(to) ? " navigation-item--primary-mobile" : " navigation-item--secondary-mobile"}`
               }
               end={end}
               key={to}
               title={collapsed ? label : undefined}
               to={to}
+              onClick={() => setMobileMoreOpen(false)}
             >
               <span aria-hidden="true" className="sidebar-icon">
                 {icon}
@@ -73,6 +79,15 @@ export function TeacherShell() {
               <span className="sidebar-label">{label}</span>
             </NavLink>
           ))}
+          <button
+            aria-expanded={mobileMoreOpen}
+            className="navigation-item navigation-more-toggle"
+            onClick={() => setMobileMoreOpen((value) => !value)}
+            type="button"
+          >
+            <span aria-hidden="true" className="sidebar-icon">•••</span>
+            <span className="sidebar-label">Ещё</span>
+          </button>
         </nav>
         <div
           aria-hidden="true"

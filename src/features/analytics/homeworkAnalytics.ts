@@ -1,4 +1,5 @@
 import type { DocumentWithId, Homework, HomeworkSubmission } from "../../lib/firebase/types.js";
+import { homeworkDeadlineAt } from "../homework/selectors.js";
 
 export interface HomeworkAnalytics {
   assignedCount: number;
@@ -16,7 +17,7 @@ export function calculateHomeworkAnalytics(homeworks: Array<DocumentWithId<Homew
   const latest = [...submissions].filter(({ data }) => ids.has(data.homeworkId)).sort((a, b) => a.data.submissionNumber - b.data.submissionNumber).reduce((map, item) => map.set(item.data.homeworkId, item), new Map<string, DocumentWithId<HomeworkSubmission>>());
   const submitted = [...latest.values()].filter(({ data }) => Boolean(data.submittedAt));
   const completed = [...latest.values()].filter(({ data }) => data.status === "checked");
-  const onTime = submitted.filter(({ data }) => { const homework = selected.find(({ id }) => id === data.homeworkId)?.data; return homework?.dueAt && data.submittedAt && data.submittedAt.toMillis() <= homework.dueAt.toMillis(); });
+  const onTime = submitted.filter(({ data }) => { const homework = selected.find(({ id }) => id === data.homeworkId)?.data; const deadline = homework ? homeworkDeadlineAt(homework) : null; return deadline !== null && data.submittedAt && data.submittedAt.toMillis() <= deadline; });
   const qualityScores = completed.flatMap(({ data }) => {
     const evaluation = data.teacherEvaluation;
     if (!evaluation) return [];

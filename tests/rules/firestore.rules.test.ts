@@ -24,6 +24,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { completeLesson } from "../../src/lib/firebase/services/completeLesson.js";
 import { materializeLessonSeries } from "../../src/lib/firebase/services/materializeLessonSeries.js";
+import { FirestoreScheduledLessonMaterializer } from "../../src/lib/firebase/services/scheduledLessonMaterializer.js";
 import {
   cancelLesson,
   cancelLessonSeries,
@@ -40,6 +41,7 @@ import {
   updateMaterial,
 } from "../../src/lib/firebase/services/materialsWorkflow.js";
 import { syncStudentAchievements } from "../../src/lib/firebase/services/gamificationWorkflow.js";
+import { createHomework } from "../../src/lib/firebase/services/verticalSliceWrites.js";
 
 const PROJECT_ID = "demo-kabinet-25";
 const RULES_PATH = fileURLToPath(
@@ -812,6 +814,35 @@ describe("idempotent domain operations", () => {
     expect(statuses).toEqual(protectedStatuses);
   });
 
+  test("scheduled materializer is idempotent and records its health horizon", async () => {
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore() as unknown as Firestore;
+      await setDoc(doc(db, "lessonSeries", "scheduled-series"), {
+        teacherId: teacherAuth.uid,
+        studentId: "student-1",
+        studentProgramId: "student-1-program",
+        frequency: "weekly",
+        weekdays: [4],
+        interval: 1,
+        startLocalTime: "10:00",
+        durationMinutes: 60,
+        baseTimezone: "Europe/Moscow",
+        active: true,
+        startsOn: "2026-08-13",
+        endsOn: null,
+        cancelledAt: null,
+        cancelledBy: null,
+        ...baseTimestamps(),
+      });
+      const materializer = new FirestoreScheduledLessonMaterializer(db);
+      const first = await materializer.run(new Date("2026-08-14T00:00:00.000Z"));
+      const second = await materializer.run(new Date("2026-08-14T00:00:00.000Z"));
+      expect(first.series[0]).toMatchObject({ created: 12, skipped: 0, suppressed: 0 });
+      expect(second.series[0]).toMatchObject({ created: 0, skipped: 12, suppressed: 0 });
+      expect((await getDoc(doc(db, "lessonSeries", "scheduled-series"))).data()?.materializedThrough).toBeTruthy();
+    });
+  });
+
   test("reschedules atomically, retries as no-op and rejects a second destination", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
@@ -1056,6 +1087,47 @@ describe("idempotent domain operations", () => {
       expect((await getDoc(lessonReference)).data()?.topic).toBe("Тестовая тема");
       expect((await getDocs(collection(db, "homeworks"))).size).toBe(1);
     });
+  });
+
+  test("links a post-lesson homework atomically and never creates a duplicate", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "lessons", "completed-for-homework"), {
+        ...scheduledLessonDocument(new Date("2026-08-20T07:00:00.000Z"), "completed"),
+        homeworkResolution: "pending",
+        examTaskNumbers: [2, 3],
+        topic: "Связь урока и ДЗ",
+      });
+    });
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    const input = {
+      teacherId: teacherAuth.uid,
+      studentId: "student-1",
+      studentProgramId: "student-1-program",
+      sourceLessonId: "completed-for-homework",
+      type: "practice" as const,
+      title: "Закрепить тему",
+      description: "Фокус урока",
+      dueAt: null,
+      dueDate: "2026-08-23",
+      dueTime: null,
+      dueTimezone: "Europe/Moscow",
+      examTaskNumbers: [2, 3],
+    };
+    const firstId = await createHomework(db, input);
+    const retryId = await createHomework(db, { ...input, title: "Повторный клик" });
+    expect(firstId).toBe("lesson-homework__completed-for-homework");
+    expect(retryId).toBe(firstId);
+    expect((await getDoc(doc(db, "homeworks", firstId))).data()?.sourceLessonId).toBe("completed-for-homework");
+    expect((await getDoc(doc(db, "lessons", "completed-for-homework"))).data()?.homeworkResolution).toBe("assigned");
+    const linked = await getDocs(query(
+      collection(db, "homeworks"),
+      where("teacherId", "==", teacherAuth.uid),
+      where("sourceLessonId", "==", "completed-for-homework"),
+    ));
+    expect(linked.size).toBe(1);
   });
 
   test("lets a student acknowledge a reviewed submission without changing the evaluation", async () => {

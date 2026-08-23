@@ -8,6 +8,18 @@ import react from "@vitejs/plugin-react";
 const aliasDomain = "kabinet25.example.com";
 const usernamePattern = /^[a-z0-9._-]+$/;
 
+function rollingMoscowLessons(startsOn: string, weekday: number, time: string, durationMinutes: number) {
+  const [year, month, day] = startsOn.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const first = new Date(Date.UTC(year!, month! - 1, day!, hour! - 3, minute!));
+  while (((first.getUTCDay() + 6) % 7) + 1 !== weekday) first.setUTCDate(first.getUTCDate() + 1);
+  return Array.from({ length: 12 }, (_, index) => {
+    const start = new Date(first);
+    start.setUTCDate(first.getUTCDate() + index * 7);
+    return { start, end: new Date(start.getTime() + durationMinutes * 60_000) };
+  });
+}
+
 async function bodyOf(
   request: IncomingMessage,
 ): Promise<Record<string, unknown>> {
@@ -105,6 +117,7 @@ function localProvisioningPlugin(): Plugin {
               const now = Timestamp.now();
               const studentId = user.uid;
               const batch = db.batch();
+              const programId = `student-program__${studentId}`;
               const avatar = body.avatarKey
                 ? { avatarKey: String(body.avatarKey) }
                 : {};
@@ -127,6 +140,7 @@ function localProvisioningPlugin(): Plugin {
               });
               batch.set(db.doc(`students/${studentId}`), {
               teacherId: decoded.uid,
+              activeProgramId: programId,
               displayName: String(body.displayName ?? "Ученик"),
               classGrade: Number(body.classGrade) || null,
               ...avatar,
@@ -143,7 +157,6 @@ function localProvisioningPlugin(): Plugin {
               updatedAt: now,
               schemaVersion: 1,
               });
-              const programId = `student-program__${studentId}`;
               batch.set(db.doc(`studentPrograms/${programId}`), {
               teacherId: decoded.uid,
               studentId,
@@ -175,7 +188,9 @@ function localProvisioningPlugin(): Plugin {
               const startsOn = new Date().toISOString().slice(0, 10);
               const time = String(body.scheduleTime);
               const weekday = Number(body.scheduleWeekday);
+              const durationMinutes = Number(body.scheduleDuration) || 60;
               const seriesId = `${studentId}__${startsOn}__w${weekday}__${time.replace(":", "")}__i1`;
+              const occurrences = rollingMoscowLessons(startsOn, weekday, time, durationMinutes);
                 batch.set(db.doc(`lessonSeries/${seriesId}`), {
                 teacherId: decoded.uid,
                 studentId,
@@ -184,17 +199,46 @@ function localProvisioningPlugin(): Plugin {
                 weekdays: [weekday],
                 interval: 1,
                 startLocalTime: time,
-                durationMinutes: Number(body.scheduleDuration) || 60,
+                durationMinutes,
                 baseTimezone: "Europe/Moscow",
                 active: true,
                 startsOn,
                 endsOn: null,
                 cancelledAt: null,
                 cancelledBy: null,
+                materializedThrough: Timestamp.fromDate(occurrences.at(-1)!.start),
+                materializedAt: now,
                 createdAt: now,
                 updatedAt: now,
                 schemaVersion: 1,
                 });
+                for (const occurrence of occurrences) {
+                  const startAt = Timestamp.fromDate(occurrence.start);
+                  const lessonId = `${seriesId}__${startAt.toMillis()}`;
+                  batch.set(db.doc(`lessons/${lessonId}`), {
+                    teacherId: decoded.uid,
+                    studentId,
+                    studentProgramId: programId,
+                    lessonSeriesId: seriesId,
+                    startAt,
+                    endAt: Timestamp.fromDate(occurrence.end),
+                    originalStartAt: null,
+                    rescheduledFromLessonId: null,
+                    rescheduledToLessonId: null,
+                    status: "planned",
+                    topic: null,
+                    lessonSummary: { homeworkResultText: null, teacherComment: null, focusNotes: [] },
+                    examTaskNumbers: [],
+                    homeworkResolution: "pending",
+                    conferenceUrl: null,
+                    billingType: "regular",
+                    billingIdentityId: lessonId,
+                    paymentStatus: "unpaid",
+                    createdAt: now,
+                    updatedAt: now,
+                    schemaVersion: 1,
+                  });
+                }
               }
               await batch.commit();
               reply(response, 200, { studentId, username });

@@ -333,16 +333,6 @@ export function TeacherMaterialsPage() {
           />
         </label>
         <label>
-          <span>Коллекция</span>
-          <select
-            onChange={(event) => setMode(event.target.value as typeof mode)}
-            value={mode}
-          >
-            <option value="all">Все</option>
-            <option value="favorites">Избранные</option>
-          </select>
-        </label>
-        <label>
           <span>Папка</span>
           <select
             onChange={(event) => setFolderFilter(event.target.value)}

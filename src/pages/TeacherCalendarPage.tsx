@@ -8,6 +8,13 @@ import { useTeacherSchedule } from "../features/schedule/hooks";
 import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import {
+  addCalendarDays,
+  addCalendarMonths,
+  calendarQueryRange,
+  calendarVisibleDates,
+  type CalendarView,
+} from "../features/schedule/calendarRange";
+import {
   dateKeyForTimezone,
   formatDateTimeForTimezone,
   moscowTimezoneLabel,
@@ -50,39 +57,24 @@ function dateInputValue(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function monthQueryRange(month: Date) {
-  const start = new Date(
-    Date.UTC(month.getFullYear(), month.getMonth(), 1) - 2 * 86_400_000,
-  );
-  const end = new Date(
-    Date.UTC(month.getFullYear(), month.getMonth() + 1, 1) + 2 * 86_400_000,
-  );
-  return { start, end };
-}
-
-function calendarDates(month: Date): string[] {
-  const first = new Date(Date.UTC(month.getFullYear(), month.getMonth(), 1));
-  const mondayOffset = (first.getUTCDay() + 6) % 7;
-  first.setUTCDate(first.getUTCDate() - mondayOffset);
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(first);
-    date.setUTCDate(first.getUTCDate() + index);
-    return date.toISOString().slice(0, 10);
-  });
-}
-
 export function TeacherCalendarPage() {
   const [searchParams] = useSearchParams();
   const { user, profile } = useAuth();
-  const [month, setMonth] = useState(() => new Date());
-  const [view, setView] = useState<"month" | "week" | "day">("month");
+  const [focusDate, setFocusDate] = useState(() =>
+    searchParams.get("date") ??
+    sessionStorage.getItem("calendar-focus-date") ??
+    dateInputValue(new Date()),
+  );
+  const [view, setView] = useState<CalendarView>(() =>
+    (sessionStorage.getItem("calendar-view") as CalendarView | null) ?? "month",
+  );
   const [manualOffset, setManualOffset] = useState<number | null>(() => {
     const saved = sessionStorage.getItem("calendar-manual-offset");
     return saved === null ? null : Number(saved);
   });
   const [now, setNow] = useState(() => new Date());
   const [paymentFilter, setPaymentFilter] = useState<"all" | "unpaid">("all");
-  const [quickDate, setQuickDate] = useState(() => dateInputValue(new Date()));
+  const [lessonDraftDate, setLessonDraftDate] = useState(() => focusDate);
   const [quickOpen, setQuickOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -91,10 +83,20 @@ export function TeacherCalendarPage() {
   const [paymentPreview, setPaymentPreview] = useState<Awaited<
     ReturnType<typeof previewPaymentAllocation>
   > | null>(null);
-  const range = useMemo(() => monthQueryRange(month), [month]);
+  const queryTimezone = useMemo(
+    () => resolveTimezone(profile?.timezone),
+    [profile?.timezone],
+  );
+  const range = useMemo(() => {
+    const exact = calendarQueryRange(view, focusDate, queryTimezone);
+    return {
+      start: new Date(exact.start.getTime() - 86_400_000),
+      end: new Date(exact.end.getTime() + 86_400_000),
+    };
+  }, [focusDate, queryTimezone, view]);
   const { data, loading, error } = useTeacherSchedule(user?.uid ?? "", range);
   const [selectedStudentId, setSelectedStudentId] = useState(
-    () => searchParams.get("student") ?? "",
+    () => searchParams.get("student") ?? sessionStorage.getItem("calendar-student-id") ?? "",
   );
   const [mode, setMode] = useState<TimeDisplayMode>(
     () =>
@@ -147,11 +149,24 @@ export function TeacherCalendarPage() {
     ({ data: lesson }) =>
       paymentFilter === "all" || lesson.paymentStatus !== "paid",
   );
-  const dates = useMemo(() => calendarDates(month), [month]);
+  const dates = useMemo(
+    () => calendarVisibleDates(view, focusDate),
+    [focusDate, view],
+  );
+  const focusMonth = useMemo(
+    () => new Date(`${focusDate}T12:00:00.000Z`),
+    [focusDate],
+  );
   const monthLabel = new Intl.DateTimeFormat("ru-RU", {
     month: "long",
     year: "numeric",
-  }).format(month);
+    timeZone: "UTC",
+  }).format(focusMonth);
+  const activeSeries = data.series.filter(({ data: series }) => series.active);
+  const materializedThrough = activeSeries.length && activeSeries.every(({ data: series }) => series.materializedThrough)
+    ? Math.min(...activeSeries.map(({ data: series }) => series.materializedThrough!.toMillis()))
+    : null;
+  const materializationHealthy = materializedThrough !== null && materializedThrough - now.getTime() >= 8 * 7 * 86_400_000;
 
   useEffect(() => {
     const handle = window.setInterval(() => setNow(new Date()), 1000);
@@ -163,6 +178,14 @@ export function TeacherCalendarPage() {
       sessionStorage.removeItem("calendar-manual-offset");
     else sessionStorage.setItem("calendar-manual-offset", String(manualOffset));
   }, [manualOffset, mode]);
+  useEffect(() => {
+    sessionStorage.setItem("calendar-view", view);
+    sessionStorage.setItem("calendar-focus-date", focusDate);
+  }, [focusDate, view]);
+  useEffect(() => {
+    if (selectedStudentId) sessionStorage.setItem("calendar-student-id", selectedStudentId);
+    else sessionStorage.removeItem("calendar-student-id");
+  }, [selectedStudentId]);
 
   const byDate = useMemo(() => {
     const result = new Map<string, Array<DocumentWithId<Lesson>>>();
@@ -365,6 +388,16 @@ export function TeacherCalendarPage() {
           value={mode}
         />
       </section>
+      {activeSeries.length ? (
+        <p
+          className={materializationHealthy ? "materialization-health" : "shell-notice materialization-health"}
+          data-testid="materialization-health"
+        >
+          {materializedThrough
+            ? `Расписание создано до ${formatDateTimeForTimezone(new Date(materializedThrough), queryTimezone, { day: "numeric", month: "long", year: "numeric" })}.${materializationHealthy ? " Горизонт в норме." : " Горизонт короче 8 недель — требуется запуск защищённого materializer."}`
+            : "Горизонт повторяющегося расписания ещё не подтверждён. Требуется запуск защищённого materializer."}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="shell-notice" role="alert">
@@ -407,9 +440,13 @@ export function TeacherCalendarPage() {
         <div className="calendar-toolbar__month">
           <button
             className="icon-button"
-            aria-label="Предыдущий месяц"
+            aria-label={view === "month" ? "Предыдущий месяц" : view === "week" ? "Предыдущая неделя" : "Предыдущий день"}
             onClick={() =>
-              setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))
+              setFocusDate((value) =>
+                view === "month"
+                  ? addCalendarMonths(value, -1)
+                  : addCalendarDays(value, view === "week" ? -7 : -1),
+              )
             }
             type="button"
           >
@@ -418,9 +455,13 @@ export function TeacherCalendarPage() {
           <strong>{monthLabel}</strong>
           <button
             className="icon-button"
-            aria-label="Следующий месяц"
+            aria-label={view === "month" ? "Следующий месяц" : view === "week" ? "Следующая неделя" : "Следующий день"}
             onClick={() =>
-              setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))
+              setFocusDate((value) =>
+                view === "month"
+                  ? addCalendarMonths(value, 1)
+                  : addCalendarDays(value, view === "week" ? 7 : 1),
+              )
             }
             type="button"
           >
@@ -429,7 +470,7 @@ export function TeacherCalendarPage() {
         </div>
         <button
           className="secondary-button"
-          onClick={() => setMonth(new Date())}
+          onClick={() => setFocusDate(dateKeyForTimezone(new Date(), displayTimezone))}
           type="button"
         >
           Сегодня
@@ -507,7 +548,7 @@ export function TeacherCalendarPage() {
         <button
           className="primary-button primary-button--fit"
           onClick={() => {
-            setQuickDate(dateInputValue(new Date()));
+            setLessonDraftDate(focusDate);
             setQuickOpen(true);
           }}
           type="button"
@@ -539,7 +580,7 @@ export function TeacherCalendarPage() {
               {dates.map((date) => {
                 const lessons = byDate.get(date) ?? [];
                 const outsideMonth =
-                  Number(date.slice(5, 7)) !== month.getMonth() + 1;
+                  Number(date.slice(5, 7)) !== focusMonth.getUTCMonth() + 1;
                 return (
                   <article
                     className={
@@ -562,7 +603,8 @@ export function TeacherCalendarPage() {
                       aria-label={`Добавить занятие ${date}`}
                       className="calendar-day-add"
                       onClick={() => {
-                        setQuickDate(date);
+                        setFocusDate(date);
+                        setLessonDraftDate(date);
                         setQuickOpen(true);
                       }}
                       type="button"
@@ -625,7 +667,7 @@ export function TeacherCalendarPage() {
           >
             <header>
               <span>Время</span>
-              {(view === "week" ? dates.slice(0, 7) : [quickDate]).map(
+              {dates.map(
                 (date) => (
                   <strong key={date}>
                     {new Intl.DateTimeFormat("ru-RU", {
@@ -638,7 +680,7 @@ export function TeacherCalendarPage() {
               )}
             </header>
             <div className="agenda-columns">
-              {(view === "week" ? dates.slice(0, 7) : [quickDate]).map(
+              {dates.map(
                 (date) => (
                   <div
                     className="agenda-day"
@@ -695,7 +737,8 @@ export function TeacherCalendarPage() {
                     <button
                       className="calendar-empty-slot"
                       onClick={() => {
-                        setQuickDate(date);
+                        setFocusDate(date);
+                        setLessonDraftDate(date);
                         setQuickOpen(true);
                       }}
                       type="button"
@@ -962,10 +1005,10 @@ export function TeacherCalendarPage() {
                 <span>Дата</span>
                 <input
                   name="date"
-                  onChange={(event) => setQuickDate(event.target.value)}
+                  onChange={(event) => setLessonDraftDate(event.target.value)}
                   required
                   type="date"
-                  value={quickDate}
+                  value={lessonDraftDate}
                 />
               </label>
               <label className="form-field">

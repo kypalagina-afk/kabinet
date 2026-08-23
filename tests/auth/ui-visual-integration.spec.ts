@@ -45,7 +45,7 @@ test("teacher dashboard is responsive in Light and Dark", async ({ page }) => {
 
 test("student dashboard is responsive in Light and Dark", async ({ page }) => {
   await login(page, "test.student", "Student-test-2026!", "student");
-  await expect(page.getByText(/До ОГЭ \d+ дней/).first()).toBeVisible();
+  await expect(page.getByText(/До экзамена \d+ дней/).first()).toBeVisible();
   await expect(page.getByText("Последнее достижение")).toBeVisible();
   await capture(page, "student", "light");
   await capture(page, "student", "dark");

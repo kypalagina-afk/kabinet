@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getFirebaseDb } from "../../lib/firebase/client";
 import {
   subscribeNextStudentLesson,
   subscribeTeacherSchedule,
   type TeacherScheduleSnapshot,
 } from "../../lib/firebase/repositories/scheduleRepository";
-import { materializeRollingLessonSeries } from "../../lib/firebase/services/materializeLessonSeries";
 import type { DocumentWithId, Lesson } from "../../lib/firebase/types";
 
 interface RealtimeState<T> {
@@ -50,35 +49,6 @@ export function useTeacherSchedule(
       },
     );
   }, [endMillis, startMillis, teacherId]);
-
-  const activeSeriesKey = useMemo(
-    () =>
-      state.data.series
-        .filter(({ data }) => data.active)
-        .map(({ id, data }) => `${id}:${data.updatedAt.toMillis()}`)
-        .join("|"),
-    [state.data.series],
-  );
-
-  useEffect(() => {
-    if (!teacherId || !activeSeriesKey) return;
-    let cancelled = false;
-    void Promise.all(
-      state.data.series
-        .filter(({ data }) => data.active)
-        .map(({ id, data }) => materializeRollingLessonSeries(getFirebaseDb(), id, data)),
-    ).catch(() => {
-      if (!cancelled) {
-        setState((current) => ({
-          ...current,
-          error: "Календарь загружен, но rolling-расписание не удалось продлить.",
-        }));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSeriesKey, state.data.series, teacherId]);
 
   return state;
 }

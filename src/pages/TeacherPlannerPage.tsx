@@ -4,8 +4,10 @@ import { Modal } from "../components/Modal";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherPlanner } from "../features/planner/hooks";
 import { useTeacherSchedule } from "../features/schedule/hooks";
+import { addCalendarDays, calendarVisibleDates } from "../features/schedule/calendarRange";
 import {
   dateKeyForTimezone,
+  dateRangeForTimezone,
   formatDateTimeForTimezone,
   resolveTimezone,
   zonedLocalDateTimeToDate,
@@ -118,7 +120,9 @@ export function TeacherPlannerPage() {
   const { user, profile } = useAuth();
   const teacherId = user?.uid ?? "";
   const teacherTimezone = useMemo(() => resolveTimezone(profile?.timezone), [profile?.timezone]);
-  const [view, setView] = useState<ViewMode>("day");
+  const [view, setViewState] = useState<ViewMode>(() =>
+    (localStorage.getItem("teacher-planner-view") as ViewMode | null) ?? "day",
+  );
   const [focusDate, setFocusDate] = useState(() => dateKey(new Date()));
   const [filter, setFilter] = useState<DisplayFilter>("all");
   const [itemOpen, setItemOpen] = useState(false);
@@ -131,12 +135,9 @@ export function TeacherPlannerPage() {
   const [message, setMessage] = useState("");
   const planner = useTeacherPlanner(teacherId);
   const range = useMemo(() => {
-    const dates = monthDates(focusDate);
-    return {
-      start: new Date(`${dates[0]}T00:00:00Z`),
-      end: new Date(`${addDays(dates.at(-1)!, 1)}T00:00:00Z`),
-    };
-  }, [focusDate]);
+    const dates = calendarVisibleDates(view, focusDate);
+    return dateRangeForTimezone(dates[0]!, addCalendarDays(dates.at(-1)!, 1), teacherTimezone);
+  }, [focusDate, teacherTimezone, view]);
   const schedule = useTeacherSchedule(teacherId, range);
   const visibleItems = planner.data.items.filter(({ data }) => {
     if (!data.active) return false;
@@ -154,6 +155,10 @@ export function TeacherPlannerPage() {
   );
   const activeGoals = planner.data.goals.filter(({ data }) => data.status !== "archived");
   const workspaceGoalId = selectedGoalId ?? activeGoals[0]?.id ?? null;
+  const setView = (value: ViewMode) => {
+    setViewState(value);
+    localStorage.setItem("teacher-planner-view", value);
+  };
 
   function openCreate(date = focusDate, startTime: string | null = null, itemType: "event" | "task" = "task") {
     setEditing(null);

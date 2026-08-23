@@ -1,5 +1,6 @@
 import {
   collection,
+  limit,
   onSnapshot,
   query,
   where,
@@ -33,9 +34,9 @@ export function subscribeTeacherPlanner(
     goals: [...state.goals].sort((a, b) => a.data.createdAt.toMillis() - b.data.createdAt.toMillis()),
     subgoals: [...state.subgoals].sort((a, b) => a.data.sortOrder - b.data.sortOrder),
   });
-  const listen = <T,>(collectionName: string, assign: (value: Array<DocumentWithId<T>>) => void) =>
+  const listen = <T,>(collectionName: string, assign: (value: Array<DocumentWithId<T>>) => void, constraints: Parameters<typeof query>[1][] = []) =>
     onSnapshot(
-      query(collection(db, collectionName), where("teacherId", "==", teacherId)),
+      query(collection(db, collectionName), where("teacherId", "==", teacherId), ...constraints),
       (snapshot) => {
         assign(snapshot.docs.map((item) => ({ id: item.id, data: item.data() as T })));
         emit();
@@ -43,9 +44,9 @@ export function subscribeTeacherPlanner(
       (error) => observer.error(error),
     );
   const unsubscribes = [
-    listen<PlannerItem>("plannerItems", (value) => { state.items = value; }),
-    listen<PlannerGoal>("plannerGoals", (value) => { state.goals = value; }),
-    listen<PlannerSubgoal>("plannerSubgoals", (value) => { state.subgoals = value; }),
+    listen<PlannerItem>("plannerItems", (value) => { state.items = value; }, [where("active", "==", true), limit(500)]),
+    listen<PlannerGoal>("plannerGoals", (value) => { state.goals = value; }, [limit(100)]),
+    listen<PlannerSubgoal>("plannerSubgoals", (value) => { state.subgoals = value; }, [limit(500)]),
   ];
   return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 }

@@ -5,6 +5,7 @@ import { HomeworkStatus } from "../features/homework/HomeworkStatus";
 import { effectiveHomeworkStatus } from "../features/homework/selectors";
 import { StudentSubmissionForm } from "../features/homework/StudentSubmissionForm";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
+import { formatHomeworkDueDate } from "../features/vertical-slice/selectors";
 import { getFirebaseDb } from "../lib/firebase/client";
 import { markHomeworkReviewOpened } from "../lib/firebase/services/homeworkWorkflow";
 import type {
@@ -12,7 +13,6 @@ import type {
   Homework,
   HomeworkItemEvaluation,
 } from "../lib/firebase/types";
-import { formatCompactDate } from "../lib/formatters";
 
 const typeLabels: Record<Homework["type"], string> = {
   theory: "Теория",
@@ -127,13 +127,7 @@ export function StudentHomeworkPage() {
                   <strong>{homework.title}</strong>
                   <em>
                     Срок:{" "}
-                    {homework.dueAt
-                      ? formatCompactDate(homework.dueAt)
-                      : homework.dueDate
-                        ? formatCompactDate(
-                            new Date(`${homework.dueDate}T12:00:00`),
-                          )
-                        : "не задан"}
+                    {formatHomeworkDueDate(homework)}
                   </em>
                 </span>
                 <HomeworkStatus homework={homework} />

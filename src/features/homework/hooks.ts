@@ -12,6 +12,7 @@ const emptyBoard: TeacherHomeworkBoard = {
 };
 
 export function useTeacherHomeworkBoard(teacherId: string) {
+  const [pageSize, setPageSize] = useState(100);
   const [state, setState] = useState({
     data: emptyBoard,
     loading: true,
@@ -27,7 +28,11 @@ export function useTeacherHomeworkBoard(teacherId: string) {
           loading: false,
           error: "Не удалось загрузить домашние задания.",
         })),
-    });
-  }, [teacherId]);
-  return state;
+    }, pageSize);
+  }, [pageSize, teacherId]);
+  return {
+    ...state,
+    hasMore: state.data.homeworks.length >= pageSize,
+    loadMore: () => setPageSize((value) => value + 100),
+  };
 }

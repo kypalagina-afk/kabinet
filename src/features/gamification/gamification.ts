@@ -8,6 +8,7 @@ import type {
   MockExam,
   StudentAchievement,
 } from "../../lib/firebase/types.js";
+import { homeworkDeadlineAt } from "../homework/selectors.js";
 
 export const XP_PER_LEVEL = 500;
 
@@ -45,11 +46,30 @@ export interface GamificationSummary {
 
 export function calculateHomeworkStreak(
   submissions: Array<DocumentWithId<HomeworkSubmission>>,
+  homeworks: Array<DocumentWithId<Homework>>,
+  now = Date.now(),
 ): number {
-  const checked = submissions
-    .filter(({ data }) => data.status === "checked")
-    .sort((left, right) => right.data.submissionNumber - left.data.submissionNumber);
-  return checked.length;
+  const checkedByHomework = new Map<string, HomeworkSubmission>();
+  for (const { data } of submissions) {
+    if (data.status !== "checked") continue;
+    const previous = checkedByHomework.get(data.homeworkId);
+    if (!previous || data.submissionNumber > previous.submissionNumber)
+      checkedByHomework.set(data.homeworkId, data);
+  }
+
+  let streak = 0;
+  const chronological = [...homeworks].sort(
+    (left, right) => right.data.assignedAt.toMillis() - left.data.assignedAt.toMillis(),
+  );
+  for (const homework of chronological) {
+    const deadline = homeworkDeadlineAt(homework.data);
+    const checked = checkedByHomework.get(homework.id);
+    if (!checked && deadline !== null && deadline >= now) continue;
+    if (!checked) break;
+    if (deadline !== null && (!checked.submittedAt || checked.submittedAt.toMillis() > deadline)) break;
+    streak += 1;
+  }
+  return streak;
 }
 
 export function calculateGamificationSummary(input: {
@@ -63,15 +83,16 @@ export function calculateGamificationSummary(input: {
   const totalXp = input.events.reduce((total, { data }) => total + Math.max(0, data.xpDelta), 0);
   const level = Math.floor(totalXp / XP_PER_LEVEL) + 1;
   const levelXp = totalXp % XP_PER_LEVEL;
-  const streak = calculateHomeworkStreak(input.submissions);
+  const streak = calculateHomeworkStreak(input.submissions, input.homeworks);
   const analytics = calculateMockAnalytics(input.mockExams);
   const suggested = new Set<string>();
   if (input.submissions.length) suggested.add("first-step");
   if (input.mockExams.length) suggested.add("battle-baptism");
   const homeworkById = new Map(input.homeworks.map((homework) => [homework.id, homework.data]));
   if (input.submissions.some(({ data }) => {
-    const dueAt = homeworkById.get(data.homeworkId)?.dueAt;
-    return data.status === "checked" && dueAt && data.submittedAt && data.submittedAt.toMillis() <= dueAt.toMillis();
+    const homework = homeworkById.get(data.homeworkId);
+    const deadline = homework ? homeworkDeadlineAt(homework) : null;
+    return data.status === "checked" && deadline !== null && data.submittedAt && data.submittedAt.toMillis() <= deadline;
   })) suggested.add("on-time");
   if (input.submissions.some(({ data }) => data.status === "checked" && data.submissionNumber > 1)) suggested.add("comeback");
   if (streak >= 3) suggested.add("momentum");

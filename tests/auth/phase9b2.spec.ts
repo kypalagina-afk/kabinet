@@ -83,7 +83,7 @@ test("Phase 9B.2 teacher acceptance fixes remain functional", async ({ page }) =
 
   await route(page, "/teacher/materials"); await page.getByRole("button", { name: /Избранное/ }).click(); await page.getByRole("button", { name: /Все материалы/ }).click();
   await expect(page.getByText("Недавние", { exact: true })).toHaveCount(0);
-  await route(page, "/teacher/analytics"); await page.locator(".page-heading select").nth(1).selectOption({ label: "Тестовая ученица" });
+  await route(page, "/teacher/analytics"); await page.locator(".analytics-filters select").selectOption({ label: "Тестовая ученица" });
   await expect(page.getByTestId("homework-analytics")).toBeVisible(); await expect(page.locator(".task-mastery--no-data, .task-mastery--failed, .task-mastery--learning, .task-mastery--strong")).toHaveCount(13);
 });
 

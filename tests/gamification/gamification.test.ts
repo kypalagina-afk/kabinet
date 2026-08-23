@@ -7,6 +7,7 @@ import {
 import type {
   DocumentWithId,
   GamificationEvent,
+  Homework,
   HomeworkSubmission,
   StudentAchievement,
 } from "../../src/lib/firebase/types.js";
@@ -26,6 +27,21 @@ function event(id: string, xpDelta: number): DocumentWithId<GamificationEvent> {
       xpDelta,
       createdAt: now,
       schemaVersion: 1,
+    },
+  };
+}
+
+function homework(number: number): DocumentWithId<Homework> {
+  const assignedAt = Timestamp.fromMillis(now.toMillis() + number);
+  return {
+    id: `homework-${number}`,
+    data: {
+      teacherId: "teacher-1", studentId: "student-1", studentProgramId: "program-1",
+      sourceLessonId: null, type: "practice", title: `Homework ${number}`,
+      description: null, examTaskNumbers: [], assignedAt,
+      dueAt: Timestamp.fromDate(new Date("2026-08-16T10:00:00.000Z")),
+      status: "checked", requiredAmount: null,
+      createdAt: assignedAt, updatedAt: assignedAt, schemaVersion: 1,
     },
   };
 }
@@ -92,11 +108,23 @@ describe("gamification summary", () => {
       achievements,
       definitions: [],
       submissions: [1, 2, 3].map(checkedSubmission),
-      homeworks: [],
+      homeworks: [1, 2, 3].map(homework),
       mockExams: [],
     });
     expect(summary.streak).toBe(3);
     expect(summary.suggestedCodes).toEqual(expect.arrayContaining(["first-step", "momentum", "comeback"]));
     expect(summary.earned).toHaveLength(1);
+  });
+
+  test("counts consecutive homework once and retries do not inflate streak", () => {
+    const duplicateAttempt = checkedSubmission(2);
+    duplicateAttempt.id = "homework-1-retry";
+    duplicateAttempt.data.homeworkId = "homework-1";
+    const summary = calculateGamificationSummary({
+      events: [], achievements: [], definitions: [], mockExams: [],
+      submissions: [checkedSubmission(1), duplicateAttempt],
+      homeworks: [homework(1)],
+    });
+    expect(summary.streak).toBe(1);
   });
 });

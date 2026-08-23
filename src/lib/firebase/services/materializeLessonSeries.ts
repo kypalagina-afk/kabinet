@@ -3,6 +3,7 @@ import {
   doc,
   runTransaction,
   serverTimestamp,
+  updateDoc,
   type Firestore,
   type Timestamp,
 } from "firebase/firestore";
@@ -157,12 +158,23 @@ export function materializeRollingLessonSeries(
   const key = `${db.app.options.projectId ?? "local"}:${seriesId}`;
   const inFlight = rollingMaterializations.get(key);
   if (inFlight) return inFlight;
+  const occurrences = generateRollingOccurrences(series, now);
   const operation = materializeLessonSeries(db, {
     seriesId,
     teacherId: series.teacherId,
     studentId: series.studentId,
     studentProgramId: series.studentProgramId,
-    occurrences: generateRollingOccurrences(series, now),
+    occurrences,
+  }).then(async (result) => {
+    const through = occurrences.at(-1)?.startAt ?? null;
+    if (through) {
+      await updateDoc(doc(db, "lessonSeries", seriesId), {
+        materializedThrough: through,
+        materializedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    return result;
   }).finally(() => {
     if (rollingMaterializations.get(key) === operation)
       rollingMaterializations.delete(key);

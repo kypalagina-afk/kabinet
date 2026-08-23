@@ -188,7 +188,11 @@ service cloud.firestore {
     }
 
     match /homeworks/{id} {
-      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow get: if (
+          signedIn()
+          && !exists(/databases/$(database)/documents/homeworks/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
       allow create: if teacherCreatesOwned(request.resource.data)
         && activeStudentProgramMatches(request.resource.data);
       allow update: if (

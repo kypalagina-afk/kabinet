@@ -26,6 +26,11 @@ const labels: Record<HomeworkItem["type"], string> = {
   writtenOther: "Письменная работа",
   other: "Задание",
 };
+const writtenTypes = new Set<HomeworkItem["type"]>([
+  "essay",
+  "exposition",
+  "writtenOther",
+]);
 
 export function StudentSubmissionForm({
   homeworkId,
@@ -40,6 +45,7 @@ export function StudentSubmissionForm({
   const [earned, setEarned] = useState("");
   const [maximum, setMaximum] = useState("");
   const [completedItems, setCompletedItems] = useState<string[]>([]);
+  const [responses, setResponses] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
@@ -107,7 +113,7 @@ export function StudentSubmissionForm({
             completed: completedItems.includes(item.itemId),
             selfReportedEarned: null,
             selfReportedMax: null,
-            responseText: null,
+            responseText: responses[item.itemId]?.trim() || null,
             attachments: [],
           })),
         },
@@ -147,23 +153,40 @@ export function StudentSubmissionForm({
             </span>
           </div>
           {items.map((item) => (
-            <label className="student-homework-item" key={item.itemId}>
-              <input
-                checked={completedItems.includes(item.itemId)}
-                onChange={() =>
-                  setCompletedItems((current) =>
-                    current.includes(item.itemId)
-                      ? current.filter((id) => id !== item.itemId)
-                      : [...current, item.itemId],
-                  )
-                }
-                type="checkbox"
-              />
-              <span>
-                <small>{labels[item.type]}</small>
-                <strong>{item.title}</strong>
-              </span>
-            </label>
+            <div className="student-homework-response" key={item.itemId}>
+              <label className="student-homework-item">
+                <input
+                  checked={completedItems.includes(item.itemId)}
+                  onChange={() =>
+                    setCompletedItems((current) =>
+                      current.includes(item.itemId)
+                        ? current.filter((id) => id !== item.itemId)
+                        : [...current, item.itemId],
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <small>{labels[item.type]}</small>
+                  <strong>{item.title}</strong>
+                </span>
+              </label>
+              {writtenTypes.has(item.type) ? (
+                <label className="form-field written-response-field">
+                  <span>Текст ответа</span>
+                  <textarea
+                    onChange={(event) => setResponses((current) => ({
+                      ...current,
+                      [item.itemId]: event.target.value,
+                    }))}
+                    placeholder="Вставьте сочинение, изложение или другой письменный ответ"
+                    required={!uploadsAvailable}
+                    rows={8}
+                    value={responses[item.itemId] ?? ""}
+                  />
+                </label>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : (
@@ -196,10 +219,11 @@ export function StudentSubmissionForm({
         </div>
       ) : null}
       <label className="form-field">
-        <span>Комментарий для преподавателя · необязательно</span>
+        <span>{!items.length && homework.type === "written" ? "Текст ответа" : "Комментарий для преподавателя · необязательно"}</span>
         <textarea
           onChange={(event) => setNote(event.target.value)}
-          rows={3}
+          required={!items.length && homework.type === "written" && !uploadsAvailable}
+          rows={!items.length && homework.type === "written" ? 8 : 3}
           value={note}
         />
       </label>

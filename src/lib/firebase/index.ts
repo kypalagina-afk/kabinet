@@ -8,6 +8,7 @@ export * from "./repositories/gamificationRepository";
 export * from "./repositories/materialsRepository";
 export * from "./services/completeLesson";
 export * from "./services/materializeLessonSeries";
+export * from "./services/scheduledLessonMaterializer";
 export * from "./services/scheduleOperations";
 export * from "./services/homeworkWorkflow";
 export * from "./services/mockExamWorkflow";

@@ -40,6 +40,7 @@ async function teacherScreens(page: Page, theme: "light" | "dark") {
   await shot(page, theme, "teacher-home-need-to-do");
 
   await route(page, "/teacher/calendar");
+  await page.getByRole("button", { name: "Месяц", exact: true }).click();
   await expect(page.getByTestId("calendar-event").first()).toBeVisible();
   await shot(page, theme, "teacher-calendar-month");
   await page.locator(".calendar-event--completed").first().click();
@@ -52,7 +53,8 @@ async function teacherScreens(page: Page, theme: "light" | "dark") {
   await shot(page, theme, "teacher-calendar-week");
 
   await route(page, "/teacher/students");
-  await page.getByTestId("student-card").first().click();
+  await page.getByTestId("student-card").filter({ hasText: "Тестовая ученица" }).click();
+  await page.getByRole("navigation", { name: "Разделы карточки ученика" }).getByRole("link", { name: "Занятия", exact: true }).click();
   await expect(page.locator(".lesson-journal")).toBeVisible();
   await shot(page, theme, "teacher-student-lesson-journal");
 
@@ -82,7 +84,7 @@ async function teacherScreens(page: Page, theme: "light" | "dark") {
 
   await route(page, "/teacher/analytics");
   await shot(page, theme, "teacher-analytics-all");
-  await page.locator(".page-heading select").nth(1).selectOption({ label: "Тестовая ученица" });
+  await page.locator(".analytics-filters select").selectOption({ label: "Тестовая ученица" });
   await expect(page.locator(".task-mastery-grid")).toBeVisible();
   await shot(page, theme, "teacher-analytics-student");
 

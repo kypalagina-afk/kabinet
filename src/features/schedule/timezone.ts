@@ -184,3 +184,21 @@ export function dateKeyForTimezone(date: Date, timezone: ResolvedTimezone): stri
   const shifted = new Date(date.getTime() + (timezone.offsetMinutes ?? 0) * 60_000);
   return shifted.toISOString().slice(0, 10);
 }
+
+export function dateRangeForTimezone(
+  startDate: string,
+  endDateExclusive: string,
+  timezone: ResolvedTimezone,
+): { start: Date; end: Date } {
+  if (timezone.kind === "iana" && timezone.iana) {
+    return {
+      start: zonedLocalDateTimeToDate(startDate, "00:00", timezone.iana),
+      end: zonedLocalDateTimeToDate(endDateExclusive, "00:00", timezone.iana),
+    };
+  }
+  const offset = (timezone.offsetMinutes ?? 0) * 60_000;
+  return {
+    start: new Date(Date.parse(`${startDate}T00:00:00.000Z`) - offset),
+    end: new Date(Date.parse(`${endDateExclusive}T00:00:00.000Z`) - offset),
+  };
+}

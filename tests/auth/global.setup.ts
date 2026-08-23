@@ -198,6 +198,7 @@ export default async function globalSetup() {
     }),
     db.doc(`students/${studentUid}`).set({
       teacherId: teacherUid,
+      activeProgramId: "test-student-program-1",
       displayName: "Тестовая ученица",
       classGrade: 9,
       status: "active",
@@ -357,6 +358,8 @@ export default async function globalSetup() {
       endsOn: null,
       cancelledAt: null,
       cancelledBy: null,
+      materializedThrough: Timestamp.fromDate(new Date("2026-11-05T07:00:00.000Z")),
+      materializedAt: now,
       createdAt: now,
       updatedAt: now,
       schemaVersion: 1,

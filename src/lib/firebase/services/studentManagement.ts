@@ -1,10 +1,54 @@
 import {
   collection,
   doc,
+  getDocs,
+  query,
+  runTransaction,
   serverTimestamp,
   writeBatch,
+  where,
   type Firestore,
 } from "firebase/firestore";
+import type { Student, StudentProgram } from "../types";
+
+export async function setActiveStudentProgram(
+  db: Firestore,
+  input: { teacherId: string; studentId: string; studentProgramId: string },
+) {
+  const programs = await getDocs(query(
+    collection(db, "studentPrograms"),
+    where("teacherId", "==", input.teacherId),
+    where("studentId", "==", input.studentId),
+  ));
+  const studentReference = doc(db, "students", input.studentId);
+  await runTransaction(db, async (transaction) => {
+    const [studentSnapshot, ...programSnapshots] = await Promise.all([
+      transaction.get(studentReference),
+      ...programs.docs.map((item) => transaction.get(item.ref)),
+    ]);
+    if (!studentSnapshot.exists() || (studentSnapshot.data() as Student).teacherId !== input.teacherId)
+      throw new Error("Student ownership mismatch");
+    const target = programSnapshots.find((item) => item.id === input.studentProgramId);
+    if (!target?.exists()) throw new Error("Target student program does not exist");
+    if ((target.data() as StudentProgram).status === "completed")
+      throw new Error("Completed student program cannot be activated");
+    for (const snapshot of programSnapshots) {
+      if (!snapshot.exists()) continue;
+      const nextStatus = snapshot.id === input.studentProgramId ? "active" :
+        (snapshot.data() as StudentProgram).status === "active" ? "paused" : null;
+      if (nextStatus && (snapshot.data() as StudentProgram).status !== nextStatus) {
+        transaction.update(snapshot.ref, {
+          status: nextStatus,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    transaction.update(studentReference, {
+      activeProgramId: input.studentProgramId,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
 
 export async function updateStudentProfile(
   db: Firestore,

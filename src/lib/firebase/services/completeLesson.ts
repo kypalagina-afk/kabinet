@@ -195,6 +195,10 @@ export async function setLessonHomeworkResolution(db: Firestore, lessonId: strin
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists() || (snapshot.data() as Lesson).teacherId !== teacherId) throw new Error("Lesson ownership mismatch");
+    const lesson = snapshot.data() as Lesson;
+    if (lesson.homeworkResolution === resolution) return;
+    if (lesson.homeworkResolution === "assigned" && resolution !== "assigned")
+      throw new Error("Assigned homework resolution cannot be overwritten");
     transaction.update(reference, { homeworkResolution: resolution, updatedAt: serverTimestamp() });
   });
 }

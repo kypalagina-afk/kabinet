@@ -66,6 +66,7 @@ export function StudentProgressPage() {
             taskNumbers={data.examBlueprint?.data.tasks.map(
               (item) => item.number,
             )}
+            programTitle={data.programProfile?.data.title}
           />
         </>
       ) : null}

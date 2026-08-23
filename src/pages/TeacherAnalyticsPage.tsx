@@ -13,9 +13,11 @@ import {
 import { calculateMockAnalytics } from "../features/analytics/mockAnalytics";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
+import { useExamBlueprints, useProgramProfiles } from "../features/materials/hooks";
 import {
   useTeacherMockExams,
   useTeacherStudents,
+  useTeacherStudentPrograms,
   useTeacherStudentWorkspace,
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb } from "../lib/firebase/client";
@@ -27,8 +29,21 @@ export function TeacherAnalyticsPage() {
   const mocks = useTeacherMockExams(teacherId);
   const board = useTeacherHomeworkBoard(teacherId);
   const coverage = useTeacherTaskCoverage(teacherId);
-  const [studentId, setStudentId] = useState("all");
-  const [program, setProgram] = useState("oge");
+  const assignments = useTeacherStudentPrograms(teacherId);
+  const profiles = useProgramProfiles();
+  const blueprints = useExamBlueprints();
+  const [studentId, setStudentId] = useState(
+    () => sessionStorage.getItem("teacher-analytics-student") ?? "all",
+  );
+  const activeStudentId = !students.loading
+    && studentId !== "all"
+    && !students.data.some(({ id }) => id === studentId)
+    ? "all"
+    : studentId;
+  const activeProfileTitles = [...new Set(assignments.data
+    .filter(({ data }) => data.status === "active")
+    .map(({ data }) => profiles.data.find(({ id }) => id === data.programProfileId)?.data.title)
+    .filter((value): value is string => Boolean(value)))];
   return (
     <main
       className="shell-content progress-page"
@@ -38,31 +53,23 @@ export function TeacherAnalyticsPage() {
         <div>
           <p className="eyebrow">Аналитика</p>
           <h1 id="teacher-analytics-title">Прогресс и готовность к экзамену</h1>
-          <p>ОГЭ · Русский язык · 2027</p>
+          <p>{activeProfileTitles.length ? activeProfileTitles.join(" · ") : "Программы активных учеников"}</p>
         </div>
         <div className="inline-control analytics-filters">
-          <label className="form-field compact-filter">
-            <span>Программа</span>
-            <select
-              onChange={(event) => setProgram(event.target.value)}
-              value={program}
-            >
-              <option value="oge">ОГЭ</option>
-              <option value="ege">ЕГЭ</option>
-              <option value="school">Школа</option>
-            </select>
-          </label>
           <label className="form-field compact-filter analytics-student-filter">
             <span>Ученик</span>
             <select
-              onChange={(event) => setStudentId(event.target.value)}
+              onChange={(event) => {
+                setStudentId(event.target.value);
+                sessionStorage.setItem("teacher-analytics-student", event.target.value);
+              }}
               title={
-                studentId === "all"
+                activeStudentId === "all"
                   ? "Все ученики"
-                  : students.data.find(({ id }) => id === studentId)?.data
+                  : students.data.find(({ id }) => id === activeStudentId)?.data
                       .displayName
               }
-              value={studentId}
+              value={activeStudentId}
             >
               <option value="all">Все ученики</option>
               {students.data.map(({ id, data }) => (
@@ -74,16 +81,19 @@ export function TeacherAnalyticsPage() {
           </label>
         </div>
       </header>
-      {studentId === "all" ? (
+      {activeStudentId === "all" ? (
         <AllStudentsAnalytics
           board={board.data}
+          assignments={assignments.data}
+          blueprints={blueprints.data}
           coverage={coverage}
           mocks={mocks.data}
+          profiles={profiles.data}
           students={students.data}
         />
       ) : (
         <TeacherAnalyticsWorkspace
-          studentId={studentId}
+          studentId={activeStudentId}
           teacherId={teacherId}
         />
       )}
@@ -139,6 +149,7 @@ function TeacherAnalyticsWorkspace({
         coverage={coverage}
         exams={data.mockExams}
         masteryPublic={publicMastery}
+        programTitle={data.programProfile?.data.title}
         taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
         onCoverageChange={(taskNumber, state) =>
           data.studentProgram &&
@@ -221,11 +232,17 @@ function AllStudentsAnalytics({
   mocks,
   coverage,
   board,
+  assignments,
+  profiles,
+  blueprints,
 }: {
   students: ReturnType<typeof useTeacherStudents>["data"];
   mocks: ReturnType<typeof useTeacherMockExams>["data"];
   coverage: ReturnType<typeof useTeacherTaskCoverage>;
   board: ReturnType<typeof useTeacherHomeworkBoard>["data"];
+  assignments: ReturnType<typeof useTeacherStudentPrograms>["data"];
+  profiles: ReturnType<typeof useProgramProfiles>["data"];
+  blueprints: ReturnType<typeof useExamBlueprints>["data"];
 }) {
   const summaries = students.map((student) => {
     const exams = mocks
@@ -240,6 +257,16 @@ function AllStudentsAnalytics({
     const studied = coverage.filter(
       ({ data }) => data.studentId === student.id && data.state === "studied",
     ).length;
+    const assignment = assignments.find(({ data }) =>
+      data.studentId === student.id && data.status === "active",
+    );
+    const profile = profiles.find(({ id }) => id === assignment?.data.programProfileId);
+    const blueprint = blueprints.find(({ id }) => id === profile?.data.examBlueprintId);
+    const evidenceTaskCount = new Set([
+      ...coverage.filter(({ data }) => data.studentId === student.id).map(({ data }) => data.taskNumber),
+      ...(latest?.data.taskResults.map((item) => item.taskNumber) ?? []),
+    ]).size;
+    const totalTasks = blueprint?.data.tasks.length ?? evidenceTaskCount;
     return {
       student,
       latest,
@@ -250,7 +277,8 @@ function AllStudentsAnalytics({
       readiness: latest
         ? Math.round((latest.data.total.earned / latest.data.total.max) * 100)
         : 0,
-      coverage: Math.round((studied / 13) * 100),
+      coverage: totalTasks ? Math.round((studied / totalTasks) * 100) : 0,
+      programTitle: profile?.data.title ?? "Программа не назначена",
     };
   });
   const analytics = calculateMockAnalytics(mocks);
@@ -299,6 +327,7 @@ function AllStudentsAnalytics({
               coverage: programCoverage,
               latest,
               delta,
+              programTitle,
             }) => (
               <Link
                 className="analytics-student-row"
@@ -307,7 +336,7 @@ function AllStudentsAnalytics({
               >
                 <span>{student.data.displayName}</span>
                 <span>{readiness}%</span>
-                <span>{programCoverage}%</span>
+                <span title={programTitle}>{programCoverage}% · {programTitle}</span>
                 <span>
                   {latest
                     ? `${latest.data.total.earned}/${latest.data.total.max}`

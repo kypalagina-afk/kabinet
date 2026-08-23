@@ -6,8 +6,9 @@ import {
   Timestamp,
   type Firestore,
 } from "firebase/firestore";
-import type { Attachment, Homework, HomeworkItem, MockExam, StudentProgram } from "../types";
-import { zonedLocalDateTimeToDate } from "../../../features/schedule/timezone";
+import type { Attachment, Homework, HomeworkItem, Lesson, MockExam, StudentProgram } from "../types.js";
+import { zonedLocalDateTimeToDate } from "../../../features/schedule/timezone.js";
+import { homeworkIdForCompletedLesson } from "./completeLesson.js";
 
 interface OwnedStudentProgramInput {
   teacherId: string;
@@ -16,6 +17,7 @@ interface OwnedStudentProgramInput {
 }
 
 export interface CreateHomeworkInput extends OwnedStudentProgramInput {
+  sourceLessonId?: string | null;
   type: Homework["type"];
   title: string;
   description: string | null;
@@ -64,7 +66,12 @@ export async function createHomework(
   }
 
   const programReference = doc(db, "studentPrograms", input.studentProgramId);
-  const homeworkReference = doc(collection(db, "homeworks"));
+  const homeworkReference = input.sourceLessonId
+    ? doc(db, "homeworks", homeworkIdForCompletedLesson(input.sourceLessonId))
+    : doc(collection(db, "homeworks"));
+  const lessonReference = input.sourceLessonId
+    ? doc(db, "lessons", input.sourceLessonId)
+    : null;
   const dueTimezone = input.dueTimezone ?? "Europe/Moscow";
   const dueAt =
     input.dueAt ??
@@ -73,17 +80,49 @@ export async function createHomework(
       : null);
 
   await runTransaction(db, async (transaction) => {
-    const programSnapshot = await transaction.get(programReference);
+    const [programSnapshot, lessonSnapshot, homeworkSnapshot] = await Promise.all([
+      transaction.get(programReference),
+      lessonReference ? transaction.get(lessonReference) : Promise.resolve(null),
+      input.sourceLessonId ? transaction.get(homeworkReference) : Promise.resolve(null),
+    ]);
     if (!programSnapshot.exists()) {
       throw new Error("Student program does not exist");
     }
     assertValidOwnership(programSnapshot.data() as StudentProgram, input);
 
+    if (lessonReference) {
+      if (!lessonSnapshot?.exists()) throw new Error("Source lesson does not exist");
+      const lesson = lessonSnapshot.data() as Lesson;
+      if (
+        lesson.teacherId !== input.teacherId ||
+        lesson.studentId !== input.studentId ||
+        lesson.studentProgramId !== input.studentProgramId ||
+        lesson.status !== "completed"
+      ) throw new Error("Completed lesson ownership check failed");
+
+      if (homeworkSnapshot?.exists()) {
+        const existing = homeworkSnapshot.data() as Homework;
+        if (
+          existing.sourceLessonId !== input.sourceLessonId ||
+          existing.teacherId !== input.teacherId ||
+          existing.studentId !== input.studentId ||
+          existing.studentProgramId !== input.studentProgramId
+        ) throw new Error(`Deterministic homework ID collision: ${homeworkReference.id}`);
+        if (lesson.homeworkResolution !== "assigned") {
+          transaction.update(lessonReference, {
+            homeworkResolution: "assigned",
+            updatedAt: serverTimestamp(),
+          });
+        }
+        return;
+      }
+    }
+
     transaction.set(homeworkReference, {
       teacherId: input.teacherId,
       studentId: input.studentId,
       studentProgramId: input.studentProgramId,
-      sourceLessonId: null,
+      sourceLessonId: input.sourceLessonId ?? null,
       type: input.type,
       title,
       description: input.description?.trim() || null,
@@ -104,6 +143,12 @@ export async function createHomework(
       updatedAt: serverTimestamp(),
       schemaVersion: 1,
     });
+    if (lessonReference) {
+      transaction.update(lessonReference, {
+        homeworkResolution: "assigned",
+        updatedAt: serverTimestamp(),
+      });
+    }
   });
 
   return homeworkReference.id;

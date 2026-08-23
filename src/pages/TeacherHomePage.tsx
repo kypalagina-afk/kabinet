@@ -3,40 +3,44 @@ import { Link } from "react-router-dom";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
+import { effectiveHomeworkStatus } from "../features/homework/selectors";
 import { useTeacherPlanner } from "../features/planner/hooks";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { isCurrentDashboardLesson } from "../features/schedule/dashboardLessons";
+import {
+  dateKeyForTimezone,
+  dateRangeForTimezone,
+  formatDateTimeForTimezone,
+  resolveTimezone,
+} from "../features/schedule/timezone";
 
-function dayRange(now: number) {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
+function nextDateKey(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
-
-const lessonTime = new Intl.DateTimeFormat("ru-RU", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 export function TeacherHomePage() {
   const { user, profile } = useAuth();
   const [now] = useState(() => Date.now());
-  const range = useMemo(() => dayRange(now), [now]);
+  const teacherTimezone = useMemo(
+    () => resolveTimezone(profile?.timezone),
+    [profile?.timezone],
+  );
+  const todayKey = dateKeyForTimezone(new Date(now), teacherTimezone);
+  const range = useMemo(
+    () => dateRangeForTimezone(todayKey, nextDateKey(todayKey), teacherTimezone),
+    [teacherTimezone, todayKey],
+  );
   const board = useTeacherHomeworkBoard(user?.uid ?? "");
   const schedule = useTeacherSchedule(user?.uid ?? "", range);
   const planner = useTeacherPlanner(user?.uid ?? "");
-  const todayKey = new Intl.DateTimeFormat("en-CA").format(new Date(now));
   const todayPlans = planner.data.items.filter(
     ({ data }) => data.active && data.date === todayKey && data.status !== "done",
   );
   const currentLessons = schedule.data.lessons.filter(({ data }) => isCurrentDashboardLesson(data.status));
   const overdue = board.data.homeworks.filter(
-    ({ data }) =>
-      data.status === "overdue" ||
-      ((data.dueAt?.toMillis() ?? Infinity) < now &&
-        !new Set(["checked", "submitted"]).has(data.status)),
+    ({ data }) => effectiveHomeworkStatus(data, now) === "overdue",
   );
   const pending = board.data.submissions.filter(
     ({ data }) => data.status === "submitted",
@@ -128,13 +132,18 @@ export function TeacherHomePage() {
                   ({ id: value }) => value === data.studentId,
                 );
                 return (
-                  <article key={id}>
+                  <Link
+                    className="today-lesson-row"
+                    data-testid="teacher-home-lesson"
+                    key={id}
+                    to={`/teacher/calendar?lesson=${id}&date=${dateKeyForTimezone(data.startAt.toDate(), teacherTimezone)}`}
+                  >
                     <time>
-                      {lessonTime.format(data.startAt.toDate())}
+                      {formatDateTimeForTimezone(data.startAt.toDate(), teacherTimezone, { hour: "2-digit", minute: "2-digit" })}
                       {data.wasRescheduled && data.originalStartAt ? (
                         <small>
                           перенесено с{" "}
-                          {lessonTime.format(data.originalStartAt.toDate())}
+                          {formatDateTimeForTimezone(data.originalStartAt.toDate(), teacherTimezone, { hour: "2-digit", minute: "2-digit" })}
                         </small>
                       ) : null}
                     </time>
@@ -151,7 +160,10 @@ export function TeacherHomePage() {
                         ? "Проведён"
                         : "Запланирован"}
                     </span>
-                  </article>
+                    {data.status === "planned" && data.endAt.toMillis() < now ? (
+                      <b>Завершить →</b>
+                    ) : <b>Открыть →</b>}
+                  </Link>
                 );
               })}
             </div>

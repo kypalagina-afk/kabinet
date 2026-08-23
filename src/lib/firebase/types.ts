@@ -32,6 +32,7 @@ export interface UserProfile extends AuditedDocument {
 
 export interface Student extends AuditedDocument {
   teacherId: string;
+  activeProgramId?: string | null;
   displayName: string;
   classGrade: number | null;
   status: "active" | "paused" | "finished" | "archived";
@@ -132,6 +133,8 @@ export interface LessonSeries extends AuditedDocument {
   endsOn?: string | null;
   cancelledAt?: Timestamp | null;
   cancelledBy?: "teacher" | "student" | null;
+  materializedThrough?: Timestamp | null;
+  materializedAt?: Timestamp | null;
 }
 
 export type LessonStatus =

@@ -1,6 +1,8 @@
 import {
   collection,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   where,
   type DocumentData,
@@ -32,6 +34,7 @@ export function subscribeTeacherHomeworkBoard(
   db: Firestore,
   teacherId: string,
   observer: RealtimeObserver<TeacherHomeworkBoard>,
+  pageSize = 100,
 ): Unsubscribe {
   let state: TeacherHomeworkBoard = {
     students: [],
@@ -50,7 +53,7 @@ export function subscribeTeacherHomeworkBoard(
       error,
     ),
     onSnapshot(
-      query(collection(db, "homeworks"), where("teacherId", "==", teacherId)),
+      query(collection(db, "homeworks"), where("teacherId", "==", teacherId), orderBy("assignedAt", "desc"), limit(pageSize)),
       (snapshot) => emit({ homeworks: mapped<Homework>(snapshot.docs) }),
       error,
     ),
@@ -58,6 +61,8 @@ export function subscribeTeacherHomeworkBoard(
       query(
         collection(db, "homeworkSubmissions"),
         where("teacherId", "==", teacherId),
+        orderBy("updatedAt", "desc"),
+        limit(Math.max(pageSize * 2, 100)),
       ),
       (snapshot) =>
         emit({ submissions: mapped<HomeworkSubmission>(snapshot.docs) }),

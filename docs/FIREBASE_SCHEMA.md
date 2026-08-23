@@ -45,6 +45,7 @@ Email reset не использовать; password reset через Admin SDK.
 ```ts
 {
   teacherId: string,
+  activeProgramId?: string | null, // authoritative pointer after Phase 10.2 migration
   displayName: string,
   classGrade: number | null,
   status: "active" | "paused" | "finished" | "archived",
@@ -140,6 +141,8 @@ Email reset не использовать; password reset через Admin SDK.
   endsOn?: string | null,
   cancelledAt?: Timestamp | null,
   cancelledBy?: "teacher" | "student" | null,
+  materializedThrough?: Timestamp | null,
+  materializedAt?: Timestamp | null,
   createdAt: Timestamp,
   updatedAt: Timestamp,
   schemaVersion: 1
@@ -200,6 +203,9 @@ Email reset не использовать; password reset через Admin SDK.
 }
 ```
 
+Date-only homework expires at `23:59:59.999` of the selected day in
+`Europe/Moscow`. This domain rule is independent of the browser timezone.
+
 ## `lessonOccurrenceExclusions/{lessonId}` (Phase 10.1, additive)
 
 A permanent tombstone for one hard-deleted recurring occurrence. Its document
@@ -233,7 +239,15 @@ series remains active.
     selfReportedEarned: number | null,
     selfReportedMax: number | null,
     note: string | null,
-    externalAttachmentUrls: string[]
+    externalAttachmentUrls: string[],
+    itemProgress?: Array<{
+      itemId: string,
+      completed: boolean,
+      selfReportedEarned: number | null,
+      selfReportedMax: number | null,
+      responseText: string | null,
+      attachments: Attachment[]
+    }>
   },
   teacherEvaluation: {
     scoreEarned: number | null,

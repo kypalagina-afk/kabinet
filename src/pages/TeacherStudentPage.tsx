@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import {
   Link,
   useLocation,
@@ -8,21 +8,18 @@ import {
 import { DetailedMockExamForm } from "../features/analytics/DetailedMockExamForm";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
-import { calculateGamificationSummary } from "../features/gamification/gamification";
-import { useStudentGamification } from "../features/gamification/hooks";
 import { LessonJournal } from "../features/schedule/LessonJournal";
+import { formatDateTimeForTimezone, resolveTimezone } from "../features/schedule/timezone";
 import { useLessonTeacherNotes } from "../features/schedule/useLessonTeacherNotes";
 import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
 import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
 import {
-  formatDateTime,
   formatHomeworkDueDate,
   selectCurrentHomework,
   selectLatestMockExam,
   selectNearestLesson,
 } from "../features/vertical-slice/selectors";
 import { getFirebaseDb, isUsingFirebaseEmulators } from "../lib/firebase/client";
-import { syncStudentAchievements } from "../lib/firebase/services/gamificationWorkflow";
 import {
   generateStudentPassword,
   getStudentProvisioningService,
@@ -54,7 +51,7 @@ export function TeacherStudentPage() {
       ? params.get("tab")
       : "overview"
   ) as Tab;
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [editing, setEditing] = useState(false);
   const [credentialPassword, setCredentialPassword] = useState(
     () =>
@@ -66,47 +63,7 @@ export function TeacherStudentPage() {
     user?.uid ?? "",
     studentId,
   );
-  const gamification = useStudentGamification(studentId, user?.uid);
   const lessonNotes = useLessonTeacherNotes(user?.uid ?? "", studentId);
-  const gamificationSummary = useMemo(
-    () =>
-      calculateGamificationSummary({
-        ...gamification.data,
-        submissions: data.homeworkSubmissions,
-        homeworks: data.homeworks,
-        mockExams: data.mockExams,
-      }),
-    [
-      data.homeworkSubmissions,
-      data.homeworks,
-      data.mockExams,
-      gamification.data,
-    ],
-  );
-  const suggestedKey = [...gamificationSummary.suggestedCodes].sort().join("|");
-  useEffect(() => {
-    if (
-      !user ||
-      !data.studentProgram ||
-      !suggestedKey ||
-      loading ||
-      gamification.loading
-    )
-      return;
-    void syncStudentAchievements(getFirebaseDb(), {
-      teacherId: user.uid,
-      studentId,
-      studentProgramId: data.studentProgram.id,
-      achievementCodes: suggestedKey.split("|"),
-    }).catch(() => undefined);
-  }, [
-    data.studentProgram,
-    gamification.loading,
-    loading,
-    studentId,
-    suggestedKey,
-    user,
-  ]);
   if (loading && !data.student)
     return (
       <main className="shell-content content-state">Загружаем карточку…</main>
@@ -282,7 +239,7 @@ export function TeacherStudentPage() {
               <span className="summary-card__label">Ближайшее занятие</span>
               <strong>
                 {nearestLesson
-                  ? formatDateTime(nearestLesson.data.startAt)
+                  ? formatDateTimeForTimezone(nearestLesson.data.startAt.toDate(), resolveTimezone(profile?.timezone))
                   : "Не запланировано"}
               </strong>
               <p>{nearestLesson?.data.topic ?? "Тема пока не указана"}</p>
@@ -308,6 +265,11 @@ export function TeacherStudentPage() {
                   : "—"}
               </p>
             </article>
+            <article className={`summary-card${paidRemaining <= 1 ? " summary-card--warning" : ""}`}>
+              <span className="summary-card__label">Оплата</span>
+              <strong>{paidRemaining} оплаченных занятий</strong>
+              <p>Подробности и изменения — во вкладке «Оплата».</p>
+            </article>
           </section>
           <ConferenceLinksEditor
             links={student.conferenceLinks ?? []}
@@ -321,23 +283,17 @@ export function TeacherStudentPage() {
             username={data.studentUser?.data.username ?? ""}
             onReset={() => void resetPassword()}
           />
-          <LessonJournal
-            audience="teacher"
-            homeworks={data.homeworks}
-            lessons={data.lessons}
-            notes={lessonNotes}
-            teacherId={user?.uid ?? ""}
-          />
-          {data.studentProgram ? (
-            <CreateHomeworkForm
-              studentId={studentId}
-              studentProgramId={data.studentProgram.id}
-              teacherId={user?.uid ?? ""}
-            />
-          ) : null}
-          {data.studentProgram && data.programProfile?.data.examBlueprintId && data.examBlueprint ? (
-            <DetailedMockExamForm blueprint={data.examBlueprint.data} blueprintId={data.examBlueprint.id} studentId={studentId} studentProgramId={data.studentProgram.id} teacherId={user?.uid ?? ""} />
-          ) : null}
+          <section className="student-overview-actions" aria-label="Быстрые действия">
+            <Link className="primary-button primary-button--fit" to={`/teacher/students/${studentId}?tab=homework`}>
+              + Выдать ДЗ
+            </Link>
+            <Link className="secondary-button" to={`/teacher/students/${studentId}?tab=mocks`}>
+              + Добавить пробник
+            </Link>
+            <Link className="secondary-button" to={`/teacher/students/${studentId}?tab=lessons`}>
+              Открыть журнал
+            </Link>
+          </section>
         </>
       ) : null}
       {tab === "lessons" ? (
@@ -348,6 +304,8 @@ export function TeacherStudentPage() {
           lessons={data.lessons}
           notes={lessonNotes}
           teacherId={user?.uid ?? ""}
+          taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
+          timezone={profile?.timezone}
         />
       ) : null}
       {tab === "homework" && data.studentProgram ? (
@@ -355,6 +313,7 @@ export function TeacherStudentPage() {
           studentId={studentId}
           studentProgramId={data.studentProgram.id}
           teacherId={user?.uid ?? ""}
+          sourceLesson={data.lessons.find(({ id }) => id === params.get("sourceLesson"))}
         />
       ) : null}
       {tab === "mocks" && data.studentProgram ? (

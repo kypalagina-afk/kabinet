@@ -1,7 +1,9 @@
 import {
   collection,
   doc,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   where,
   type DocumentData,
@@ -21,7 +23,7 @@ import type {
   Student,
   StudentProgram,
   UserProfile,
-} from "../types";
+} from "../types.js";
 
 export interface StudentWorkspaceSnapshot {
   student: DocumentWithId<Student> | null;
@@ -59,6 +61,21 @@ function mapDocuments<T>(documents: Array<{ id: string; data(): DocumentData }>)
   }));
 }
 
+export function resolveActiveStudentProgram(
+  programs: Array<DocumentWithId<StudentProgram>>,
+  activeProgramId?: string | null,
+): DocumentWithId<StudentProgram> | null {
+  const active = programs.filter(({ data }) => data.status === "active");
+  if (activeProgramId) {
+    const pointed = active.find(({ id }) => id === activeProgramId);
+    if (!pointed) throw new Error("Student activeProgramId does not reference an active owned program");
+    if (active.length > 1) throw new Error("Student has ambiguous active programs");
+    return pointed;
+  }
+  if (active.length > 1) throw new Error("Student has ambiguous active programs");
+  return active[0] ?? null;
+}
+
 export function subscribeTeacherStudents(
   db: Firestore,
   teacherId: string,
@@ -94,7 +111,7 @@ export function subscribeTeacherStudentPrograms(
 }
 
 export function subscribeTeacherMockExams(db: Firestore, teacherId: string, observer: RealtimeObserver<Array<DocumentWithId<MockExam>>>): Unsubscribe {
-  return onSnapshot(query(collection(db, "mockExams"), where("teacherId", "==", teacherId)), (snapshot) => observer.next(mapDocuments<MockExam>(snapshot.docs)), observer.error);
+  return onSnapshot(query(collection(db, "mockExams"), where("teacherId", "==", teacherId), orderBy("takenAt", "desc"), limit(50)), (snapshot) => observer.next(mapDocuments<MockExam>(snapshot.docs)), observer.error);
 }
 
 function ownedQuery(
@@ -112,6 +129,11 @@ function ownedQuery(
   if (teacherId) {
     constraints.push(where("teacherId", "==", teacherId));
   }
+  if (collectionName === "lessons") constraints.push(orderBy("startAt", "desc"), limit(120));
+  if (collectionName === "homeworks") constraints.push(orderBy("assignedAt", "desc"), limit(120));
+  if (collectionName === "homeworkSubmissions") constraints.push(orderBy("updatedAt", "desc"), limit(160));
+  if (collectionName === "mockExams") constraints.push(orderBy("takenAt", "desc"), limit(50));
+  if (collectionName === "studentPrograms") constraints.push(limit(10));
   return query(collection(db, collectionName), ...constraints);
 }
 
@@ -125,11 +147,48 @@ function subscribeWorkspace(
   let stopProgramProfile: Unsubscribe | null = null;
   let stopExamBlueprint: Unsubscribe | null = null;
   let activeProgramProfileId: string | null = null;
+  let availablePrograms: Array<DocumentWithId<StudentProgram>> = [];
   const emit = (patch: Partial<StudentWorkspaceSnapshot>) => {
     state = { ...state, ...patch };
     observer.next(state);
   };
   const reportError = (error: Error) => observer.error(error);
+  const activateProgram = (activeProgram: DocumentWithId<StudentProgram> | null) => {
+    emit({ studentProgram: activeProgram });
+    const nextProfileId = activeProgram?.data.programProfileId ?? null;
+    if (nextProfileId === activeProgramProfileId) return;
+    stopProgramProfile?.();
+    stopProgramProfile = null;
+    stopExamBlueprint?.();
+    stopExamBlueprint = null;
+    activeProgramProfileId = nextProfileId;
+    emit({ programProfile: null, examBlueprint: null });
+    if (!nextProfileId) return;
+    stopProgramProfile = onSnapshot(
+      doc(db, "programProfiles", nextProfileId),
+      (profileSnapshot) => {
+        const profile = profileSnapshot.exists()
+          ? { id: profileSnapshot.id, data: profileSnapshot.data() as ProgramProfile }
+          : null;
+        emit({ programProfile: profile, examBlueprint: null });
+        stopExamBlueprint?.();
+        stopExamBlueprint = null;
+        const blueprintId = profile?.data.examBlueprintId;
+        if (blueprintId) {
+          stopExamBlueprint = onSnapshot(
+            doc(db, "examBlueprints", blueprintId),
+            (blueprintSnapshot) => emit({
+              examBlueprint: blueprintSnapshot.exists()
+                ? { id: blueprintSnapshot.id, data: blueprintSnapshot.data() as ExamBlueprint }
+                : null,
+            }),
+            reportError,
+          );
+        }
+      },
+      reportError,
+    );
+  };
 
   const unsubscribes: Unsubscribe[] = [
     onSnapshot(
@@ -139,67 +198,34 @@ function subscribeWorkspace(
     ),
     onSnapshot(
       doc(db, "students", studentId),
-      (snapshot) =>
-        emit({
-          student: snapshot.exists()
-            ? { id: snapshot.id, data: snapshot.data() as Student }
-            : null,
-        }),
+      (snapshot) => {
+        const student = snapshot.exists()
+          ? { id: snapshot.id, data: snapshot.data() as Student }
+          : null;
+        emit({ student });
+        if (availablePrograms.length) {
+          try {
+            activateProgram(resolveActiveStudentProgram(availablePrograms, student?.data.activeProgramId));
+          } catch (error) {
+            activateProgram(null);
+            reportError(error as Error);
+          }
+        }
+      },
       reportError,
     ),
     onSnapshot(
       ownedQuery(db, "studentPrograms", studentId, teacherId),
       (snapshot) => {
-        const programs = mapDocuments<StudentProgram>(snapshot.docs);
-        const activeProgram =
-          programs.find((program) => program.data.status === "active") ?? programs[0] ?? null;
-        emit({ studentProgram: activeProgram });
-
-        const nextProfileId = activeProgram?.data.programProfileId ?? null;
-        if (nextProfileId === activeProgramProfileId) {
-          return;
-        }
-
-        stopProgramProfile?.();
-        stopProgramProfile = null;
-        stopExamBlueprint?.();
-        stopExamBlueprint = null;
-        activeProgramProfileId = nextProfileId;
-        emit({ programProfile: null, examBlueprint: null });
-
-        if (nextProfileId) {
-          stopProgramProfile = onSnapshot(
-            doc(db, "programProfiles", nextProfileId),
-            (profileSnapshot) =>
-              {
-                const profile = profileSnapshot.exists()
-                  ? {
-                      id: profileSnapshot.id,
-                      data: profileSnapshot.data() as ProgramProfile,
-                    }
-                  : null;
-                emit({ programProfile: profile, examBlueprint: null });
-                stopExamBlueprint?.();
-                stopExamBlueprint = null;
-                const blueprintId = profile?.data.examBlueprintId;
-                if (blueprintId) {
-                  stopExamBlueprint = onSnapshot(
-                    doc(db, "examBlueprints", blueprintId),
-                    (blueprintSnapshot) =>
-                      emit({
-                        examBlueprint: blueprintSnapshot.exists()
-                          ? {
-                              id: blueprintSnapshot.id,
-                              data: blueprintSnapshot.data() as ExamBlueprint,
-                            }
-                          : null,
-                      }),
-                    reportError,
-                  );
-                }
-              },
-            reportError,
-          );
+        availablePrograms = mapDocuments<StudentProgram>(snapshot.docs);
+        try {
+          activateProgram(resolveActiveStudentProgram(
+            availablePrograms,
+            state.student?.data.activeProgramId,
+          ));
+        } catch (error) {
+          activateProgram(null);
+          reportError(error as Error);
         }
       },
       reportError,

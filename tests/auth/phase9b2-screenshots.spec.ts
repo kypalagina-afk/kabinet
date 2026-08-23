@@ -88,10 +88,7 @@ test("capture Phase 9B.2 critical acceptance screens", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Закрыть" }).click();
 
   await route(page, "/teacher/analytics");
-  await page
-    .locator(".page-heading select")
-    .nth(1)
-    .selectOption({ label: "Тестовая ученица" });
+  await page.locator(".analytics-filters select").selectOption({ label: "Тестовая ученица" });
   await expect(page.getByTestId("homework-analytics")).toBeVisible();
   await shot(page, "07-teacher-analytics-task-grid-homework");
 

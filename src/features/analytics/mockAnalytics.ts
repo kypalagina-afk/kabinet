@@ -15,7 +15,7 @@ export const defaultAnalyticsConfig: AnalyticsConfig = {
   confidenceAttempts: 3,
   weakThreshold: 45,
   strongThreshold: 75,
-  totalExamTasks: 11,
+  totalExamTasks: 0,
   readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
 };
 
@@ -113,7 +113,10 @@ export function calculateMockAnalytics(
     return result;
   });
   const latestPercent = mockTrend.at(-1)?.percent ?? 0;
-  const studiedCoverage = Math.min(1, masteryByTask.length / config.totalExamTasks);
+  const totalExamTasks = config.totalExamTasks || new Set(
+    exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+  ).size || 1;
+  const studiedCoverage = Math.min(1, masteryByTask.length / totalExamTasks);
   const examReadiness = Math.round(
     latestPercent * config.readinessWeights.latestMock +
       studiedMastery * studiedCoverage * config.readinessWeights.studiedMastery,

@@ -35,9 +35,8 @@ test("teacher writes homework and mock exam, student receives both in realtime",
   await expect(studentPage.getByTestId("student-lesson")).toContainText(
     "Тестовое занятие по пунктуации",
   );
-  await expect(studentPage.getByTestId("student-homework-title")).toHaveText(
-    "Сочинение · проверка по критериям",
-  );
+  await expect(studentPage.getByTestId("student-homework-title")).not.toHaveText("Нет активного задания");
+  const initialHomeworkTitle = await studentPage.getByTestId("student-homework-title").innerText();
   await expect(studentPage.getByTestId("student-mock-title")).toHaveText(
     "Тестовый исходный пробник",
   );
@@ -52,6 +51,8 @@ test("teacher writes homework and mock exam, student receives both in realtime",
   await expect(teacherPage.getByTestId("teacher-program-title")).toHaveText(
     "ОГЭ · Русский язык · 2027",
   );
+  await teacherPage.getByRole("link", { name: "+ Выдать ДЗ", exact: true }).first().click();
+  await expect(teacherPage.getByTestId("homework-package-form")).toBeVisible();
 
   const homeworkTitle = `Realtime ДЗ ${Date.now()}`;
   await teacherPage.locator('input[name="homeworkTitle"]').fill(homeworkTitle);
@@ -61,9 +62,16 @@ test("teacher writes homework and mock exam, student receives both in realtime",
   await teacherPage.locator('input[name="homeworkDueDate"]').fill("2099-12-31");
   await teacherPage.getByRole("button", { name: "Назначить ДЗ" }).click();
   await expect(teacherPage.getByRole("heading", { name: "Домашнее задание назначено" })).toBeVisible();
-  await expect(studentPage.getByTestId("student-homework-title")).toHaveText(
-    homeworkTitle,
-  );
+  await expect(studentPage.getByTestId("student-homework-title")).toHaveText(initialHomeworkTitle);
+  await studentPage.getByRole("link", { name: "ДЗ", exact: true }).click();
+  await expect(studentPage.getByTestId("homework-card").filter({ hasText: homeworkTitle })).toBeVisible();
+  await studentPage.getByRole("link", { name: "Главная", exact: true }).click();
+
+  await teacherPage
+    .getByRole("navigation", { name: "Разделы карточки ученика" })
+    .getByRole("link", { name: "Пробники", exact: true })
+    .click();
+  await expect(teacherPage.locator('input[name="mockTitle"]')).toBeVisible();
 
   const mockTitle = `Realtime пробник ${Date.now()}`;
   await teacherPage.locator('input[name="mockTitle"]').fill(mockTitle);

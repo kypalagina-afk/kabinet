@@ -14,6 +14,7 @@ export function MockAnalyticsDashboard({
   masteryPublic = [],
   coverage = [],
   taskNumbers,
+  programTitle,
   onEditMastery,
   onCoverageChange,
 }: {
@@ -22,6 +23,7 @@ export function MockAnalyticsDashboard({
   masteryPublic?: Array<DocumentWithId<StudentTaskMasteryPublic>>;
   coverage?: Array<DocumentWithId<StudentTaskCoverage>>;
   taskNumbers?: number[];
+  programTitle?: string;
   onEditMastery?(
     taskNumber: number,
     autoMastery: number,
@@ -29,7 +31,11 @@ export function MockAnalyticsDashboard({
   ): void;
   onCoverageChange?(taskNumber: number, state: CoverageState): void;
 }) {
-  const analytics = calculateMockAnalytics(exams);
+  const evidenceTasks = [...new Set([
+    ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+    ...coverage.map(({ data }) => data.taskNumber),
+    ...masteryPublic.map(({ data }) => data.taskNumber),
+  ])].sort((a, b) => a - b);
   const ordered = [...exams].sort(
     (a, b) =>
       (b.data.takenAt ?? b.data.createdAt).toMillis() -
@@ -38,7 +44,14 @@ export function MockAnalyticsDashboard({
   const latest = ordered[0];
   const tasks = taskNumbers?.length
     ? [...new Set(taskNumbers)].sort((a, b) => a - b)
-    : Array.from({ length: 13 }, (_, index) => index + 1);
+    : evidenceTasks;
+  const analytics = calculateMockAnalytics(exams, {
+    confidenceAttempts: 3,
+    weakThreshold: 45,
+    strongThreshold: 75,
+    totalExamTasks: tasks.length,
+    readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
+  });
   const studied = tasks.filter(
     (number) =>
       coverage.find(({ data }) => data.taskNumber === number)?.data.state ===
@@ -78,7 +91,7 @@ export function MockAnalyticsDashboard({
     <div className="analytics-dashboard" data-testid="mock-analytics-dashboard">
       <section className="analytics-stat-grid">
         <article className="metric-card metric-card--accent">
-          <span>Готовность к ОГЭ</span>
+          <span>Готовность{programTitle ? ` · ${programTitle}` : ""}</span>
           <strong>{effectiveReadiness}%</strong>
           <small>Качество по накопленным результатам</small>
         </article>

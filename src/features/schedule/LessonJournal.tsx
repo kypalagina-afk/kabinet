@@ -5,9 +5,10 @@ import type {
   Homework,
   Lesson,
   LessonTeacherNote,
+  UserProfile,
 } from "../../lib/firebase/types";
-import { formatFullDate } from "../../lib/formatters";
 import { CompleteLessonForm } from "./CompleteLessonForm";
+import { dateKeyForTimezone, formatDateTimeForTimezone, resolveTimezone } from "./timezone";
 
 const understandingLabels = {
   needs_practice: "Нужна отработка",
@@ -33,6 +34,8 @@ export function LessonJournal({
   teacherId = "",
   notes = [],
   initialLessonId,
+  timezone,
+  taskNumbers,
 }: {
   lessons: Array<DocumentWithId<Lesson>>;
   homeworks: Array<DocumentWithId<Homework>>;
@@ -40,12 +43,16 @@ export function LessonJournal({
   teacherId?: string;
   notes?: Array<DocumentWithId<LessonTeacherNote>>;
   initialLessonId?: string | null;
+  timezone?: UserProfile["timezone"];
+  taskNumbers?: number[];
 }) {
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(initialLessonId ? [initialLessonId] : []),
   );
   const [month, setMonth] = useState("");
   const [task, setTask] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const resolvedTimezone = useMemo(() => resolveTimezone(timezone), [timezone]);
   const completed = useMemo(
     () =>
       lessons
@@ -53,15 +60,13 @@ export function LessonJournal({
         .filter(
           ({ data }) =>
             !month ||
-            new Intl.DateTimeFormat("sv-SE", {
-              year: "numeric",
-              month: "2-digit",
-            }).format(data.startAt.toDate()) === month,
+            dateKeyForTimezone(data.startAt.toDate(), resolvedTimezone).slice(0, 7) === month,
         )
         .filter(({ data }) => !task || data.examTaskNumbers?.includes(task))
         .sort((a, b) => b.data.startAt.toMillis() - a.data.startAt.toMillis()),
-    [lessons, month, task],
+    [lessons, month, resolvedTimezone, task],
   );
+  const visibleCompleted = completed.slice(0, pageSize);
   const tasks = [
     ...new Set(lessons.flatMap(({ data }) => data.examTaskNumbers ?? [])),
   ].sort((a, b) => a - b);
@@ -152,7 +157,7 @@ export function LessonJournal({
         </label>
       </div>
       <div className="lesson-history">
-        {completed.map((lesson) => {
+        {visibleCompleted.map((lesson) => {
     const expanded = open.has(lesson.id) || initialLessonId === lesson.id;
           const homework = homeworks.find(
             ({ data }) => data.sourceLessonId === lesson.id,
@@ -172,7 +177,7 @@ export function LessonJournal({
                 type="button"
               >
                 <span>
-                  <small>{formatFullDate(lesson.data.startAt)}</small>
+                  <small>{formatDateTimeForTimezone(lesson.data.startAt.toDate(), resolvedTimezone, { dateStyle: "long", timeStyle: "short" })}</small>
                   <strong>
                     {lesson.data.topic ?? "Итоги занятия не заполнены"}
                   </strong>
@@ -236,10 +241,7 @@ export function LessonJournal({
                   {audience === "teacher" ? (
                     <CompleteLessonForm
                       lesson={lesson}
-                      taskNumbers={Array.from(
-                        { length: 13 },
-                        (_, index) => index + 1,
-                      )}
+                      taskNumbers={taskNumbers}
                       teacherId={teacherId}
                     />
                   ) : null}
@@ -249,6 +251,11 @@ export function LessonJournal({
           );
         })}
       </div>
+      {completed.length > visibleCompleted.length ? (
+        <button className="secondary-button history-load-more" onClick={() => setPageSize((value) => value + 20)} type="button">
+          Показать ещё
+        </button>
+      ) : null}
       {!completed.length ? (
         <p className="content-state">Завершённые занятия появятся здесь.</p>
       ) : null}

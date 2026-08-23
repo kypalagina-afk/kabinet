@@ -7,7 +7,7 @@ import {
   type Firestore,
   type Unsubscribe,
 } from "firebase/firestore";
-import type { DocumentWithId, Material, MaterialFolder, ProgramProfile } from "../types";
+import type { DocumentWithId, ExamBlueprint, Material, MaterialFolder, ProgramProfile } from "../types";
 import type { RealtimeObserver } from "./verticalSliceRepository";
 
 function mapped(documents: Array<{ id: string; data(): DocumentData }>): Array<DocumentWithId<Material>> {
@@ -64,6 +64,19 @@ export function subscribeProgramProfiles(
     collection(db, "programProfiles"),
     (snapshot) => observer.next(
       snapshot.docs.map((item) => ({ id: item.id, data: item.data() as ProgramProfile })),
+    ),
+    observer.error,
+  );
+}
+
+export function subscribeExamBlueprints(
+  db: Firestore,
+  observer: RealtimeObserver<Array<DocumentWithId<ExamBlueprint>>>,
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, "examBlueprints"),
+    (snapshot) => observer.next(
+      snapshot.docs.map((item) => ({ id: item.id, data: item.data() as ExamBlueprint })),
     ),
     observer.error,
   );

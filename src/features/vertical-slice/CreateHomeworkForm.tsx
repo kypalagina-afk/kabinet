@@ -19,6 +19,7 @@ import type {
   Homework,
   HomeworkItem,
   HomeworkTemplate,
+  Lesson,
   StudentProgram,
   ProgramProfile,
   DocumentWithId,
@@ -28,6 +29,7 @@ interface Props {
   teacherId: string;
   studentId: string;
   studentProgramId: string;
+  sourceLesson?: DocumentWithId<Lesson> | null;
 }
 const labels: Record<HomeworkItem["type"], string> = {
   theory: "Теория",
@@ -76,13 +78,27 @@ function criteriaForItem(
 }
 
 export function CreateHomeworkForm(props: Props) {
-  const draftKey = `homework-draft:${props.teacherId}:${props.studentId}`;
+  const draftKey = `homework-draft:${props.teacherId}:${props.studentId}${props.sourceLesson ? `:${props.sourceLesson.id}` : ""}`;
   const uploadsAvailable = isFirebaseStorageUploadAvailable();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(() =>
+    props.sourceLesson?.data.topic
+      ? `Закрепить тему: ${props.sourceLesson.data.topic}`
+      : "",
+  );
+  const [description, setDescription] = useState(() => {
+    const errors = props.sourceLesson?.data.lessonSummary.errors ??
+      props.sourceLesson?.data.lessonSummary.focusNotes ?? [];
+    return errors.length ? `Фокус отработки: ${errors.join("; ")}.` : "";
+  });
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
-  const [items, setItems] = useState<HomeworkItem[]>([newItem(0)]);
+  const [items, setItems] = useState<HomeworkItem[]>(() => [{
+    ...newItem(0),
+    title: props.sourceLesson?.data.topic
+      ? `Отработать: ${props.sourceLesson.data.topic}`
+      : "",
+    examTaskNumbers: [...(props.sourceLesson?.data.examTaskNumbers ?? [])],
+  }]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
@@ -309,6 +325,7 @@ export function CreateHomeworkForm(props: Props) {
       const finalTitle = smartTitle(title, cleanItems);
       const id = await createHomework(getFirebaseDb(), {
         ...props,
+        sourceLessonId: props.sourceLesson?.id ?? null,
         title: finalTitle,
         description: description || null,
         type: cleanItems[0]?.type ?? "other",
@@ -382,6 +399,12 @@ export function CreateHomeworkForm(props: Props) {
         <h2>Новое домашнее задание</h2>
         <p>Один срок, несколько пунктов и материалы рядом с каждым заданием.</p>
       </div>
+      {props.sourceLesson ? (
+        <p className="workflow-hint" data-testid="homework-source-lesson">
+          ДЗ будет атомарно связано с завершённым занятием
+          {props.sourceLesson.data.topic ? ` «${props.sourceLesson.data.topic}»` : ""}.
+        </p>
+      ) : null}
       {draftFound ? (
         <div className="draft-banner">
           <span>Найден незавершённый черновик.</span>

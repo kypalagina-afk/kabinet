@@ -1,5 +1,6 @@
 import type { User } from "firebase/auth";
-import { isUsingFirebaseEmulators } from "../client.js";
+import { backendRequest } from "../../backend/apiClient.js";
+import { isProductionBackendAvailable, isUsingFirebaseEmulators } from "../client.js";
 
 export interface StudentProvisioningInput {
   displayName: string;
@@ -39,15 +40,21 @@ export const localStudentProvisioningService: StudentProvisioningService = {
 };
 
 export const productionStudentProvisioningService: StudentProvisioningService = {
-  async create() {
-    throw new Error(
-      "Создание ученика в production отключено: требуется защищённый backend с Firebase Admin SDK.",
-    );
+  async create(user, input) {
+    if (!isProductionBackendAvailable()) throw new Error("Production provisioning недоступен: защищённый backend не настроен.");
+    return backendRequest<{ studentId: string; username: string }>("/v1/students", {
+      method: "POST",
+      user,
+      body: input,
+    });
   },
-  async resetPassword() {
-    throw new Error(
-      "Сброс пароля в production отключён: требуется защищённый backend с Firebase Admin SDK.",
-    );
+  async resetPassword(user, studentId, password) {
+    if (!isProductionBackendAvailable()) throw new Error("Production provisioning недоступен: защищённый backend не настроен.");
+    await backendRequest(`/v1/students/${encodeURIComponent(studentId)}/password`, {
+      method: "POST",
+      user,
+      body: { password },
+    });
   },
 };
 

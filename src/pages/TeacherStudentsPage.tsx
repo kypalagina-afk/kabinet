@@ -4,7 +4,7 @@ import { useAuth } from "../features/auth/AuthProvider";
 import { Avatar } from "../features/avatar/Avatar";
 import { useProgramProfiles } from "../features/materials/hooks";
 import { StudentWizard } from "../features/students/StudentWizard";
-import { isUsingFirebaseEmulators } from "../lib/firebase/client";
+import { isProductionBackendAvailable, isUsingFirebaseEmulators } from "../lib/firebase/client";
 import { useTeacherStudentPrograms, useTeacherStudents } from "../features/vertical-slice/hooks";
 
 export function TeacherStudentsPage() {
@@ -17,7 +17,7 @@ export function TeacherStudentsPage() {
   const [status, setStatus] = useState("active");
   const [classGrade, setClassGrade] = useState("");
   const [programId, setProgramId] = useState("");
-  const provisioningAvailable = isUsingFirebaseEmulators();
+  const provisioningAvailable = isUsingFirebaseEmulators() || isProductionBackendAvailable();
   const visible = useMemo(() => students.data.filter(({ id, data }) => {
     const assigned = programs.data.find((item) => item.data.studentId === id && item.data.status === "active");
     return data.displayName.toLocaleLowerCase("ru").includes(search.toLocaleLowerCase("ru"))

@@ -15,6 +15,7 @@ export interface MaterialInput {
   type: Material["type"];
   externalUrl: string;
   storagePath?: string | null;
+  fileAssetId?: string | null;
   programProfileIds: string[];
   examTaskNumbers: number[];
   tags: string[];
@@ -29,7 +30,7 @@ function normalize(input: MaterialInput): MaterialInput {
   const title = input.title.trim();
   const externalUrl = input.externalUrl.trim();
   if (!title) throw new Error("Название материала обязательно");
-  if (!externalUrl && !input.storagePath) throw new Error("Добавьте файл или ссылку");
+  if (!externalUrl && !input.storagePath && !input.fileAssetId) throw new Error("Добавьте файл или ссылку");
   const parsed = externalUrl ? new URL(externalUrl) : null;
   if (parsed && !new Set(["http:", "https:"]).has(parsed.protocol))
     throw new Error("Поддерживаются только HTTP(S)-ссылки");
@@ -39,6 +40,7 @@ function normalize(input: MaterialInput): MaterialInput {
     title,
     externalUrl: parsed?.toString() ?? "",
     storagePath: input.storagePath ?? null,
+    fileAssetId: input.fileAssetId ?? null,
     programProfileIds: [...new Set(input.programProfileIds.filter(Boolean))],
     examTaskNumbers: [...new Set(input.examTaskNumbers.filter((task) => Number.isInteger(task) && task > 0))].sort((a, b) => a - b),
     tags: [...new Set(input.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
@@ -62,6 +64,7 @@ export async function createMaterial(
       teacherId,
       ...value,
       storagePath: value.storagePath ?? null,
+      fileAssetId: value.fileAssetId ?? null,
       active: true,
       folderId: value.folderId ?? null,
       visibility: value.visibility ?? "program",
@@ -107,7 +110,7 @@ export async function updateMaterial(
     if (!snapshot.exists() || (snapshot.data() as Material).teacherId !== teacherId) {
       throw new Error("Материал не найден");
     }
-    transaction.update(reference, { ...value, storagePath: value.storagePath ?? null, updatedAt: serverTimestamp() });
+    transaction.update(reference, { ...value, storagePath: value.storagePath ?? null, fileAssetId: value.fileAssetId ?? null, updatedAt: serverTimestamp() });
   });
 }
 

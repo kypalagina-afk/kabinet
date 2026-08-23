@@ -13,7 +13,7 @@ import {
   useTeacherStudents,
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb, getFirebaseStorage, isFirebaseStorageUploadAvailable } from "../lib/firebase/client";
-import { uploadFileAsset } from "../lib/firebase/services/fileAssetService";
+import { getFileAssetDownloadUrl, uploadFileAsset } from "../lib/firebase/services/fileAssetService";
 import {
   archiveMaterial,
   createMaterial,
@@ -156,6 +156,7 @@ export function TeacherMaterialsPage() {
       allowedStudentIds: item.data.allowedStudentIds ?? [],
       favorite: item.data.favorite ?? false,
       storagePath: item.data.storagePath,
+      fileAssetId: item.data.fileAssetId ?? null,
     });
     setFile(null);
     setMaterialOpen(true);
@@ -187,6 +188,7 @@ export function TeacherMaterialsPage() {
           ...value,
           externalUrl: uploaded.attachment.url ?? "",
           storagePath: uploaded.attachment.storagePath,
+          fileAssetId: uploaded.assetId,
           type: uploaded.previewType === "image" ? "image" : uploaded.previewType === "pdf" ? "pdf" : "other",
         };
       }
@@ -209,6 +211,18 @@ export function TeacherMaterialsPage() {
     } finally {
       setSaving(false);
     }
+  }
+  async function openMaterial(item: DocumentWithId<Material>) {
+    if (!user) return;
+    await markMaterialUsed(getFirebaseDb(), user.uid, item.id);
+    const url = item.data.externalUrl || (item.data.fileAssetId
+      ? await getFileAssetDownloadUrl(item.data.fileAssetId)
+      : "");
+    if (!url) {
+      setMessage("Ссылка на материал недоступна.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   }
   function toggleStudent(id: string) {
     setAssignStudentIds((current) =>
@@ -432,18 +446,13 @@ export function TeacherMaterialsPage() {
               >
                 Назначить ▾
               </button>
-              <a
+              <button
                 className="secondary-button"
-                href={item.data.externalUrl ?? "#"}
-                onClick={() =>
-                  user &&
-                  void markMaterialUsed(getFirebaseDb(), user.uid, item.id)
-                }
-                rel="noreferrer"
-                target="_blank"
+                onClick={() => void openMaterial(item).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Не удалось открыть материал"))}
+                type="button"
               >
                 Открыть
-              </a>
+              </button>
               <details className="secondary-menu">
                 <summary aria-label="Другие действия">•••</summary>
                 <button onClick={() => openEdit(item)} type="button">

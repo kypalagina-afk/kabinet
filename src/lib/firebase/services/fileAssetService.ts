@@ -13,6 +13,8 @@ import {
   uploadBytesResumable,
   type FirebaseStorage,
 } from "firebase/storage";
+import { backendRequest } from "../../backend/apiClient.js";
+import { isProductionBackendAvailable, isUsingFirebaseEmulators } from "../client.js";
 import type { Attachment, FileAsset, FilePreviewType } from "../types.js";
 
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
@@ -81,6 +83,41 @@ export async function uploadFileAsset(
   onProgress?: (percent: number) => void,
 ): Promise<UploadedFile> {
   validateUpload(file);
+  if (!isUsingFirebaseEmulators()) {
+    if (!isProductionBackendAvailable()) throw new Error("Загрузка файлов в production не настроена.");
+    onProgress?.(5);
+    const intent = await backendRequest<{
+      assetId: string;
+      storagePath: string;
+      uploadUrl: string;
+    }>("/v1/files/upload-intent", {
+      method: "POST",
+      body: {
+        ...input,
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+      },
+    });
+    try {
+      const upload = await fetch(intent.uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": file.type },
+        body: file,
+      });
+      if (!upload.ok) throw new Error("Объектное хранилище отклонило загрузку файла.");
+      onProgress?.(85);
+      const finalized = await backendRequest<UploadedFile>(
+        `/v1/files/${encodeURIComponent(intent.assetId)}/finalize`,
+        { method: "POST", body: {} },
+      );
+      onProgress?.(100);
+      return finalized;
+    } catch (error) {
+      await backendRequest(`/v1/files/${encodeURIComponent(intent.assetId)}`, { method: "DELETE" }).catch(() => undefined);
+      throw error;
+    }
+  }
   const assetId = crypto.randomUUID();
   const path = storagePath(assetId, file, input);
   const storageReference = ref(storage, path);
@@ -132,6 +169,7 @@ export async function uploadFileAsset(
       url: await getDownloadURL(storageReference),
       storagePath: path,
       contentType: file.type,
+      storageProvider: "firebase",
     },
     previewType: previewType(file.type),
     size: file.size,
@@ -143,6 +181,11 @@ export async function deleteFileAsset(
   storage: FirebaseStorage,
   assetId: string,
 ): Promise<void> {
+  if (!isUsingFirebaseEmulators()) {
+    if (!isProductionBackendAvailable()) throw new Error("Удаление production-файлов не настроено.");
+    await backendRequest(`/v1/files/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+    return;
+  }
   const reference = doc(db, "fileAssets", assetId);
   const snapshot = await getDoc(reference);
   if (!snapshot.exists()) throw new Error("Файл не найден.");
@@ -153,4 +196,21 @@ export async function deleteFileAsset(
     deletedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function getAttachmentDownloadUrl(attachment: Attachment): Promise<string> {
+  if (attachment.url) return attachment.url;
+  if (attachment.kind !== "storage" || !attachment.id) throw new Error("Ссылка на файл недоступна.");
+  if (!isProductionBackendAvailable()) throw new Error("Получение production-файла не настроено.");
+  const result = await backendRequest<{ url: string }>(
+    `/v1/files/${encodeURIComponent(attachment.id)}/download`,
+  );
+  return result.url;
+}
+
+export async function getFileAssetDownloadUrl(assetId: string): Promise<string> {
+  const result = await backendRequest<{ url: string }>(
+    `/v1/files/${encodeURIComponent(assetId)}/download`,
+  );
+  return result.url;
 }

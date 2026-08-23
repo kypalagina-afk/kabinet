@@ -46,8 +46,16 @@ export function isUsingFirebaseEmulators(): boolean {
   return (import.meta.env.VITE_FIREBASE_TARGET ?? "emulator") === "emulator";
 }
 
+export function isProductionBackendAvailable(): boolean {
+  return (
+    !isUsingFirebaseEmulators() &&
+    import.meta.env.VITE_PRODUCTION_BACKEND_ENABLED === "true" &&
+    Boolean(import.meta.env.VITE_KABINET_API_BASE?.trim())
+  );
+}
+
 export function isFirebaseStorageUploadAvailable(): boolean {
-  return isUsingFirebaseEmulators();
+  return isUsingFirebaseEmulators() || isProductionBackendAvailable();
 }
 
 function createFirebaseServices(): FirebaseServices {

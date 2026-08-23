@@ -248,6 +248,7 @@ export type Attachment = {
   url: string | null;
   storagePath: string | null;
   contentType: string | null;
+  storageProvider?: "firebase" | "yandex" | null;
 };
 
 export interface HomeworkItem {
@@ -380,6 +381,7 @@ export interface Material extends AuditedDocument {
   type: "pdf" | "image" | "audio" | "video" | "link" | "interactive" | "other";
   storagePath: string | null;
   externalUrl: string | null;
+  fileAssetId?: string | null;
   tags: string[];
   active: boolean;
   folderId?: string | null;
@@ -514,12 +516,14 @@ export interface FileAsset extends AuditedDocument {
   submissionId: string | null;
   originalName: string;
   storagePath: string;
+  storageProvider?: "firebase" | "yandex";
   mimeType: string;
   size: number;
   previewType: FilePreviewType;
   allowedStudentIds: string[];
-  status: "active" | "deleted";
+  status: "pending" | "active" | "deleted";
   deletedAt: Timestamp | null;
+  uploadExpiresAt?: Timestamp | null;
 }
 
 export type PlannerCategory = "work" | "home" | "personal" | "someday";

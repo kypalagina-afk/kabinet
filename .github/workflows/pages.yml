@@ -39,6 +39,8 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: "816919605254"
           VITE_FIREBASE_APP_ID: 1:816919605254:web:ac26e6a847a71a88d99387
           VITE_AUTH_ALIAS_DOMAIN: kabinet25.example.com
+          VITE_PRODUCTION_BACKEND_ENABLED: "true"
+          VITE_KABINET_API_BASE: https://functions.yandexcloud.net/d4edsp9vr31m8so71ul7
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:

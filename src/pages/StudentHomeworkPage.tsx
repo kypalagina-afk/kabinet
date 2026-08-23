@@ -7,6 +7,7 @@ import { StudentSubmissionForm } from "../features/homework/StudentSubmissionFor
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
 import { formatHomeworkDueDate } from "../features/vertical-slice/selectors";
 import { getFirebaseDb } from "../lib/firebase/client";
+import { getAttachmentDownloadUrl } from "../lib/firebase/services/fileAssetService";
 import { markHomeworkReviewOpened } from "../lib/firebase/services/homeworkWorkflow";
 import type {
   Attachment,
@@ -276,24 +277,30 @@ function ItemResult({ evaluation }: { evaluation: HomeworkItemEvaluation }) {
   );
 }
 function StudentAttachments({ attachments }: { attachments: Attachment[] }) {
+  const [error, setError] = useState("");
+  async function open(attachment: Attachment) {
+    setError("");
+    const url = await getAttachmentDownloadUrl(attachment);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
   return attachments.length ? (
     <div className="attachment-buttons">
       {attachments.map((attachment) => (
-        <a
+        <button
           className="attachment-button"
-          href={attachment.url ?? "#"}
           key={attachment.id}
-          rel="noreferrer"
-          target="_blank"
+          onClick={() => void open(attachment).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Не удалось открыть файл."))}
+          type="button"
         >
-          {attachment.contentType?.startsWith("image/") ? (
-            <img alt="" src={attachment.url ?? ""} />
+          {attachment.contentType?.startsWith("image/") && attachment.url ? (
+            <img alt="" src={attachment.url} />
           ) : (
             <span>📎</span>
           )}
           <strong>{attachment.title}</strong>
-        </a>
+        </button>
       ))}
+      {error ? <span role="alert">{error}</span> : null}
     </div>
   ) : null;
 }

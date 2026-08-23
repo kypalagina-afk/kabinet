@@ -19,7 +19,7 @@ import {
   selectLatestMockExam,
   selectNearestLesson,
 } from "../features/vertical-slice/selectors";
-import { getFirebaseDb, isUsingFirebaseEmulators } from "../lib/firebase/client";
+import { getFirebaseDb, isProductionBackendAvailable, isUsingFirebaseEmulators } from "../lib/firebase/client";
 import {
   generateStudentPassword,
   getStudentProvisioningService,
@@ -42,7 +42,7 @@ const tabs: Array<[Tab, string]> = [
 type ConferenceLink = NonNullable<Student["conferenceLinks"]>[number];
 
 export function TeacherStudentPage() {
-  const provisioningAvailable = isUsingFirebaseEmulators();
+  const provisioningAvailable = isUsingFirebaseEmulators() || isProductionBackendAvailable();
   const { studentId = "" } = useParams();
   const location = useLocation();
   const [params] = useSearchParams();

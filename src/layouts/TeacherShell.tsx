@@ -3,12 +3,13 @@ import { NavLink, Outlet } from "react-router-dom";
 import { ChevronLeftIcon, ChevronRightIcon } from "../components/Icons";
 import { useAuth } from "../features/auth/AuthProvider";
 import { Avatar, AvatarPicker } from "../features/avatar/Avatar";
+import { moscowTimezoneLabel, resolveTimezone } from "../features/schedule/timezone";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 
 const links = [
   ["/teacher", "Главная", "🏠", true],
   ["/teacher/calendar", "Расписание", "📅"],
-  ["/teacher/planner", "Планы", "◫"],
+  ["/teacher/planner", "Планы", "🗓️"],
   ["/teacher/students", "Ученики", "👥"],
   ["/teacher/homeworks", "Домашние задания", "📝"],
   ["/teacher/materials", "Материалы", "📚"],
@@ -17,7 +18,7 @@ const links = [
 ] as const;
 
 export function TeacherShell() {
-  const { profile, error, logout, setAvatar } = useAuth();
+  const { profile, error, logout, setAvatar, setTimezone } = useAuth();
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("teacher-sidebar-collapsed") === "true",
@@ -91,7 +92,7 @@ export function TeacherShell() {
         </button>
         <div className="teacher-account teacher-avatar-control">
           <button
-            aria-label="Выбрать аватар преподавателя"
+            aria-label="Открыть профиль преподавателя"
             className="avatar-button"
             onClick={() => setAvatarOpen((value) => !value)}
             type="button"
@@ -107,11 +108,36 @@ export function TeacherShell() {
           </span>
           {avatarOpen ? (
             <div className="avatar-popover">
-              <strong>Мой аватар</strong>
+              <strong>Профиль преподавателя</strong>
               <AvatarPicker
                 value={profile?.avatarKey}
                 onChange={(key) => void setAvatar(key)}
               />
+              {profile?.role === "teacher" ? (
+                <label className="form-field teacher-timezone-field">
+                  <span>Часовой пояс</span>
+                  <select
+                    aria-label="Часовой пояс преподавателя"
+                    onChange={(event) => {
+                      if (event.target.value) void setTimezone(event.target.value);
+                    }}
+                    value={profile.timezone.iana ?? ""}
+                  >
+                    {!profile.timezone.iana ? <option value="">Сохранённое смещение · {moscowTimezoneLabel(new Date(), resolveTimezone(profile.timezone))}</option> : null}
+                    <option value="Europe/Moscow">Москва</option>
+                    <option value="Asia/Yekaterinburg">Екатеринбург</option>
+                    <option value="Asia/Omsk">Омск</option>
+                    <option value="Asia/Novosibirsk">Новосибирск</option>
+                    <option value="Asia/Krasnoyarsk">Красноярск</option>
+                    <option value="Asia/Irkutsk">Иркутск</option>
+                    <option value="Asia/Yakutsk">Якутск</option>
+                    <option value="Asia/Vladivostok">Владивосток</option>
+                  </select>
+                  <small>
+                    {profile.timezone.iana ?? "Europe/Moscow"} · {moscowTimezoneLabel(new Date(), resolveTimezone(profile.timezone))}
+                  </small>
+                </label>
+              ) : null}
             </div>
           ) : null}
         </div>

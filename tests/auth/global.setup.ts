@@ -1177,6 +1177,7 @@ export default async function globalSetup() {
       durationMinutes: null,
       deadline: null,
       notes: null,
+      priority: "medium",
       goalId: "test-planner-goal",
       subgoalId: "test-planner-subgoal",
       sortOrder: 1,
@@ -1198,6 +1199,7 @@ export default async function globalSetup() {
       durationMinutes: null,
       deadline: null,
       notes: null,
+      priority: "calm",
       goalId: null,
       subgoalId: null,
       sortOrder: 2,
@@ -1208,6 +1210,6 @@ export default async function globalSetup() {
       schemaVersion: 1,
     }),
     db.doc("plannerGoals/test-planner-goal").set({ teacherId: teacherUid, title: "Сильный учебный месяц", description: "Рабочая цель преподавателя", status: "active", targetDate: null, createdAt: now, updatedAt: now, schemaVersion: 1 }),
-    db.doc("plannerSubgoals/test-planner-subgoal").set({ teacherId: teacherUid, goalId: "test-planner-goal", title: "Подготовить материалы", status: "active", sortOrder: 1, createdAt: now, updatedAt: now, schemaVersion: 1 }),
+    db.doc("plannerSubgoals/test-planner-subgoal").set({ teacherId: teacherUid, goalId: "test-planner-goal", title: "Подготовить материалы", notes: "Собрать материалы к ближайшему уроку", status: "active", sortOrder: 1, createdAt: now, updatedAt: now, schemaVersion: 1 }),
   ]);
 }

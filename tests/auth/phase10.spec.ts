@@ -22,31 +22,41 @@ test("planner combines lessons and private plans with CRUD and goals", async ({ 
   await loginTeacher(page);
   await page.goto("/#/teacher/planner");
   await expect(page.getByTestId("planner-day")).toBeVisible();
+  await expect(page.getByTestId("planner-day-category-board")).toBeVisible();
+  await expect(page.locator(".planner-category-column")).toHaveCount(3);
+  await expect(page.locator('.planner-category-column[data-category="Работа"]')).toBeVisible();
+  await expect(page.locator('.planner-category-column[data-category="Дом"]')).toBeVisible();
+  await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"]')).toBeVisible();
   await expect(page.getByText("Подготовить материалы к занятию")).toBeVisible();
-  await expect(page.locator(".planner-entry--lesson").filter({ hasText: "Тестовая ученица" }).first()).toBeVisible();
-  await expect(page.getByTestId("planner-someday")).toContainText("Обновить подборку диктантов");
+  await expect(page.locator('.planner-category-column[data-category="Работа"] .planner-entry--lesson').first()).toBeVisible();
+  await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"]')).toContainText("Обновить подборку диктантов");
   await expect(page.getByTestId("planner-goals")).toContainText("Сильный учебный месяц");
 
-  const focusDate = await page.getByLabel("Дата планера").inputValue();
-  await page.getByRole("button", { name: `Добавить на ${focusDate} в 15:00` }).click();
+  await page.getByRole("button", { name: "Добавить в Дом" }).click();
   let dialog = page.getByRole("dialog", { name: "Новый пункт плана" });
   await dialog.getByLabel("Название").fill("Личная встреча");
+  await dialog.getByLabel("Время начала").fill("15:00");
   await dialog.getByLabel("Время окончания").fill("16:00");
   await dialog.getByRole("button", { name: "Добавить" }).click();
-  await expect(page.getByText("15:00 · Личная встреча")).toBeVisible();
+  await expect(page.getByText(/15:00 — Личная встреча/)).toBeVisible();
 
-  await page.getByRole("button", { name: "+ Задача без времени" }).click();
+  await page.getByRole("button", { name: "Добавить в Работа" }).click();
   dialog = page.getByRole("dialog", { name: "Новый пункт плана" });
   await dialog.getByLabel("Название").fill("Проверить сочинения");
-  await dialog.getByLabel("Категория").selectOption("home");
+  await dialog.getByLabel("Приоритет").selectOption("high");
   await dialog.getByRole("button", { name: "Добавить" }).click();
   const task = page.locator(".planner-entry").filter({ hasText: "Проверить сочинения" });
   await expect(task).toBeVisible();
   await task.getByRole("button", { name: "Выполнить задачу" }).click();
   await expect(task).toHaveClass(/planner-entry--done/);
 
-  await page.getByTestId("planner-someday").getByRole("button", { name: "Завтра" }).click();
-  await expect(page.getByTestId("planner-someday")).not.toContainText("Обновить подборку диктантов");
+  await page.getByRole("button", { name: /Обновить подборку диктантов/ }).click();
+  dialog = page.getByRole("dialog", { name: "Изменить план" });
+  await dialog.getByLabel("Категория").selectOption("work");
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  await dialog.getByLabel("Дата").fill(tomorrow.toISOString().slice(0, 10));
+  await dialog.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"]')).not.toContainText("Обновить подборку диктантов");
 
   await page.getByRole("button", { name: "+ Большая цель" }).click();
   dialog = page.getByRole("dialog", { name: "Большая цель" });
@@ -63,6 +73,11 @@ test("planner combines lessons and private plans with CRUD and goals", async ({ 
   await dialog.getByLabel("Название").fill("Собрать задания модуля");
   await dialog.getByRole("button", { name: "Добавить" }).click();
   await expect(goal).toContainText("0 из 2 шагов выполнено");
+
+  await page.locator(".planner-goals-open").click();
+  await expect(page.getByTestId("planner-goals-workspace")).toBeVisible();
+  await expect(page.getByText("Цель → подцели → задачи → планер")).toBeVisible();
+  await page.getByRole("dialog", { name: "Большие цели" }).getByRole("button", { name: "Закрыть" }).click();
 
   await page.getByRole("button", { name: "Неделя" }).click();
   await expect(page.getByTestId("planner-week")).toBeVisible();

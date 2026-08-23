@@ -3,6 +3,7 @@ import { generateRollingOccurrences } from "../../src/features/schedule/recurren
 import {
   dateKeyForTimezone,
   formatDateTimeForTimezone,
+  moscowTimezoneLabel,
   resolveTimezone,
   zonedLocalDateTimeToDate,
 } from "../../src/features/schedule/timezone.js";
@@ -25,13 +26,27 @@ describe("timezone conversion", () => {
 
   test("falls back to moscowOffsetMinutes for display only", () => {
     const timezone = resolveTimezone({ iana: null, moscowOffsetMinutes: 240 });
-    expect(timezone.label).toBe("UTC+04:00");
+    expect(timezone.label).toBe("UTC+07:00");
     expect(dateKeyForTimezone(new Date("2026-08-14T21:30:00.000Z"), timezone)).toBe(
       "2026-08-15",
     );
     expect(formatDateTimeForTimezone(new Date("2026-08-14T06:00:00.000Z"), timezone)).toContain(
-      "10:00",
+      "13:00",
     );
+    expect(moscowTimezoneLabel(new Date("2026-08-14T06:00:00.000Z"), timezone)).toBe("МСК+4");
+  });
+
+  test("derives МСК+4 dynamically for a UTC+7 teacher IANA timezone", () => {
+    const teacherTimezone = resolveTimezone({
+      iana: "Asia/Novosibirsk",
+      moscowOffsetMinutes: 240,
+    });
+    const instant = new Date("2026-08-23T06:00:00.000Z");
+    expect(moscowTimezoneLabel(instant, teacherTimezone)).toBe("МСК+4");
+    expect(formatDateTimeForTimezone(instant, teacherTimezone, {
+      hour: "2-digit",
+      minute: "2-digit",
+    })).toContain("13:00");
   });
 });
 

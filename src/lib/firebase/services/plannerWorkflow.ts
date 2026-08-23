@@ -22,6 +22,7 @@ export type PlannerItemInput = Pick<
   | "durationMinutes"
   | "deadline"
   | "notes"
+  | "priority"
   | "goalId"
   | "subgoalId"
 >;
@@ -33,12 +34,19 @@ function normalizedItem(input: PlannerItemInput) {
     throw new Error("Для события нужна дата");
   if (input.startTime && !input.date)
     throw new Error("Время можно указать только вместе с датой");
+  if (input.itemType === "event" && input.category === "someday")
+    throw new Error("Событие нужно отнести к Работе или Дому");
+  if (input.itemType === "task" && input.category === "personal")
+    throw new Error("Для задачи выберите Работу, Дом или Когда-нибудь");
+  if (input.itemType === "task" && input.category !== "someday" && !input.date)
+    throw new Error("Для задачи в Работе или Доме нужна дата");
   return {
     ...input,
     title,
     notes: input.notes?.trim() || null,
     endTime: input.startTime ? input.endTime : null,
     durationMinutes: input.startTime ? input.durationMinutes : null,
+    priority: input.priority ?? "calm",
     status: input.category === "someday" && !input.date ? "backlog" : "todo",
   } as const;
 }
@@ -90,6 +98,7 @@ export async function schedulePlannerItem(
   itemId: string,
   date: string,
   startTime: string | null,
+  category?: "work" | "home",
 ): Promise<void> {
   const reference = doc(db, "plannerItems", itemId);
   await runTransaction(db, async (transaction) => {
@@ -101,7 +110,7 @@ export async function schedulePlannerItem(
       startTime,
       category:
         snapshot.data().category === "someday"
-          ? "personal"
+          ? (category ?? "work")
           : snapshot.data().category,
       status: "todo",
       updatedAt: serverTimestamp(),
@@ -178,6 +187,7 @@ export async function createPlannerSubgoal(
   teacherId: string,
   goalId: string,
   titleValue: string,
+  notesValue: string | null = null,
 ): Promise<string> {
   const title = titleValue.trim();
   if (!title) throw new Error("Название подцели обязательно");
@@ -190,6 +200,7 @@ export async function createPlannerSubgoal(
       teacherId,
       goalId,
       title,
+      notes: notesValue?.trim() || null,
       status: "active",
       sortOrder: Date.now(),
       createdAt: serverTimestamp(),

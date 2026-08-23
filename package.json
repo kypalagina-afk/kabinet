@@ -29,7 +29,8 @@
     "pilot:verify": "tsx tools/verifyPilot.ts --input=private/pilot-lera.phase3.json",
     "rules:inspect-production": "tsx tools/inspectProductionRules.ts",
     "rules:deploy-production": "tsx tools/deployProductionRules.ts",
-    "smoke:production": "tsx tools/smokeProduction.ts"
+    "smoke:production": "tsx tools/smokeProduction.ts",
+    "phase10-1:migration": "tsx tools/phase10_1Migration.ts"
   },
   "dependencies": {
     "firebase": "^12.17.1",

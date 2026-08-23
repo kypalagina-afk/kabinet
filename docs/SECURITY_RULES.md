@@ -29,6 +29,15 @@
 Не может менять:
 teacherEvaluation, grade, mockExam, goal, paymentStatus, XP, achievements, ownership fields.
 
+Преподаватель может физически удалить только запланированное, не связанное
+переносом занятие. Для occurrence повторяющейся серии delete разрешается лишь в
+одной атомарной операции с созданием owner-scoped
+`lessonOccurrenceExclusions/{lessonId}`. Tombstone нельзя менять или удалять.
+Planner/Goals и occurrence tombstones ученику и anonymous недоступны.
+
+Собственный `users/{uid}.timezone` преподаватель может менять вместе только с
+`updatedAt`; широкий list по `users` по-прежнему запрещён.
+
 ## Auth provisioning
 Не создавать student account через обычный `createUserWithEmailAndPassword` из teacher browser, потому что новый user автоматически становится текущей сессией.
 

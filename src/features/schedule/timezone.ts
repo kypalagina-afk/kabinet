@@ -31,7 +31,9 @@ export function resolveTimezone(
     return { kind: "iana", label: iana, iana, offsetMinutes: null };
   }
   if (typeof preference?.moscowOffsetMinutes === "number") {
-    const offsetMinutes = preference.moscowOffsetMinutes;
+    // Legacy Phase 3 values store the difference from Moscow, not the UTC
+    // offset: 240 means МСК+4 (UTC+7). IANA remains the primary source.
+    const offsetMinutes = 180 + preference.moscowOffsetMinutes;
     const sign = offsetMinutes >= 0 ? "+" : "−";
     const absolute = Math.abs(offsetMinutes);
     const hours = String(Math.floor(absolute / 60)).padStart(2, "0");
@@ -82,6 +84,41 @@ function offsetAt(date: Date, timeZone: string): number {
       parts.second,
     ) - date.getTime()
   );
+}
+
+export function timezoneUtcOffsetMinutes(
+  date: Date,
+  timezone: ResolvedTimezone,
+): number {
+  if (timezone.kind === "iana" && timezone.iana) {
+    return Math.round(offsetAt(date, timezone.iana) / 60_000);
+  }
+  return timezone.offsetMinutes ?? 0;
+}
+
+export function moscowDifferenceHours(
+  date: Date,
+  timezone: ResolvedTimezone,
+): number {
+  const moscow = resolveTimezone({
+    iana: "Europe/Moscow",
+    moscowOffsetMinutes: 180,
+  });
+  return Math.round(
+    (timezoneUtcOffsetMinutes(date, timezone) -
+      timezoneUtcOffsetMinutes(date, moscow)) /
+      60,
+  );
+}
+
+export function moscowTimezoneLabel(
+  date: Date,
+  timezone: ResolvedTimezone,
+): string {
+  const difference = moscowDifferenceHours(date, timezone);
+  return difference === 0
+    ? "МСК"
+    : `МСК${difference > 0 ? "+" : "−"}${Math.abs(difference)}`;
 }
 
 export function zonedLocalDateTimeToDate(

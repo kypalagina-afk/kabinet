@@ -10,7 +10,9 @@ import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import {
   dateKeyForTimezone,
   formatDateTimeForTimezone,
+  moscowTimezoneLabel,
   resolveTimezone,
+  timezoneUtcOffsetMinutes,
   type TimeDisplayMode,
   zonedLocalDateTimeToDate,
 } from "../features/schedule/timezone";
@@ -21,6 +23,7 @@ import {
   cancelLessonSeries,
   createOneOffLesson,
   createLessonSeries,
+  hardDeleteLesson,
   rescheduleLesson,
   changeRecurringSeriesFuture,
 } from "../lib/firebase/services/scheduleOperations";
@@ -128,13 +131,10 @@ export function TeacherCalendarPage() {
           },
     [manualOffset, presetTimezone],
   );
-  const mskLabel = useMemo(() => {
-    const offset = displayTimezone.offsetMinutes ?? 180;
-    const difference = Math.round((offset - 180) / 60);
-    return difference === 0
-      ? "МСК"
-      : `МСК${difference > 0 ? "+" : "−"}${Math.abs(difference)}`;
-  }, [displayTimezone.offsetMinutes]);
+  const mskLabel = useMemo(
+    () => moscowTimezoneLabel(now, displayTimezone),
+    [displayTimezone, now],
+  );
   const selectedLesson =
     data.lessons.find(({ id }) => id === selectedLessonId) ?? null;
   const visibleLessons = (
@@ -440,7 +440,8 @@ export function TeacherCalendarPage() {
             className="icon-button"
             onClick={() =>
               setManualOffset(
-                (value) => (value ?? presetTimezone.offsetMinutes ?? 180) - 60,
+                (value) =>
+                  (value ?? timezoneUtcOffsetMinutes(now, presetTimezone)) - 60,
               )
             }
             type="button"
@@ -453,7 +454,8 @@ export function TeacherCalendarPage() {
             className="icon-button"
             onClick={() =>
               setManualOffset(
-                (value) => (value ?? presetTimezone.offsetMinutes ?? 180) + 60,
+                (value) =>
+                  (value ?? timezoneUtcOffsetMinutes(now, presetTimezone)) + 60,
               )
             }
             type="button"
@@ -882,6 +884,26 @@ export function TeacherCalendarPage() {
                       type="button"
                     >
                       Отменить один урок
+                    </button>
+                    <button
+                      className="secondary-button secondary-button--danger"
+                      data-testid="hard-delete-lesson"
+                      onClick={() => {
+                        if (!window.confirm("Удалить занятие навсегда?")) return;
+                        void runOperation(
+                          () => hardDeleteLesson(getFirebaseDb(), {
+                            lessonId: selectedLesson.id,
+                            teacherId: user?.uid ?? "",
+                          }).then((result) => {
+                            if (result.status === "applied") setSelectedLessonId(null);
+                            return result;
+                          }),
+                          "Ошибочное занятие удалено без возможности восстановления.",
+                        );
+                      }}
+                      type="button"
+                    >
+                      Удалить урок
                     </button>
                     {selectedLesson.data.lessonSeriesId ? (
                       <button

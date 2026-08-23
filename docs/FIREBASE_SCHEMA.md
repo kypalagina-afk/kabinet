@@ -200,6 +200,26 @@ Email reset не использовать; password reset через Admin SDK.
 }
 ```
 
+## `lessonOccurrenceExclusions/{lessonId}` (Phase 10.1, additive)
+
+A permanent tombstone for one hard-deleted recurring occurrence. Its document
+ID is the deterministic lesson occurrence ID. Materialization reads this record
+before creating a lesson, so a deleted occurrence cannot return while its
+series remains active.
+
+```ts
+{
+  teacherId: string,
+  studentId: string,
+  lessonSeriesId: string,
+  occurrenceStartAt: Timestamp,
+  reason: "hard_deleted",
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+  schemaVersion: 1
+}
+```
+
 ## `homeworkSubmissions/{id}`
 
 ```ts
@@ -340,9 +360,12 @@ Storage paths:
 ## Teacher-only planner (Phase 10, additive)
 
 `plannerItems/{id}` stores a personal task/event with `teacherId`, `itemType`,
-`category`, `status`, `date`, optional time/deadline, goal links and soft-delete
-fields. `plannerGoals/{id}` stores a large goal. `plannerSubgoals/{id}` stores a
-goal step. Progress is derived from completed subgoals and linked planner items;
+`category`, `status`, `date`, optional time/deadline/duration/note, `priority`
+(`high | medium | calm`), goal links and soft-delete fields. Task categories are
+`work | home | someday`; legacy `personal` remains readable as Home. Events use
+`work | home`. `plannerGoals/{id}` stores a large goal.
+`plannerSubgoals/{id}` stores a goal step and optional notes. Progress is derived
+from completed subgoals and linked planner items;
 it is not persisted as a competing source of truth. Existing lessons stay in
 `lessons` and are only rendered alongside private planner items.
 

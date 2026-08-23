@@ -26,6 +26,7 @@ describe("teacher planner rules and workflow", () => {
     const id = await createPlannerItem(db, "teacher-planner", {
       itemType: "task", title: "Подготовить урок", category: "work", date: "2026-08-21", startTime: null,
       endTime: null, durationMinutes: null, deadline: null, notes: null, goalId: null, subgoalId: null,
+      priority: "medium",
     });
     await assertSucceeds(schedulePlannerItem(db, "teacher-planner", id, "2026-08-22", "11:00"));
     expect((await getDoc(doc(db, "plannerItems", id))).data()).toMatchObject({ date: "2026-08-22", startTime: "11:00" });

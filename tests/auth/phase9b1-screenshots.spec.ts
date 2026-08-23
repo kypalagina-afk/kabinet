@@ -35,7 +35,7 @@ async function closeDialog(page: Page) {
 
 async function teacherScreens(page: Page, theme: "light" | "dark") {
   await setTheme(page, theme);
-  if (await page.locator(".avatar-popover").isVisible()) await page.getByRole("button", { name: "Выбрать аватар преподавателя" }).click();
+  if (await page.locator(".avatar-popover").isVisible()) await page.getByRole("button", { name: "Открыть профиль преподавателя" }).click();
   await route(page, "/teacher");
   await shot(page, theme, "teacher-home-need-to-do");
 
@@ -98,7 +98,7 @@ async function teacherScreens(page: Page, theme: "light" | "dark") {
   await expect(page.locator(".compare-card")).toBeVisible();
   await shot(page, theme, "teacher-mock-compare");
 
-  if (!await page.locator(".avatar-popover").isVisible()) await page.getByRole("button", { name: "Выбрать аватар преподавателя" }).click();
+  if (!await page.locator(".avatar-popover").isVisible()) await page.getByRole("button", { name: "Открыть профиль преподавателя" }).click();
   await expect(page.locator(".avatar-popover")).toBeVisible();
   await shot(page, theme, "teacher-avatar-picker");
 }

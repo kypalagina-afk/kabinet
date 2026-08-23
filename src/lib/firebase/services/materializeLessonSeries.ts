@@ -29,6 +29,7 @@ export interface MaterializeLessonSeriesInput {
 export interface MaterializeLessonSeriesResult {
   createdIds: string[];
   skippedIds: string[];
+  suppressedIds: string[];
 }
 
 const rollingMaterializations = new Map<
@@ -65,20 +66,38 @@ export async function materializeLessonSeries(
     id,
     occurrence,
     reference: doc(collection(db, "lessons"), id),
+    exclusionReference: doc(collection(db, "lessonOccurrenceExclusions"), id),
   }));
 
   return runTransaction(db, async (transaction) => {
     const snapshots = await Promise.all(
       lessonEntries.map(({ reference }) => transaction.get(reference)),
     );
+    const exclusionSnapshots = await Promise.all(
+      lessonEntries.map(({ exclusionReference }) => transaction.get(exclusionReference)),
+    );
     const createdIds: string[] = [];
     const skippedIds: string[] = [];
+    const suppressedIds: string[] = [];
 
     lessonEntries.forEach(({ id, occurrence, reference }, index) => {
       const snapshot = snapshots[index];
+      const exclusionSnapshot = exclusionSnapshots[index];
 
       if (!snapshot) {
         throw new Error(`Missing transaction snapshot for lesson ${id}`);
+      }
+
+      if (exclusionSnapshot?.exists()) {
+        const exclusion = exclusionSnapshot.data();
+        if (
+          exclusion.lessonSeriesId !== input.seriesId ||
+          exclusion.occurrenceStartAt.toMillis() !== occurrence.startAt.toMillis()
+        ) {
+          throw new Error(`Lesson occurrence exclusion collision: ${id}`);
+        }
+        suppressedIds.push(id);
+        return;
       }
 
       if (snapshot.exists()) {
@@ -123,7 +142,7 @@ export async function materializeLessonSeries(
       createdIds.push(id);
     });
 
-    return { createdIds, skippedIds };
+    return { createdIds, skippedIds, suppressedIds };
   });
 }
 
@@ -134,7 +153,7 @@ export function materializeRollingLessonSeries(
   now = new Date(),
 ): Promise<MaterializeLessonSeriesResult> {
   if (!series.active)
-    return Promise.resolve({ createdIds: [], skippedIds: [] });
+    return Promise.resolve({ createdIds: [], skippedIds: [], suppressedIds: [] });
   const key = `${db.app.options.projectId ?? "local"}:${seriesId}`;
   const inFlight = rollingMaterializations.get(key);
   if (inFlight) return inFlight;

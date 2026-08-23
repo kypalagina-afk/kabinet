@@ -8,6 +8,7 @@ import {
 } from "@firebase/rules-unit-testing";
 import {
   collection,
+  deleteDoc,
   doc,
   type Firestore,
   getDoc,
@@ -26,6 +27,7 @@ import { materializeLessonSeries } from "../../src/lib/firebase/services/materia
 import {
   cancelLesson,
   cancelLessonSeries,
+  hardDeleteLesson,
   rescheduleLesson,
 } from "../../src/lib/firebase/services/scheduleOperations.js";
 import {
@@ -864,7 +866,87 @@ describe("idempotent domain operations", () => {
     expect((await getDoc(doc(db, "lessons", "cancel-one"))).data()?.status).toBe(
       "cancelled_student",
     );
+    expect((await getDoc(doc(db, "lessons", "cancel-one"))).exists()).toBe(true);
     expect((await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active).toBe(true);
+  });
+
+  test("hard-deletes one recurring occurrence and materialization keeps it suppressed", async () => {
+    await seedFixture();
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    const occurrence = {
+      startAt: Timestamp.fromDate(new Date("2026-09-10T07:00:00.000Z")),
+      endAt: Timestamp.fromDate(new Date("2026-09-10T08:00:00.000Z")),
+    };
+    const input = {
+      seriesId: "series-1",
+      teacherId: teacherAuth.uid,
+      studentId: "student-1",
+      studentProgramId: "student-1-program",
+      occurrences: [occurrence],
+    };
+    const materialized = await materializeLessonSeries(db, input);
+    const lessonId = materialized.createdIds[0]!;
+    const removed = await hardDeleteLesson(db, { lessonId, teacherId: teacherAuth.uid });
+    expect(removed).toEqual({ status: "applied", suppressedOccurrence: true });
+    expect((await getDoc(doc(db, "lessons", lessonId))).exists()).toBe(false);
+    expect((await getDoc(doc(db, "lessonOccurrenceExclusions", lessonId))).data()).toMatchObject({
+      teacherId: teacherAuth.uid,
+      lessonSeriesId: "series-1",
+      reason: "hard_deleted",
+    });
+    await expect(hardDeleteLesson(db, { lessonId, teacherId: teacherAuth.uid })).resolves.toEqual({
+      status: "noop",
+      suppressedOccurrence: true,
+    });
+    const retryMaterialization = await materializeLessonSeries(db, input);
+    expect(retryMaterialization.suppressedIds).toEqual([lessonId]);
+    expect((await getDoc(doc(db, "lessons", lessonId))).exists()).toBe(false);
+  });
+
+  test("hard delete removes payment references and students cannot invoke it", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await Promise.all([
+        setDoc(doc(db, "lessons", "accidental-manual"), {
+          ...scheduledLessonDocument(new Date("2026-09-12T07:00:00.000Z")),
+          lessonSeriesId: null,
+          billingIdentityId: "accidental-manual",
+          paymentStatus: "paid",
+        }),
+        setDoc(doc(db, "lessons", "next-valid"), {
+          ...scheduledLessonDocument(new Date("2026-09-19T07:00:00.000Z")),
+          lessonSeriesId: null,
+          billingIdentityId: "next-valid",
+        }),
+        setDoc(doc(db, "studentPaymentAccounts", "student-1"), {
+          teacherId: teacherAuth.uid,
+          studentId: "student-1",
+          purchasedLessonCredits: 1,
+          reconciledFromLegacyPaidCount: 0,
+          lastAllocationLessonIds: ["accidental-manual"],
+          manualPaidBillingIds: ["accidental-manual"],
+          ...baseTimestamps(),
+        }),
+      ]);
+    });
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    await assertFails(deleteDoc(doc(studentDb, "lessons", "accidental-manual")));
+    const teacherDb = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    await hardDeleteLesson(teacherDb, {
+      lessonId: "accidental-manual",
+      teacherId: teacherAuth.uid,
+    });
+    const account = (await getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1"))).data();
+    expect(account?.manualPaidBillingIds).toEqual([]);
+    expect(account?.lastAllocationLessonIds).toEqual(["next-valid"]);
+    expect((await getDoc(doc(teacherDb, "lessons", "next-valid"))).data()?.paymentStatus).toBe("paid");
   });
 
   test("cancels the series and only future planned lessons", async () => {

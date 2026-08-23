@@ -13,6 +13,8 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import type { Lesson, LessonSeries } from "../types.js";
+import type { StudentPaymentAccount } from "../types.js";
+import { allocateLessonCredits } from "../../../features/payments/allocation.js";
 import { materializeRollingLessonSeries } from "./materializeLessonSeries.js";
 
 export type CancellationActor = "teacher" | "student";
@@ -191,6 +193,123 @@ export async function cancelLesson(
     }
     transaction.update(reference, { status: nextStatus, updatedAt: serverTimestamp() });
     return { status: "applied" as const };
+  });
+}
+
+export async function hardDeleteLesson(
+  db: Firestore,
+  input: { lessonId: string; teacherId: string },
+): Promise<OperationResult & { suppressedOccurrence: boolean }> {
+  const lessonReference = doc(db, "lessons", input.lessonId);
+  const exclusionReference = doc(db, "lessonOccurrenceExclusions", input.lessonId);
+  const [preflight, existingExclusion] = await Promise.all([
+    getDoc(lessonReference),
+    getDoc(exclusionReference),
+  ]);
+  if (!preflight.exists()) {
+    if (existingExclusion.exists() && existingExclusion.data().teacherId === input.teacherId)
+      return { status: "noop", suppressedOccurrence: true };
+    throw new Error(`Lesson ${input.lessonId} does not exist`);
+  }
+  const preflightLesson = preflight.data() as Lesson;
+  if (preflightLesson.teacherId !== input.teacherId)
+    throw new Error("Lesson ownership mismatch");
+  if (preflightLesson.status !== "planned")
+    throw new Error("Only a planned accidental lesson can be permanently deleted");
+  if (preflightLesson.rescheduledFromLessonId || preflightLesson.rescheduledToLessonId)
+    throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
+
+  const studentLessons = await getDocs(query(
+    collection(db, "lessons"),
+    where("teacherId", "==", input.teacherId),
+    where("studentId", "==", preflightLesson.studentId),
+  ));
+  const accountReference = doc(db, "studentPaymentAccounts", preflightLesson.studentId);
+
+  return runTransaction(db, async (transaction) => {
+    const [targetSnapshot, accountSnapshot, exclusionSnapshot, ...lessonSnapshots] =
+      await Promise.all([
+        transaction.get(lessonReference),
+        transaction.get(accountReference),
+        transaction.get(exclusionReference),
+        ...studentLessons.docs.map((item) => transaction.get(item.ref)),
+      ]);
+    if (!targetSnapshot.exists()) {
+      if (exclusionSnapshot.exists())
+        return { status: "noop" as const, suppressedOccurrence: true };
+      throw new Error(`Lesson ${input.lessonId} does not exist`);
+    }
+    const target = targetSnapshot.data() as Lesson;
+    if (target.teacherId !== input.teacherId || target.studentId !== preflightLesson.studentId)
+      throw new Error("Lesson ownership mismatch");
+    if (target.status !== "planned")
+      throw new Error("Only a planned accidental lesson can be permanently deleted");
+    if (target.rescheduledFromLessonId || target.rescheduledToLessonId)
+      throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
+
+    if (target.lessonSeriesId && !exclusionSnapshot.exists()) {
+      transaction.set(exclusionReference, {
+        teacherId: target.teacherId,
+        studentId: target.studentId,
+        lessonSeriesId: target.lessonSeriesId,
+        occurrenceStartAt: target.startAt,
+        reason: "hard_deleted",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        schemaVersion: 1,
+      });
+    }
+
+    const account = accountSnapshot.exists()
+      ? (accountSnapshot.data() as StudentPaymentAccount)
+      : null;
+    if (account) {
+      if (account.teacherId !== input.teacherId || account.studentId !== target.studentId)
+        throw new Error("Payment account ownership mismatch");
+      const targetIdentity = target.billingIdentityId ?? input.lessonId;
+      const manual = new Set(account.manualPaidBillingIds ?? []);
+      manual.delete(targetIdentity);
+      const remaining = lessonSnapshots
+        .filter((snapshot) => snapshot.exists() && snapshot.id !== input.lessonId)
+        .map((snapshot) => ({ snapshot, lesson: snapshot.data() as Lesson }));
+      const allocation = allocateLessonCredits(
+        remaining
+          .filter(({ snapshot, lesson }) => !manual.has(lesson.billingIdentityId ?? snapshot.id))
+          .map(({ snapshot, lesson }) => ({
+            id: snapshot.id,
+            startMs: lesson.startAt.toMillis(),
+            status: lesson.status,
+            paymentStatus: lesson.paymentStatus,
+            billingType: lesson.billingType,
+            billingIdentityId: lesson.billingIdentityId,
+          })),
+        account.reconciledFromLegacyPaidCount + account.purchasedLessonCredits,
+      );
+      const allocated = new Set(allocation.paidIds);
+      const paidIds: string[] = [];
+      remaining.forEach(({ snapshot, lesson }) => {
+        if (lesson.status !== "planned" && lesson.status !== "completed") return;
+        const identity = lesson.billingIdentityId ?? snapshot.id;
+        const isFree = lesson.billingType === "free" || lesson.paymentStatus === "free";
+        const isPaid = !isFree && (manual.has(identity) || allocated.has(snapshot.id));
+        if (isPaid) paidIds.push(snapshot.id);
+        const paymentStatus = isFree ? "free" : isPaid ? "paid" : "unpaid";
+        if (lesson.paymentStatus !== paymentStatus) {
+          transaction.update(snapshot.ref, { paymentStatus, updatedAt: serverTimestamp() });
+        }
+      });
+      transaction.update(accountReference, {
+        manualPaidBillingIds: [...manual],
+        lastAllocationLessonIds: paidIds,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    transaction.delete(lessonReference);
+    return {
+      status: "applied" as const,
+      suppressedOccurrence: Boolean(target.lessonSeriesId),
+    };
   });
 }
 

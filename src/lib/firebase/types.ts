@@ -175,6 +175,14 @@ export interface Lesson extends AuditedDocument {
   wasRescheduled?: boolean;
 }
 
+export interface LessonOccurrenceExclusion extends AuditedDocument {
+  teacherId: string;
+  studentId: string;
+  lessonSeriesId: string;
+  occurrenceStartAt: Timestamp;
+  reason: "hard_deleted";
+}
+
 export interface LessonTeacherNote extends AuditedDocument {
   teacherId: string;
   studentId: string;
@@ -513,6 +521,7 @@ export interface FileAsset extends AuditedDocument {
 
 export type PlannerCategory = "work" | "home" | "personal" | "someday";
 export type PlannerItemStatus = "todo" | "done" | "backlog";
+export type PlannerPriority = "high" | "medium" | "calm";
 
 export interface PlannerItem extends AuditedDocument {
   teacherId: string;
@@ -526,6 +535,7 @@ export interface PlannerItem extends AuditedDocument {
   durationMinutes: number | null;
   deadline: string | null;
   notes: string | null;
+  priority: PlannerPriority;
   goalId: string | null;
   subgoalId: string | null;
   sortOrder: number;
@@ -545,6 +555,7 @@ export interface PlannerSubgoal extends AuditedDocument {
   teacherId: string;
   goalId: string;
   title: string;
+  notes?: string | null;
   status: "active" | "completed";
   sortOrder: number;
 }
@@ -570,6 +581,7 @@ export interface CollectionSchema {
   studentPrograms: StudentProgram;
   lessonSeries: LessonSeries;
   lessons: Lesson;
+  lessonOccurrenceExclusions: LessonOccurrenceExclusion;
   lessonTeacherNotes: LessonTeacherNote;
   homeworks: Homework;
   homeworkSubmissions: HomeworkSubmission;

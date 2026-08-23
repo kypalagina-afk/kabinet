@@ -39,6 +39,7 @@ interface AuthContextValue {
   logout(): Promise<void>;
   setTheme(theme: ThemePreference): Promise<void>;
   setAvatar(avatarKey: string): Promise<void>;
+  setTimezone(iana: string): Promise<void>;
   clearError(): void;
 }
 
@@ -222,6 +223,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [profile, user]);
 
+  const setTimezone = useCallback(async (iana: string) => {
+    if (!user || !profile) return;
+    try {
+      new Intl.DateTimeFormat("ru-RU", { timeZone: iana }).format(new Date());
+    } catch {
+      throw new Error("Неизвестный часовой пояс");
+    }
+    const previousProfile = profile;
+    const timezone = { ...profile.timezone, iana };
+    setProfile({ ...profile, timezone });
+    try {
+      await updateDoc(doc(getFirebaseDb(), "users", user.uid), {
+        timezone,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (updateError) {
+      setProfile(previousProfile);
+      setError("Не удалось сохранить часовой пояс.");
+      throw updateError;
+    }
+  }, [profile, user]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status,
@@ -233,9 +256,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       setTheme,
       setAvatar,
+      setTimezone,
       clearError,
     }),
-    [clearError, error, login, logout, profile, setAvatar, setTheme, status, theme, user],
+    [clearError, error, login, logout, profile, setAvatar, setTheme, setTimezone, status, theme, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

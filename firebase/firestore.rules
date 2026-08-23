@@ -48,6 +48,21 @@ service cloud.firestore {
         && request.resource.data.studentId == resource.data.studentId;
     }
 
+    function recurringLessonDeleteIsSuppressed(id) {
+      return resource.data.lessonSeriesId == null
+        || (
+          existsAfter(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id))
+          && getAfter(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id)).data.teacherId
+            == resource.data.teacherId
+          && getAfter(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id)).data.studentId
+            == resource.data.studentId
+          && getAfter(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id)).data.lessonSeriesId
+            == resource.data.lessonSeriesId
+          && getAfter(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id)).data.occurrenceStartAt
+            == resource.data.startAt
+        );
+    }
+
     function teacherCanReadOwnedStudentUser(uid) {
       return isTeacher()
         && exists(/databases/$(database)/documents/students/$(uid))
@@ -90,7 +105,17 @@ service cloud.firestore {
         && (
           request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["preferences", "avatarKey", "updatedAt"])
+            .hasOnly(["preferences", "avatarKey", "timezone", "updatedAt"])
+          && (
+            !("timezone" in request.resource.data)
+            || (
+              request.resource.data.timezone.iana is string
+              && (
+                request.resource.data.timezone.moscowOffsetMinutes is int
+                || request.resource.data.timezone.moscowOffsetMinutes == null
+              )
+            )
+          )
         );
       allow create: if isTeacher()
         && request.resource.data.role == "student"
@@ -142,7 +167,24 @@ service cloud.firestore {
       allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data) && ownershipUnchanged();
-      allow delete: if false;
+      allow delete: if teacherOwns(resource.data)
+        && resource.data.status == "planned"
+        && resource.data.rescheduledFromLessonId == null
+        && resource.data.rescheduledToLessonId == null
+        && recurringLessonDeleteIsSuppressed(id);
+    }
+
+    match /lessonOccurrenceExclusions/{id} {
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/lessonOccurrenceExclusions/$(id))
+        ) || teacherOwns(resource.data);
+      allow list: if teacherOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data)
+        && request.resource.data.reason == "hard_deleted"
+        && request.resource.data.lessonSeriesId is string
+        && request.resource.data.studentId is string;
+      allow update, delete: if false;
     }
 
     match /homeworks/{id} {

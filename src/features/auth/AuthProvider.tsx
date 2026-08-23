@@ -130,6 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       stopProfile = onSnapshot(
         doc(db, "users", nextUser.uid),
         (snapshot) => {
+          if (!snapshot.exists() && snapshot.metadata.fromCache) {
+            return;
+          }
           const profileData = snapshot.data();
           if (!snapshot.exists() || !isUserProfile(profileData)) {
             setError("Профиль пользователя не найден или повреждён.");

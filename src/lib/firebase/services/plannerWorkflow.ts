@@ -8,8 +8,16 @@ import {
 import type {
   PlannerGoal,
   PlannerItem,
+  PlannerRecurrencePattern,
   PlannerSubgoal,
 } from "../types.js";
+import {
+  addPlannerDays,
+  plannerOccurrenceId,
+  plannerRecurrenceDates,
+  plannerRecurrenceHorizon,
+  plannerRecurrenceWeekdays,
+} from "../../../features/planner/recurrence.js";
 
 export type PlannerItemInput = Pick<
   PlannerItem,
@@ -26,6 +34,13 @@ export type PlannerItemInput = Pick<
   | "goalId"
   | "subgoalId"
 >;
+
+export interface PlannerRecurrenceInput {
+  pattern: PlannerRecurrencePattern;
+  weekdays: number[];
+  startsOn: string;
+  endsOn: string | null;
+}
 
 function normalizedItem(input: PlannerItemInput) {
   const title = input.title.trim();
@@ -71,6 +86,147 @@ export async function createPlannerItem(
     });
   });
   return reference.id;
+}
+
+export async function createRecurringPlannerTask(
+  db: Firestore,
+  teacherId: string,
+  input: PlannerItemInput,
+  recurrenceInput: PlannerRecurrenceInput,
+  today: string,
+): Promise<string> {
+  if (input.itemType !== "task") throw new Error("Повторять можно только задачи");
+  if (input.category === "someday" || input.category === "personal") {
+    throw new Error("Регулярную задачу нужно отнести к Работе или Дому");
+  }
+  const weekdays = plannerRecurrenceWeekdays(
+    recurrenceInput.pattern,
+    recurrenceInput.weekdays,
+  );
+  const value = normalizedItem({
+    ...input,
+    date: recurrenceInput.startsOn,
+    deadline: null,
+  });
+  const reference = doc(collection(db, "plannerItems"));
+  const horizon = plannerRecurrenceHorizon(today);
+  const materializedThrough = recurrenceInput.endsOn && recurrenceInput.endsOn < horizon
+    ? recurrenceInput.endsOn
+    : horizon;
+  const recurrence = {
+    ...recurrenceInput,
+    weekdays,
+    materializedThrough,
+  };
+  const dates = plannerRecurrenceDates(recurrence, today, materializedThrough);
+  const nowOrder = Date.now();
+
+  await runTransaction(db, async (transaction) => {
+    transaction.set(reference, {
+      teacherId,
+      ...value,
+      date: null,
+      deadline: null,
+      recordType: "recurrence",
+      recurrence,
+      recurrenceSeriesId: reference.id,
+      recurrenceDate: null,
+      sortOrder: nowOrder,
+      completedAt: null,
+      active: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      schemaVersion: 1,
+    });
+    dates.forEach((date, index) => {
+      transaction.set(doc(db, "plannerItems", plannerOccurrenceId(reference.id, date)), {
+        teacherId,
+        ...value,
+        date,
+        deadline: null,
+        recordType: "item",
+        recurrence: null,
+        recurrenceSeriesId: reference.id,
+        recurrenceDate: date,
+        sortOrder: nowOrder + index + 1,
+        completedAt: null,
+        active: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        schemaVersion: 1,
+      });
+    });
+  });
+  return reference.id;
+}
+
+export async function materializePlannerRecurrence(
+  db: Firestore,
+  teacherId: string,
+  seriesId: string,
+  today: string,
+): Promise<number> {
+  const reference = doc(db, "plannerItems", seriesId);
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) return 0;
+    const template = snapshot.data() as PlannerItem;
+    if (
+      template.teacherId !== teacherId
+      || template.recordType !== "recurrence"
+      || !template.active
+      || !template.recurrence
+    ) return 0;
+
+    const horizon = plannerRecurrenceHorizon(today);
+    const desiredThrough = template.recurrence.endsOn && template.recurrence.endsOn < horizon
+      ? template.recurrence.endsOn
+      : horizon;
+    if (desiredThrough <= template.recurrence.materializedThrough) return 0;
+    const from = addPlannerDays(template.recurrence.materializedThrough, 1);
+    const dates = plannerRecurrenceDates(template.recurrence, from, desiredThrough);
+    const occurrenceReferences = dates.map((date) =>
+      doc(db, "plannerItems", plannerOccurrenceId(seriesId, date))
+    );
+    const sortOrder = Date.now();
+    occurrenceReferences.forEach((occurrence, index) => {
+      const date = dates[index]!;
+      transaction.set(occurrence, {
+        teacherId,
+        itemType: template.itemType,
+        title: template.title,
+        category: template.category,
+        status: "todo",
+        date,
+        startTime: template.startTime,
+        endTime: template.endTime,
+        durationMinutes: template.durationMinutes,
+        deadline: null,
+        notes: template.notes,
+        priority: template.priority,
+        goalId: template.goalId,
+        subgoalId: template.subgoalId,
+        recordType: "item",
+        recurrence: null,
+        recurrenceSeriesId: seriesId,
+        recurrenceDate: date,
+        sortOrder: sortOrder + index,
+        completedAt: null,
+        active: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        schemaVersion: 1,
+      });
+    });
+    transaction.update(reference, {
+      recurrence: {
+        ...template.recurrence,
+        materializedThrough: desiredThrough,
+      },
+      updatedAt: serverTimestamp(),
+    });
+    return occurrenceReferences.length;
+  });
 }
 
 export async function updatePlannerItem(
@@ -236,7 +392,9 @@ export function plannerGoalProgress(
 ) {
   const steps = [
     ...subgoals.filter(({ data }) => data.goalId === goalId).map(({ data }) => data.status === "completed"),
-    ...items.filter(({ data }) => data.goalId === goalId && data.active).map(({ data }) => data.status === "done"),
+    ...items
+      .filter(({ data }) => data.goalId === goalId && data.active && data.recordType !== "recurrence")
+      .map(({ data }) => data.status === "done"),
   ];
   return {
     completed: steps.filter(Boolean).length,

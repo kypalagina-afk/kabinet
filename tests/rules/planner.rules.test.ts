@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where, type Firestore } from "firebase/firestore";
-import { createPlannerGoal, createPlannerItem, createPlannerSubgoal, plannerGoalProgress, schedulePlannerItem, setPlannerItemCompleted } from "../../src/lib/firebase/services/plannerWorkflow.js";
+import { createPlannerGoal, createPlannerItem, createPlannerSubgoal, createRecurringPlannerTask, materializePlannerRecurrence, plannerGoalProgress, schedulePlannerItem, setPlannerItemCompleted } from "../../src/lib/firebase/services/plannerWorkflow.js";
 import { getTeacherResourceSummary } from "../../src/lib/firebase/services/resourceMonitoring.js";
 
 let environment: RulesTestEnvironment;
@@ -32,6 +32,28 @@ describe("teacher planner rules and workflow", () => {
     expect((await getDoc(doc(db, "plannerItems", id))).data()).toMatchObject({ date: "2026-08-22", startTime: "11:00" });
     await assertSucceeds(setPlannerItemCompleted(db, "teacher-planner", id, true));
     expect((await getDoc(doc(db, "plannerItems", id))).data()?.status).toBe("done");
+  });
+
+  test("teacher creates an idempotently materialized recurring task", async () => {
+    const db = environment.authenticatedContext("teacher-planner").firestore() as unknown as Firestore;
+    const seriesId = await createRecurringPlannerTask(db, "teacher-planner", {
+      itemType: "task", title: "Проверить почту", category: "work", date: "2026-08-24", startTime: "09:00",
+      endTime: null, durationMinutes: 15, deadline: null, notes: null, goalId: null, subgoalId: null,
+      priority: "calm",
+    }, {
+      pattern: "custom", weekdays: [2, 3], startsOn: "2026-08-24", endsOn: "2026-09-02",
+    }, "2026-08-24");
+    const firstSnapshot = await getDocs(query(collection(db, "plannerItems"), where("teacherId", "==", "teacher-planner")));
+    const seriesDocuments = firstSnapshot.docs.filter((item) =>
+      item.id === seriesId || item.data().recurrenceSeriesId === seriesId
+    );
+    expect(seriesDocuments).toHaveLength(5);
+    expect(seriesDocuments.filter((item) => item.data().recordType === "item").map((item) => item.data().date).sort()).toEqual([
+      "2026-08-25", "2026-08-26", "2026-09-01", "2026-09-02",
+    ]);
+    expect(await materializePlannerRecurrence(db, "teacher-planner", seriesId, "2026-08-24")).toBe(0);
+    const repeatSnapshot = await getDocs(query(collection(db, "plannerItems"), where("teacherId", "==", "teacher-planner")));
+    expect(repeatSnapshot.docs.filter((item) => item.id === seriesId || item.data().recurrenceSeriesId === seriesId)).toHaveLength(5);
   });
 
   test("student and anonymous cannot read, list or write planner data", async () => {

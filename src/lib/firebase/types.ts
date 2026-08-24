@@ -529,6 +529,15 @@ export interface FileAsset extends AuditedDocument {
 export type PlannerCategory = "work" | "home" | "personal" | "someday";
 export type PlannerItemStatus = "todo" | "done" | "backlog";
 export type PlannerPriority = "high" | "medium" | "calm";
+export type PlannerRecurrencePattern = "daily" | "weekdays" | "custom";
+
+export interface PlannerRecurrenceSettings {
+  pattern: PlannerRecurrencePattern;
+  weekdays: number[];
+  startsOn: string;
+  endsOn: string | null;
+  materializedThrough: string;
+}
 
 export interface PlannerItem extends AuditedDocument {
   teacherId: string;
@@ -548,6 +557,10 @@ export interface PlannerItem extends AuditedDocument {
   sortOrder: number;
   completedAt: Timestamp | null;
   active: boolean;
+  recordType?: "item" | "recurrence";
+  recurrence?: PlannerRecurrenceSettings | null;
+  recurrenceSeriesId?: string | null;
+  recurrenceDate?: string | null;
 }
 
 export interface PlannerGoal extends AuditedDocument {

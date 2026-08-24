@@ -44,7 +44,7 @@ export function subscribeTeacherPlanner(
       (error) => observer.error(error),
     );
   const unsubscribes = [
-    listen<PlannerItem>("plannerItems", (value) => { state.items = value; }, [where("active", "==", true), limit(500)]),
+    listen<PlannerItem>("plannerItems", (value) => { state.items = value; }, [where("active", "==", true), limit(2000)]),
     listen<PlannerGoal>("plannerGoals", (value) => { state.goals = value; }, [limit(100)]),
     listen<PlannerSubgoal>("plannerSubgoals", (value) => { state.subgoals = value; }, [limit(500)]),
   ];

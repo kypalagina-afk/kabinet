@@ -38,6 +38,28 @@ test("planner day is a category board and goals open a dedicated workspace", asy
   await expect(page.getByTestId("planner-goals-workspace")).toContainText("Цель → подцели → задачи → планер");
 });
 
+test("planner puts lessons into Work and configures a recurring task", async ({ page }) => {
+  await loginTeacher(page);
+  await page.goto("/#/teacher/planner");
+  await expect(page.getByRole("button", { name: "Уроки", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Работа", exact: true }).click();
+  await expect(page.locator('.planner-category-column[data-category="Работа"] .planner-entry--lesson').first()).toBeVisible();
+
+  await page.getByRole("button", { name: "+ Регулярная задача" }).click();
+  const dialog = page.getByRole("dialog", { name: "Новая регулярная задача" });
+  await dialog.getByLabel("Название").fill("Регулярная проверка почты");
+  await dialog.getByLabel("Повторять").selectOption("custom");
+  await expect(dialog.getByRole("button", { name: "Вт" })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByRole("button", { name: "Ср" })).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: "Пн" }).click();
+  await dialog.getByRole("button", { name: "Чт" }).click();
+  await dialog.getByRole("button", { name: "Пт" }).click();
+  await dialog.getByRole("button", { name: "Добавить регулярную задачу" }).click();
+  await expect(page.getByText("Регулярная задача добавлена.")).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test("teacher IANA timezone drives the dynamic Moscow label", async ({ page }) => {
   await loginTeacher(page);
   await page.goto("/#/teacher/calendar");

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Timestamp } from "firebase/firestore";
 import { Modal } from "../components/Modal";
 import { useAuth } from "../features/auth/AuthProvider";
@@ -18,14 +18,18 @@ import {
   archivePlannerItem,
   createPlannerGoal,
   createPlannerItem,
+  createRecurringPlannerTask,
   createPlannerSubgoal,
+  materializePlannerRecurrence,
   plannerGoalProgress,
   schedulePlannerItem,
   setPlannerItemCompleted,
   setPlannerSubgoalCompleted,
   updatePlannerItem,
   type PlannerItemInput,
+  type PlannerRecurrenceInput,
 } from "../lib/firebase/services/plannerWorkflow";
+import { isPlannerRecurrenceTemplate } from "../features/planner/recurrence";
 import { rescheduleLesson } from "../lib/firebase/services/scheduleOperations";
 import type {
   DocumentWithId,
@@ -33,10 +37,11 @@ import type {
   PlannerCategory,
   PlannerItem,
   PlannerPriority,
+  PlannerRecurrencePattern,
 } from "../lib/firebase/types";
 
 type ViewMode = "day" | "week" | "month";
-type DisplayFilter = "all" | "lessons" | "work" | "home";
+type DisplayFilter = "all" | "work" | "home";
 
 const categoryLabels: Record<PlannerCategory, string> = {
   work: "Работа",
@@ -52,6 +57,14 @@ const priorityLabels: Record<PlannerPriority, string> = {
 };
 
 const weekTimeSlots = ["09:00", "12:00", "15:00", "18:00"];
+const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+const emptyRecurrence = (): PlannerRecurrenceInput => ({
+  pattern: "weekdays",
+  weekdays: [1, 2, 3, 4, 5],
+  startsOn: "",
+  endsOn: null,
+});
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -128,6 +141,8 @@ export function TeacherPlannerPage() {
   const [itemOpen, setItemOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentWithId<PlannerItem> | null>(null);
   const [draft, setDraft] = useState<PlannerItemInput>(() => emptyInput(focusDate));
+  const [recurring, setRecurring] = useState(false);
+  const [recurrence, setRecurrence] = useState<PlannerRecurrenceInput>(emptyRecurrence);
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalsWorkspaceOpen, setGoalsWorkspaceOpen] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -140,18 +155,18 @@ export function TeacherPlannerPage() {
   }, [focusDate, teacherTimezone, view]);
   const schedule = useTeacherSchedule(teacherId, range);
   const visibleItems = planner.data.items.filter(({ data }) => {
-    if (!data.active) return false;
-    if (filter === "all" || filter === "lessons") return filter !== "lessons";
+    if (!data.active || isPlannerRecurrenceTemplate(data)) return false;
+    if (filter === "all") return true;
     return filter === "home"
       ? data.category === "home" || data.category === "personal"
       : data.category === filter;
   });
-  const lessons = filter === "all" || filter === "lessons" ? schedule.data.lessons : [];
+  const lessons = filter === "all" || filter === "work" ? schedule.data.lessons : [];
   const selectedDates = view === "day" ? [focusDate] : view === "week" ? weekDates(focusDate) : monthDates(focusDate);
   const focusItems = visibleItems.filter(({ data }) => data.date === focusDate);
   const focusLessons = lessons.filter(({ data }) => lessonDate(data, teacherTimezone) === focusDate);
   const backlogItems = planner.data.items.filter(
-    ({ data }) => data.active && data.category === "someday" && !data.date,
+    ({ data }) => data.active && !isPlannerRecurrenceTemplate(data) && data.category === "someday" && !data.date,
   );
   const activeGoals = planner.data.goals.filter(({ data }) => data.status !== "archived");
   const workspaceGoalId = selectedGoalId ?? activeGoals[0]?.id ?? null;
@@ -160,14 +175,44 @@ export function TeacherPlannerPage() {
     localStorage.setItem("teacher-planner-view", value);
   };
 
+  const recurrenceSignature = useMemo(() => planner.data.items
+    .filter(({ data }) => data.active && isPlannerRecurrenceTemplate(data) && data.recurrence)
+    .map(({ id, data }) => `${id}:${data.recurrence?.materializedThrough ?? ""}`)
+    .sort()
+    .join("|"), [planner.data.items]);
+  const recurrenceTemplateIds = useMemo(() => recurrenceSignature
+    .split("|")
+    .filter(Boolean)
+    .map((value) => value.split(":", 1)[0]!), [recurrenceSignature]);
+  const currentDate = dateKeyForTimezone(new Date(), teacherTimezone);
+
+  useEffect(() => {
+    if (!teacherId || !recurrenceSignature) return;
+    void Promise.all(
+      recurrenceTemplateIds.map((id) =>
+        materializePlannerRecurrence(getFirebaseDb(), teacherId, id, currentDate)
+      ),
+    ).catch(() => setMessage("Не удалось продлить одну из регулярных задач."));
+  }, [currentDate, recurrenceSignature, recurrenceTemplateIds, teacherId]);
+
   function openCreate(date = focusDate, startTime: string | null = null, itemType: "event" | "task" = "task") {
     setEditing(null);
+    setRecurring(false);
     setDraft({ ...emptyInput(date), itemType, startTime, category: itemType === "event" ? "home" : "work" });
+    setItemOpen(true);
+  }
+
+  function openRecurringCreate() {
+    setEditing(null);
+    setRecurring(true);
+    setRecurrence({ ...emptyRecurrence(), startsOn: focusDate });
+    setDraft({ ...emptyInput(focusDate), itemType: "task", category: "work", deadline: null });
     setItemOpen(true);
   }
 
   function openEdit(item: DocumentWithId<PlannerItem>) {
     setEditing(item);
+    setRecurring(false);
     setDraft({
       itemType: item.data.itemType,
       title: item.data.title,
@@ -187,10 +232,22 @@ export function TeacherPlannerPage() {
 
   async function saveItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (editing) await updatePlannerItem(getFirebaseDb(), teacherId, editing.id, draft);
-    else await createPlannerItem(getFirebaseDb(), teacherId, draft);
-    setItemOpen(false);
-    setMessage(editing ? "План обновлён." : "Пункт добавлен в план.");
+    try {
+      if (editing) await updatePlannerItem(getFirebaseDb(), teacherId, editing.id, draft);
+      else if (recurring) {
+        await createRecurringPlannerTask(
+          getFirebaseDb(),
+          teacherId,
+          draft,
+          { ...recurrence, startsOn: draft.date ?? "" },
+          currentDate,
+        );
+      } else await createPlannerItem(getFirebaseDb(), teacherId, draft);
+      setItemOpen(false);
+      setMessage(editing ? "План обновлён." : recurring ? "Регулярная задача добавлена." : "Пункт добавлен в план.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось сохранить задачу.");
+    }
   }
 
   async function dropOnDate(event: React.DragEvent, targetDate: string, targetTime: string | null = null) {
@@ -233,6 +290,7 @@ export function TeacherPlannerPage() {
         </div>
         <div className="form-actions">
           <button className="secondary-button" onClick={() => setGoalOpen(true)} type="button">+ Большая цель</button>
+          <button className="secondary-button" onClick={openRecurringCreate} type="button">+ Регулярная задача</button>
           <button className="primary-button primary-button--fit" onClick={() => openCreate()} type="button">+ Добавить</button>
         </div>
       </header>
@@ -250,7 +308,7 @@ export function TeacherPlannerPage() {
           <button className="secondary-button" onClick={() => setFocusDate(todayKey())} type="button">Сегодня</button>
         </div>
         <div className="planner-filter" aria-label="Фильтр планера">
-          {(["all", "lessons", "work", "home"] as const).map((value) => <button aria-pressed={filter === value} key={value} onClick={() => setFilter(value)} type="button">{{ all: "Все", lessons: "Уроки", work: "Работа", home: "Дом" }[value]}</button>)}
+          {(["all", "work", "home"] as const).map((value) => <button aria-pressed={filter === value} key={value} onClick={() => setFilter(value)} type="button">{{ all: "Все", work: "Работа", home: "Дом" }[value]}</button>)}
         </div>
       </section>
 
@@ -262,7 +320,7 @@ export function TeacherPlannerPage() {
                 emoji="💼"
                 items={focusItems.filter(({ data }) => data.category === "work")}
                 lessons={focusLessons}
-                onCreate={() => { setEditing(null); setDraft({ ...emptyInput(focusDate), category: "work" }); setItemOpen(true); }}
+                onCreate={() => openCreate(focusDate)}
                 onEdit={openEdit}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
                 title="Работа"
@@ -272,7 +330,7 @@ export function TeacherPlannerPage() {
                 emoji="🏠"
                 items={focusItems.filter(({ data }) => data.category === "home" || data.category === "personal")}
                 lessons={[]}
-                onCreate={() => { setEditing(null); setDraft({ ...emptyInput(focusDate), category: "home" }); setItemOpen(true); }}
+                onCreate={() => { openCreate(focusDate); setDraft({ ...emptyInput(focusDate), category: "home" }); }}
                 onEdit={openEdit}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
                 title="Дом"
@@ -282,7 +340,7 @@ export function TeacherPlannerPage() {
                 emoji="🌙"
                 items={backlogItems}
                 lessons={[]}
-                onCreate={() => { setEditing(null); setDraft({ ...emptyInput(""), category: "someday", date: null }); setItemOpen(true); }}
+                onCreate={() => { openCreate(""); setDraft({ ...emptyInput(""), category: "someday", date: null }); }}
                 onEdit={openEdit}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
                 title="Когда-нибудь"
@@ -316,7 +374,7 @@ export function TeacherPlannerPage() {
 
         <aside className="planner-sidebar">
           {view !== "day" ? <section data-testid="planner-someday">
-            <div className="section-heading"><div><p className="eyebrow">Backlog</p><h2>Когда-нибудь</h2></div><button onClick={() => { setEditing(null); setDraft({ ...emptyInput(""), category: "someday", date: null }); setItemOpen(true); }} type="button">+</button></div>
+            <div className="section-heading"><div><p className="eyebrow">Backlog</p><h2>Когда-нибудь</h2></div><button onClick={() => { openCreate(""); setDraft({ ...emptyInput(""), category: "someday", date: null }); }} type="button">+</button></div>
             {backlogItems.map((item) => <div className="someday-item" draggable key={item.id} onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)}><span>{item.data.title}</span><div><button onClick={() => void schedulePlannerItem(getFirebaseDb(), teacherId, item.id, todayKey(), null, "work")} type="button">Сегодня</button><button onClick={() => void schedulePlannerItem(getFirebaseDb(), teacherId, item.id, addDays(todayKey(), 1), null, "work")} type="button">Завтра</button><button onClick={() => void moveBacklog(item, "work")} type="button">В работу</button><button onClick={() => void moveBacklog(item, "home")} type="button">Дом</button><button onClick={() => openEdit(item)} type="button">Дата и время…</button></div></div>)}
           </section> : null}
           <section data-testid="planner-goals">
@@ -324,7 +382,7 @@ export function TeacherPlannerPage() {
             {planner.data.goals.filter(({ data }) => data.status !== "archived").map((goal) => {
               const progress = plannerGoalProgress(goal.id, planner.data.subgoals, planner.data.items);
               return <article className="planner-goal" key={goal.id}><h3>{goal.data.title}</h3><p>{progress.completed} из {progress.total} шагов выполнено</p><progress max={100} value={progress.percent} />
-                {planner.data.subgoals.filter(({ data }) => data.goalId === goal.id).map((subgoal) => <div className="planner-subgoal" key={subgoal.id}><label><input checked={subgoal.data.status === "completed"} onChange={(event) => void setPlannerSubgoalCompleted(getFirebaseDb(), teacherId, subgoal.id, event.target.checked)} type="checkbox" />{subgoal.data.title}</label><button onClick={() => { setEditing(null); setDraft({ ...emptyInput(focusDate), goalId: goal.id, subgoalId: subgoal.id }); setItemOpen(true); }} type="button">Запланировать</button></div>)}
+                {planner.data.subgoals.filter(({ data }) => data.goalId === goal.id).map((subgoal) => <div className="planner-subgoal" key={subgoal.id}><label><input checked={subgoal.data.status === "completed"} onChange={(event) => void setPlannerSubgoalCompleted(getFirebaseDb(), teacherId, subgoal.id, event.target.checked)} type="checkbox" />{subgoal.data.title}</label><button onClick={() => { openCreate(focusDate); setDraft({ ...emptyInput(focusDate), goalId: goal.id, subgoalId: subgoal.id }); }} type="button">Запланировать</button></div>)}
                 <button className="planner-link-button" onClick={() => setSubgoalFor(goal.id)} type="button">+ Подцель</button>
               </article>;
             })}
@@ -332,16 +390,18 @@ export function TeacherPlannerPage() {
         </aside>
       </div>
 
-      {itemOpen ? <Modal className="planner-item-modal" onClose={() => setItemOpen(false)} title={editing ? "Изменить план" : "Новый пункт плана"}><form className="modal-form" onSubmit={(event) => void saveItem(event)}>
-        <div className="segmented-control"><button aria-pressed={draft.itemType === "task"} onClick={() => setDraft({ ...draft, itemType: "task", category: draft.category === "personal" ? "home" : draft.category })} type="button">Задача</button><button aria-pressed={draft.itemType === "event"} onClick={() => setDraft({ ...draft, itemType: "event", category: draft.category === "someday" ? "work" : draft.category })} type="button">Событие</button></div>
+      {itemOpen ? <Modal className="planner-item-modal" onClose={() => setItemOpen(false)} title={editing ? "Изменить план" : recurring ? "Новая регулярная задача" : "Новый пункт плана"}><form className="modal-form" onSubmit={(event) => void saveItem(event)}>
+        {!recurring ? <div className="segmented-control"><button aria-pressed={draft.itemType === "task"} onClick={() => setDraft({ ...draft, itemType: "task", category: draft.category === "personal" ? "home" : draft.category })} type="button">Задача</button><button aria-pressed={draft.itemType === "event"} onClick={() => setDraft({ ...draft, itemType: "event", category: draft.category === "someday" ? "work" : draft.category })} type="button">Событие</button></div> : null}
         <label className="form-field"><span>Название</span><input autoFocus onChange={(event) => setDraft({ ...draft, title: event.target.value })} required value={draft.title} /></label>
-        <div className="form-grid"><label className="form-field"><span>Категория</span><select onChange={(event) => { const category = event.target.value as PlannerCategory; setDraft({ ...draft, category, ...(category === "someday" ? { date: null, startTime: null, endTime: null, durationMinutes: null } : {}) }); }} value={draft.category}>{(draft.itemType === "task" ? ["work", "home", "someday"] : ["work", "home"]).map((value) => <option key={value} value={value}>{categoryLabels[value as PlannerCategory]}</option>)}</select></label><label className="form-field"><span>Приоритет</span><select onChange={(event) => setDraft({ ...draft, priority: event.target.value as PlannerPriority })} value={draft.priority}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="form-field"><span>Дата</span><input disabled={draft.category === "someday"} onChange={(event) => setDraft({ ...draft, date: event.target.value || null })} required={draft.category !== "someday"} type="date" value={draft.date ?? ""} /></label><label className="form-field"><span>Время начала</span><input disabled={draft.category === "someday"} onChange={(event) => setDraft({ ...draft, startTime: event.target.value || null })} type="time" value={draft.startTime ?? ""} /></label><label className="form-field"><span>Время окончания</span><input disabled={!draft.startTime} onChange={(event) => setDraft({ ...draft, endTime: event.target.value || null })} type="time" value={draft.endTime ?? ""} /></label><label className="form-field"><span>Длительность, минут</span><input disabled={!draft.startTime} min="1" onChange={(event) => setDraft({ ...draft, durationMinutes: event.target.value ? Number(event.target.value) : null })} type="number" value={draft.durationMinutes ?? ""} /></label><label className="form-field"><span>Дедлайн</span><input onChange={(event) => setDraft({ ...draft, deadline: event.target.value || null })} type="date" value={draft.deadline ?? ""} /></label></div>
+        <div className="form-grid"><label className="form-field"><span>Категория</span><select onChange={(event) => { const category = event.target.value as PlannerCategory; setDraft({ ...draft, category, ...(category === "someday" ? { date: null, startTime: null, endTime: null, durationMinutes: null } : {}) }); }} value={draft.category}>{(recurring ? ["work", "home"] : draft.itemType === "task" ? ["work", "home", "someday"] : ["work", "home"]).map((value) => <option key={value} value={value}>{categoryLabels[value as PlannerCategory]}</option>)}</select></label><label className="form-field"><span>Приоритет</span><select onChange={(event) => setDraft({ ...draft, priority: event.target.value as PlannerPriority })} value={draft.priority}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="form-field"><span>{recurring ? "Начать с" : "Дата"}</span><input disabled={draft.category === "someday"} onChange={(event) => setDraft({ ...draft, date: event.target.value || null })} required={draft.category !== "someday"} type="date" value={draft.date ?? ""} /></label><label className="form-field"><span>Время начала</span><input disabled={draft.category === "someday"} onChange={(event) => setDraft({ ...draft, startTime: event.target.value || null })} type="time" value={draft.startTime ?? ""} /></label><label className="form-field"><span>Время окончания</span><input disabled={!draft.startTime} onChange={(event) => setDraft({ ...draft, endTime: event.target.value || null })} type="time" value={draft.endTime ?? ""} /></label><label className="form-field"><span>Длительность, минут</span><input disabled={!draft.startTime} min="1" onChange={(event) => setDraft({ ...draft, durationMinutes: event.target.value ? Number(event.target.value) : null })} type="number" value={draft.durationMinutes ?? ""} /></label>{!recurring ? <label className="form-field"><span>Дедлайн</span><input onChange={(event) => setDraft({ ...draft, deadline: event.target.value || null })} type="date" value={draft.deadline ?? ""} /></label> : null}</div>
+        {recurring ? <fieldset className="planner-recurrence"><legend>Регулярность</legend><label className="form-field"><span>Повторять</span><select aria-label="Повторять" onChange={(event) => setRecurrence({ ...recurrence, pattern: event.target.value as PlannerRecurrencePattern })} value={recurrence.pattern}><option value="daily">Каждый день</option><option value="weekdays">По будням (Пн–Пт)</option><option value="custom">Выбранные дни</option></select></label>{recurrence.pattern === "custom" ? <div><span className="planner-recurrence-label">Дни недели</span><div className="planner-weekdays">{weekdayLabels.map((label, index) => { const weekday = index + 1; const selected = recurrence.weekdays.includes(weekday); return <button aria-label={label} aria-pressed={selected} key={label} onClick={() => setRecurrence({ ...recurrence, weekdays: selected ? recurrence.weekdays.filter((value) => value !== weekday) : [...recurrence.weekdays, weekday].sort() })} type="button">{label}</button>; })}</div></div> : null}<label className="form-field"><span>Закончить (необязательно)</span><input min={draft.date ?? undefined} onChange={(event) => setRecurrence({ ...recurrence, endsOn: event.target.value || null })} type="date" value={recurrence.endsOn ?? ""} /></label><small>Задачи создаются без дублей на 12 недель вперёд и автоматически продлеваются при открытии планера.</small></fieldset> : null}
+        {editing?.data.recurrenceSeriesId ? <p className="shell-notice">Изменения относятся только к этому повторению регулярной задачи.</p> : null}
         <label className="form-field"><span>Заметки</span><textarea onChange={(event) => setDraft({ ...draft, notes: event.target.value || null })} rows={3} value={draft.notes ?? ""} /></label>
-        <div className="form-actions"><button className="primary-button primary-button--fit">{editing ? "Сохранить" : "Добавить"}</button>{editing ? <button className="secondary-button" onClick={() => { if (confirm("Удалить этот пункт из планера?")) void archivePlannerItem(getFirebaseDb(), teacherId, editing.id).then(() => setItemOpen(false)); }} type="button">Удалить</button> : null}<button className="secondary-button" onClick={() => setItemOpen(false)} type="button">Отмена</button></div>
+        <div className="form-actions"><button className="primary-button primary-button--fit">{editing ? "Сохранить" : recurring ? "Добавить регулярную задачу" : "Добавить"}</button>{editing ? <button className="secondary-button" onClick={() => { if (confirm("Удалить этот пункт из планера?")) void archivePlannerItem(getFirebaseDb(), teacherId, editing.id).then(() => setItemOpen(false)); }} type="button">Удалить</button> : null}<button className="secondary-button" onClick={() => setItemOpen(false)} type="button">Отмена</button></div>
       </form></Modal> : null}
 
       {goalOpen ? <Modal onClose={() => setGoalOpen(false)} title="Большая цель"><form className="modal-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void createPlannerGoal(getFirebaseDb(), teacherId, { title: String(form.get("title")), description: String(form.get("description")) || null, targetDate: String(form.get("targetDate")) || null }).then(() => setGoalOpen(false)); }}><label className="form-field"><span>Название</span><input name="title" required /></label><label className="form-field"><span>Описание</span><textarea name="description" /></label><label className="form-field"><span>Целевая дата</span><input name="targetDate" type="date" /></label><button className="primary-button primary-button--fit">Создать цель</button></form></Modal> : null}
-      {goalsWorkspaceOpen ? <Modal className="planner-goals-modal" onClose={() => setGoalsWorkspaceOpen(false)} title="Большие цели"><div className="goals-workspace" data-testid="planner-goals-workspace"><nav aria-label="Большие цели">{activeGoals.map((goal) => <button aria-pressed={workspaceGoalId === goal.id} key={goal.id} onClick={() => setSelectedGoalId(goal.id)} type="button">{goal.data.title}</button>)}<button className="planner-link-button" onClick={() => setGoalOpen(true)} type="button">+ Новая цель</button></nav>{activeGoals.filter(({ id }) => id === workspaceGoalId).map((goal) => { const progress = plannerGoalProgress(goal.id, planner.data.subgoals, planner.data.items); return <section className="goal-workspace-detail" key={goal.id}><p className="eyebrow">Цель → подцели → задачи → планер</p><h3>{goal.data.title}</h3>{goal.data.description ? <p>{goal.data.description}</p> : null}{goal.data.targetDate ? <p>До {new Intl.DateTimeFormat("ru-RU").format(dateFromKey(goal.data.targetDate))}</p> : null}<strong>{progress.completed} из {progress.total} шагов</strong><progress max={100} value={progress.percent} />{planner.data.subgoals.filter(({ data }) => data.goalId === goal.id).map((subgoal) => <article className="goal-subgoal-card" key={subgoal.id}><label><input checked={subgoal.data.status === "completed"} onChange={(event) => void setPlannerSubgoalCompleted(getFirebaseDb(), teacherId, subgoal.id, event.target.checked)} type="checkbox" /><strong>{subgoal.data.title}</strong></label>{subgoal.data.notes ? <p>{subgoal.data.notes}</p> : null}<div className="goal-task-list">{planner.data.items.filter(({ data }) => data.active && data.subgoalId === subgoal.id).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => openEdit(item)} onToggle={() => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")} />)}</div><button className="secondary-button" onClick={() => { setEditing(null); setDraft({ ...emptyInput(focusDate), goalId: goal.id, subgoalId: subgoal.id }); setItemOpen(true); }} type="button">+ Задача в планер</button></article>)}<button className="planner-link-button" onClick={() => setSubgoalFor(goal.id)} type="button">+ Подцель</button></section>; })}</div></Modal> : null}
+      {goalsWorkspaceOpen ? <Modal className="planner-goals-modal" onClose={() => setGoalsWorkspaceOpen(false)} title="Большие цели"><div className="goals-workspace" data-testid="planner-goals-workspace"><nav aria-label="Большие цели">{activeGoals.map((goal) => <button aria-pressed={workspaceGoalId === goal.id} key={goal.id} onClick={() => setSelectedGoalId(goal.id)} type="button">{goal.data.title}</button>)}<button className="planner-link-button" onClick={() => setGoalOpen(true)} type="button">+ Новая цель</button></nav>{activeGoals.filter(({ id }) => id === workspaceGoalId).map((goal) => { const progress = plannerGoalProgress(goal.id, planner.data.subgoals, planner.data.items); return <section className="goal-workspace-detail" key={goal.id}><p className="eyebrow">Цель → подцели → задачи → планер</p><h3>{goal.data.title}</h3>{goal.data.description ? <p>{goal.data.description}</p> : null}{goal.data.targetDate ? <p>До {new Intl.DateTimeFormat("ru-RU").format(dateFromKey(goal.data.targetDate))}</p> : null}<strong>{progress.completed} из {progress.total} шагов</strong><progress max={100} value={progress.percent} />{planner.data.subgoals.filter(({ data }) => data.goalId === goal.id).map((subgoal) => <article className="goal-subgoal-card" key={subgoal.id}><label><input checked={subgoal.data.status === "completed"} onChange={(event) => void setPlannerSubgoalCompleted(getFirebaseDb(), teacherId, subgoal.id, event.target.checked)} type="checkbox" /><strong>{subgoal.data.title}</strong></label>{subgoal.data.notes ? <p>{subgoal.data.notes}</p> : null}<div className="goal-task-list">{planner.data.items.filter(({ data }) => data.active && !isPlannerRecurrenceTemplate(data) && data.subgoalId === subgoal.id).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => openEdit(item)} onToggle={() => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")} />)}</div><button className="secondary-button" onClick={() => { openCreate(focusDate); setDraft({ ...emptyInput(focusDate), goalId: goal.id, subgoalId: subgoal.id }); }} type="button">+ Задача в планер</button></article>)}<button className="planner-link-button" onClick={() => setSubgoalFor(goal.id)} type="button">+ Подцель</button></section>; })}</div></Modal> : null}
       {subgoalFor ? <Modal onClose={() => setSubgoalFor(null)} title="Новая подцель"><form className="modal-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void createPlannerSubgoal(getFirebaseDb(), teacherId, subgoalFor, String(form.get("title")), String(form.get("notes")) || null).then(() => setSubgoalFor(null)); }}><label className="form-field"><span>Название</span><input name="title" required /></label><label className="form-field"><span>Заметки</span><textarea name="notes" /></label><button className="primary-button primary-button--fit">Добавить подцель</button></form></Modal> : null}
     </main>
   );
@@ -354,7 +414,7 @@ function PlannerLesson({ lesson, studentName, timezone }: { lesson: DocumentWith
 
 function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerItem>; onEdit(): void; onToggle(): void }) {
   const priority = item.data.priority ?? "calm";
-  return <article className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button"><span>{priority === "high" ? "🔴" : priority === "medium" ? "🟠" : "🟢"} {item.data.itemType === "event" ? "Событие" : categoryLabels[item.data.category]}</span><strong>{item.data.startTime ? `${item.data.startTime} — ` : ""}{item.data.title}{item.data.durationMinutes ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
+  return <article className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button"><span>{priority === "high" ? "🔴" : priority === "medium" ? "🟠" : "🟢"} {item.data.recurrenceSeriesId ? "↻ " : ""}{item.data.itemType === "event" ? "Событие" : categoryLabels[item.data.category]}</span><strong>{item.data.startTime ? `${item.data.startTime} — ` : ""}{item.data.title}{item.data.durationMinutes ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
 }
 
 function PlannerCategoryColumn({ emoji, title, items, lessons, timezone, onCreate, onEdit, onToggle }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {

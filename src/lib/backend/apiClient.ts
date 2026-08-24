@@ -21,7 +21,7 @@ export async function backendRequest<T>(path: string, options: RequestOptions = 
   const response = await fetch(endpoint, {
     method: options.method ?? "GET",
     headers: {
-      authorization: `Bearer ${await user.getIdToken()}`,
+      "x-firebase-auth": `Bearer ${await user.getIdToken()}`,
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

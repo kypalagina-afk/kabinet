@@ -134,7 +134,7 @@ function response(statusCode: number, body: unknown, origin: string | null) {
 function corsResponse(origin: string | null) {
   const result = response(204, {}, origin);
   result.headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
-  result.headers["access-control-allow-headers"] = "Authorization,Content-Type,X-Firebase-AppCheck";
+  result.headers["access-control-allow-headers"] = "Content-Type,X-Firebase-Auth,X-Firebase-AppCheck";
   result.headers["access-control-max-age"] = "600";
   return result;
 }
@@ -164,7 +164,7 @@ function jsonBody(event: FunctionEvent, context: FunctionContext): Json {
 }
 
 async function authenticate(event: FunctionEvent): Promise<{ uid: string; profile: UserProfile }> {
-  const token = header(event, "authorization")?.replace(/^Bearer\s+/i, "");
+  const token = (header(event, "x-firebase-auth") ?? header(event, "authorization"))?.replace(/^Bearer\s+/i, "");
   if (!token) throw new HttpError(401, "Authentication required");
   if (requireAppCheck) {
     const appCheckToken = header(event, "x-firebase-appcheck");

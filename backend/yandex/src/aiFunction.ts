@@ -4,6 +4,7 @@ import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { isTeacherAIActor } from "./ai/authorization.js";
 import { rescheduleClarification } from "./ai/clarification.js";
+import { canonicalizeDraftIdentity } from "./ai/identity.js";
 import {
   findStudentsByName,
   getActiveHomework,
@@ -288,9 +289,10 @@ async function interpretAI(event: FunctionEvent, context: FunctionContext) {
       lessons,
       plannerItemIds: new Set(plannerItems.map(({ id }) => id)),
     });
-    const draft = referenceError
+    const referencedDraft = referenceError
       ? referenceClarification(result.draft.draftId, referenceError)
       : result.draft;
+    const draft = canonicalizeDraftIdentity(referencedDraft, auditReference.id);
     const relatedIds = [
       "studentId" in draft ? draft.studentId : null,
       "lessonId" in draft ? draft.lessonId : null,

@@ -28,6 +28,7 @@ import {
 } from "./policy";
 import { aiInterpretInputSchema } from "./ai/schema.js";
 import { YandexAIProvider } from "./ai/provider.js";
+import { canonicalizeDraftIdentity } from "./ai/identity.js";
 import { isTeacherAIActor } from "./ai/authorization.js";
 import {
   findStudentsByName,
@@ -667,14 +668,15 @@ async function interpretAI(event: FunctionEvent, context: FunctionContext) {
         pendingReviews,
       },
     });
+    const draft = canonicalizeDraftIdentity(result.draft, auditReference.id);
     const relatedIds = [
-      "studentId" in result.draft ? result.draft.studentId : null,
-      "lessonId" in result.draft ? result.draft.lessonId : null,
-      "itemId" in result.draft ? result.draft.itemId : null,
+      "studentId" in draft ? draft.studentId : null,
+      "lessonId" in draft ? draft.lessonId : null,
+      "itemId" in draft ? draft.itemId : null,
     ].filter((value): value is string => Boolean(value));
     await auditReference.set({
       teacherId: identity.uid,
-      actionType: result.draft.actionType,
+      actionType: draft.actionType,
       status: "draft_created",
       relatedEntityIds: relatedIds,
       model: result.model,
@@ -685,7 +687,7 @@ async function interpretAI(event: FunctionEvent, context: FunctionContext) {
       createdAt: FieldValue.serverTimestamp(),
       schemaVersion: 1,
     });
-    return result.draft;
+    return draft;
   } catch (error) {
     await auditReference.set({ teacherId: identity.uid, actionType: "unknown", status: "failed", relatedEntityIds: [], model: modelUri, latencyMs: Date.now() - startedAt, errorCode: error instanceof Error ? error.name : "Error", rawPromptStored: false, createdAt: FieldValue.serverTimestamp(), schemaVersion: 1 }).catch(() => undefined);
     throw new HttpError(503, "AI временно недоступен");

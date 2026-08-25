@@ -381,6 +381,35 @@ describe("anonymous access", () => {
   });
 });
 
+describe("backend-only AI transcription jobs", () => {
+  test("denies document reads, list queries and writes to every browser role", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "aiTranscriptionJobs", "job-1"), {
+        teacherId: teacherAuth.uid,
+        status: "pending",
+        rawAudioStored: false,
+        transcriptStored: false,
+      });
+    });
+
+    const databases = [
+      testEnvironment.unauthenticatedContext().firestore(),
+      testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore(),
+      testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore(),
+    ];
+
+    for (const db of databases) {
+      await assertFails(getDoc(doc(db, "aiTranscriptionJobs", "job-1")));
+      await assertFails(getDocs(collection(db, "aiTranscriptionJobs")));
+      await assertFails(setDoc(doc(db, "aiTranscriptionJobs", "browser-write"), {
+        teacherId: teacherAuth.uid,
+        status: "pending",
+      }));
+    }
+  });
+});
+
 describe("teacher access", () => {
   test("allows owned document reads and ownership-scoped list queries", async () => {
     await seedFixture();

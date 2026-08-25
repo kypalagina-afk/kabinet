@@ -12,6 +12,8 @@ test("teacher AI creates an editable preview and confirms selected planner items
   await login(page, "test.teacher", "Teacher-test-2026!", "teacher");
   await page.getByRole("button", { name: "Открыть AI-помощника" }).click();
   const dialog = page.getByRole("dialog", { name: "✨ AI-помощник преподавателя" });
+  await expect(dialog.getByRole("button", { name: "🎙 Наговорить несколько задач" })).toBeVisible();
+  await expect(dialog.getByText("Аудио не сохраняется")).toBeVisible();
   await dialog.getByLabel("Что подготовить?").fill("Запланируй на завтра: проверить сочинение Леры; купить бумагу домой");
   await dialog.getByRole("button", { name: "Подготовить черновик" }).click();
   await expect(dialog.getByText("Подготовлено задач: 2")).toBeVisible();

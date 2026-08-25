@@ -1,5 +1,5 @@
 import { Timestamp } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "../auth/AuthProvider";
@@ -11,8 +11,10 @@ import { getFirebaseDb } from "../../lib/firebase/client";
 import { createPlannerItemsFromAssistant, updatePlannerItem, updateRecurringPlannerTaskScope, type PlannerRecurrenceScope } from "../../lib/firebase/services/plannerWorkflow";
 import { rescheduleLesson } from "../../lib/firebase/services/scheduleOperations";
 import { buildTeacherAIContext } from "./context";
-import { getTeacherAIUsage, interpretTeacherCommand, type TeacherAIUsage } from "./provider";
+import { getTeacherAIUsage, interpretTeacherCommand, transcribeTeacherVoice, type TeacherAIUsage } from "./provider";
 import { teacherAIDraftSchema, type PlannerAIItemDraft, type TeacherAIDraft } from "./schema";
+import { teacherVoiceInputEnabled } from "./featureFlag";
+import { startVoiceRecorder, voiceRecordingSupported, VOICE_MAX_DURATION_MS, type VoiceRecorder } from "./voiceRecorder";
 
 const examples = [
   "Запланируй на завтра: проверить сочинения; подготовить урок с Лерой",
@@ -33,6 +35,12 @@ export function TeacherAIAssistant({ initialCommand = "", onClose }: { initialCo
   const [message, setMessage] = useState("");
   const [usage, setUsage] = useState<TeacherAIUsage | null>(null);
   const [recurrenceScopeRequired, setRecurrenceScopeRequired] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "starting" | "recording" | "uploading" | "recognizing">("idle");
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const voiceRecorder = useRef<VoiceRecorder | null>(null);
+  const voiceAbort = useRef<AbortController | null>(null);
+  const voiceClock = useRef<number | null>(null);
+  const voiceLimit = useRef<number | null>(null);
   const [range] = useState(() => { const now = Date.now(); return { start: new Date(now - 180 * 86_400_000), end: new Date(now + 180 * 86_400_000) }; });
   const students = useTeacherStudents(teacherId);
   const programs = useTeacherStudentPrograms(teacherId);
@@ -52,17 +60,97 @@ export function TeacherAIAssistant({ initialCommand = "", onClose }: { initialCo
     void getTeacherAIUsage(user).then(setUsage).catch(() => undefined);
   }, [user]);
 
-  async function interpret() {
+  useEffect(() => () => {
+    voiceAbort.current?.abort();
+    if (voiceClock.current !== null) window.clearInterval(voiceClock.current);
+    if (voiceLimit.current !== null) window.clearTimeout(voiceLimit.current);
+    if (voiceRecorder.current) void voiceRecorder.current.cancel().catch(() => undefined);
+  }, []);
+
+  async function interpretValue(value: string) {
     if (!user || profile?.role !== "teacher") return;
     setStatus("loading");
     setMessage("");
     try {
-      setDraft(await interpretTeacherCommand(command, context, user));
+      setDraft(await interpretTeacherCommand(value, context, user));
       setStatus("idle");
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Не удалось подготовить черновик.");
     }
+  }
+
+  async function interpret() {
+    await interpretValue(command);
+  }
+
+  function clearVoiceTimers() {
+    if (voiceClock.current !== null) window.clearInterval(voiceClock.current);
+    if (voiceLimit.current !== null) window.clearTimeout(voiceLimit.current);
+    voiceClock.current = null;
+    voiceLimit.current = null;
+  }
+
+  async function beginVoiceRecording() {
+    if (!user || voiceStatus !== "idle") return;
+    setMessage("");
+    setVoiceStatus("starting");
+    try {
+      voiceRecorder.current = await startVoiceRecorder();
+      setVoiceSeconds(0);
+      setVoiceStatus("recording");
+      const startedAt = Date.now();
+      voiceClock.current = window.setInterval(() => {
+        setVoiceSeconds(Math.min(VOICE_MAX_DURATION_MS / 1_000, Math.floor((Date.now() - startedAt) / 1000)));
+      }, 250);
+      voiceLimit.current = window.setTimeout(() => void finishVoiceRecording(), VOICE_MAX_DURATION_MS);
+    } catch (error) {
+      setVoiceStatus("idle");
+      setStatus("error");
+      const permissionDenied = error instanceof DOMException && ["NotAllowedError", "PermissionDeniedError"].includes(error.name);
+      setMessage(permissionDenied
+        ? "Разрешите доступ к микрофону в настройках браузера и попробуйте снова."
+        : error instanceof Error ? error.message : "Не удалось включить микрофон.");
+    }
+  }
+
+  async function finishVoiceRecording() {
+    const recorder = voiceRecorder.current;
+    if (!recorder || !user) return;
+    voiceRecorder.current = null;
+    clearVoiceTimers();
+    setVoiceStatus("uploading");
+    const controller = new AbortController();
+    voiceAbort.current = controller;
+    try {
+      const recording = await recorder.stop();
+      const transcript = await transcribeTeacherVoice(recording, user, {
+        signal: controller.signal,
+        onProcessing: () => setVoiceStatus("recognizing"),
+      });
+      setCommand(transcript);
+      setVoiceStatus("idle");
+      setMessage("Речь распознана. Проверьте подготовленные черновики перед сохранением.");
+      await interpretValue(transcript);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setVoiceStatus("idle");
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "Не удалось распознать речь.");
+    } finally {
+      voiceAbort.current = null;
+    }
+  }
+
+  async function cancelVoiceRecording() {
+    const recorder = voiceRecorder.current;
+    voiceRecorder.current = null;
+    clearVoiceTimers();
+    voiceAbort.current?.abort();
+    if (recorder) await recorder.cancel().catch(() => undefined);
+    setVoiceStatus("idle");
+    setVoiceSeconds(0);
+    setMessage("Запись отменена. Аудио не отправлялось.");
   }
 
   function patchPlannerItem(index: number, patch: Partial<PlannerAIItemDraft>) {
@@ -149,7 +237,10 @@ export function TeacherAIAssistant({ initialCommand = "", onClose }: { initialCo
     }
   }
 
-  return <Modal className="teacher-ai-modal" onClose={onClose} title="✨ AI-помощник преподавателя"><div className="teacher-ai-content"><p className="teacher-ai-safety">Помощник создаёт только черновик. Ничего не сохранится без вашего подтверждения.</p><label className="form-field"><span>Контекст ученика · необязательно</span><select onChange={(event) => setSelectedStudentId(event.target.value)} value={selectedStudentId}><option value="">Определить из запроса</option>{students.data.map(({ id, data }) => <option key={id} value={id}>{data.displayName}</option>)}</select></label><label className="form-field"><span>Что подготовить?</span><textarea autoFocus onChange={(event) => setCommand(event.target.value)} placeholder="Например: запланируй на завтра проверить сочинения" rows={4} value={command} /></label><div className="teacher-ai-examples">{examples.map((example) => <button key={example} onClick={() => setCommand(example)} type="button">{example}</button>)}</div><button className="primary-button primary-button--fit" disabled={!command.trim() || status === "loading"} onClick={() => void interpret()} type="button">{status === "loading" ? "Готовлю…" : "Подготовить черновик"}</button>{draft ? <AIDraftPreview draft={draft} onDraftChange={setDraft} onPatchPlannerItem={patchPlannerItem} /> : null}{draft && !["CLARIFICATION_REQUIRED", "UNSUPPORTED_REQUEST"].includes(draft.actionType) ? <button className="primary-button primary-button--fit" disabled={status === "confirming" || recurrenceScopeRequired || (draft.actionType === "PLANNER_ITEMS_DRAFT" && !draft.items.some((item) => item.selected))} onClick={() => void confirmDraft()} type="button">{status === "confirming" ? "Применяю…" : draft.actionType === "HOMEWORK_DRAFT" || draft.actionType === "LESSON_SUMMARY_DRAFT" ? "Передать в форму для финальной проверки" : "Подтвердить выбранное"}</button> : null}{recurrenceScopeRequired ? <div className="recurrence-scope-options"><strong>Какие повторения изменить?</strong><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("occurrence")} type="button">Только это</button><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("following")} type="button">Это и следующие</button><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("series")} type="button">Вся серия</button></div> : null}{message ? <p className={status === "error" ? "shell-notice" : "form-success"} role="status">{message}</p> : null}<small className="teacher-ai-usage">{usage ? `AI за сегодня: ${usage.today} · за месяц: ${usage.month} · ошибок: ${usage.failures} · токенов: ${usage.inputTokens + usage.outputTokens}` : "Локальный MockAIProvider · платные запросы не выполняются"}</small></div></Modal>;
+  const voiceEnabled = teacherVoiceInputEnabled();
+  const voiceSupported = voiceRecordingSupported();
+  const voiceBusy = voiceStatus !== "idle";
+  return <Modal className="teacher-ai-modal" onClose={onClose} title="✨ AI-помощник преподавателя"><div className="teacher-ai-content"><p className="teacher-ai-safety">Помощник создаёт только черновик. Ничего не сохранится без вашего подтверждения.</p><label className="form-field"><span>Контекст ученика · необязательно</span><select onChange={(event) => setSelectedStudentId(event.target.value)} value={selectedStudentId}><option value="">Определить из запроса</option>{students.data.map(({ id, data }) => <option key={id} value={id}>{data.displayName}</option>)}</select></label><label className="form-field"><span>Что подготовить?</span><textarea autoFocus onChange={(event) => setCommand(event.target.value)} placeholder="Например: запланируй на завтра проверить сочинения" rows={4} value={command} /></label>{voiceEnabled ? <section className="teacher-ai-voice" aria-label="Голосовой ввод"><div className="teacher-ai-voice-actions">{voiceStatus === "recording" ? <button className="voice-record-button voice-record-button--active" onClick={() => void finishVoiceRecording()} type="button"><span aria-hidden="true">■</span> Завершить · {String(Math.floor(voiceSeconds / 60)).padStart(2, "0")}:{String(voiceSeconds % 60).padStart(2, "0")}</button> : <button className="voice-record-button" disabled={!voiceSupported || voiceBusy || status === "loading"} onClick={() => void beginVoiceRecording()} type="button">🎙 Наговорить несколько задач</button>}{voiceBusy ? <button className="secondary-button" onClick={() => void cancelVoiceRecording()} type="button">Отменить</button> : null}</div><small aria-live="polite">{voiceStatus === "starting" ? "Включаем микрофон…" : voiceStatus === "recording" ? "Говорите задачи подряд. Максимум 3 минуты." : voiceStatus === "uploading" ? "Безопасно отправляем аудио по частям…" : voiceStatus === "recognizing" ? "Распознаём речь и разделяем задачи…" : voiceSupported ? "Аудио не сохраняется. После распознавания появятся отдельные черновики." : "В этом браузере микрофон недоступен."}</small></section> : null}<div className="teacher-ai-examples">{examples.map((example) => <button key={example} onClick={() => setCommand(example)} type="button">{example}</button>)}</div><button className="primary-button primary-button--fit" disabled={!command.trim() || status === "loading" || voiceBusy} onClick={() => void interpret()} type="button">{status === "loading" ? "Готовлю…" : "Подготовить черновик"}</button>{draft ? <AIDraftPreview draft={draft} onDraftChange={setDraft} onPatchPlannerItem={patchPlannerItem} /> : null}{draft && !["CLARIFICATION_REQUIRED", "UNSUPPORTED_REQUEST"].includes(draft.actionType) ? <button className="primary-button primary-button--fit" disabled={status === "confirming" || recurrenceScopeRequired || voiceBusy || (draft.actionType === "PLANNER_ITEMS_DRAFT" && !draft.items.some((item) => item.selected))} onClick={() => void confirmDraft()} type="button">{status === "confirming" ? "Применяю…" : draft.actionType === "HOMEWORK_DRAFT" || draft.actionType === "LESSON_SUMMARY_DRAFT" ? "Передать в форму для финальной проверки" : "Подтвердить выбранное"}</button> : null}{recurrenceScopeRequired ? <div className="recurrence-scope-options"><strong>Какие повторения изменить?</strong><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("occurrence")} type="button">Только это</button><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("following")} type="button">Это и следующие</button><button className="secondary-button" onClick={() => void confirmRecurringPlannerUpdate("series")} type="button">Вся серия</button></div> : null}{message ? <p className={status === "error" ? "shell-notice" : "form-success"} role="status">{message}</p> : null}<small className="teacher-ai-usage">{usage ? `AI за сегодня: ${usage.today} · за месяц: ${usage.month} · ошибок: ${usage.failures} · токенов: ${usage.inputTokens + usage.outputTokens}` : "Локальный MockAIProvider · платные запросы не выполняются"}</small></div></Modal>;
 }
 
 function AIDraftPreview({ draft, onDraftChange, onPatchPlannerItem }: { draft: TeacherAIDraft; onDraftChange(value: TeacherAIDraft): void; onPatchPlannerItem(index: number, patch: Partial<PlannerAIItemDraft>): void }) {

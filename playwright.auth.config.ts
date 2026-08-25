@@ -32,6 +32,7 @@ export default defineConfig({
       VITE_FIRESTORE_EMULATOR_PORT: "8080",
       VITE_FIREBASE_STORAGE_EMULATOR_HOST: "127.0.0.1",
       VITE_FIREBASE_STORAGE_EMULATOR_PORT: "9199",
+      VITE_VOICE_INPUT_ENABLED: "true",
     },
   },
 });

@@ -40,6 +40,15 @@ describe("teacher AI drafts", () => {
     expect(backlog).toMatchObject({ actionType: "PLANNER_ITEMS_DRAFT", items: [{ itemType: "task", category: "someday", date: null }] });
   });
 
+  test("splits a natural voice-style list into separate planner drafts", () => {
+    const draft = createMockTeacherAIDraft("Завтра проверить сочинение; купить тетради; позвонить врачу", context);
+    expect(draft.actionType).toBe("PLANNER_ITEMS_DRAFT");
+    if (draft.actionType === "PLANNER_ITEMS_DRAFT") {
+      expect(draft.items).toHaveLength(3);
+      expect(draft.items.every((item) => item.selected)).toBe(true);
+    }
+  });
+
   test("asks for clarification instead of guessing duplicate students", () => {
     const ambiguous = { ...context, selectedStudentId: null, students: [{ id: "one", displayName: "Лера" }, { id: "two", displayName: "Лера" }] };
     expect(createMockTeacherAIDraft("Сделай ДЗ для Леры", ambiguous).actionType).toBe("CLARIFICATION_REQUIRED");

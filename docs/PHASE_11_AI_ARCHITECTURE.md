@@ -56,3 +56,45 @@ default. Daily teacher rate limiting is enforced before provider access.
 The public frontend uses `VITE_AI_API_BASE` for AI calls and keeps
 `VITE_KABINET_API_BASE` unchanged for provisioning and file operations.
 Manual workflows remain available when the AI function is unavailable.
+
+## Phase 11B voice input (local release candidate)
+
+```text
+Teacher microphone (one continuous recording, max 3 minutes)
+  -> browser-side mono PCM capture and 16 kHz WAV encoding
+  -> Firebase ID token + protected /v1/ai/transcribe
+  -> teacher-role check + independent daily rate limit
+  -> Yandex SpeechKit asynchronous recognition
+  -> protected /v1/ai/transcription polling
+  -> transcript returned once; SpeechKit result deleted
+  -> existing /v1/ai/interpret pipeline
+  -> up to 30 editable planner drafts
+  -> explicit teacher confirmation
+```
+
+Neither raw audio nor the transcript is written to Firestore, logs, localStorage,
+or Git. `aiTranscriptionJobs` stores only safe operational metadata: teacher ID,
+an operation-ID hash, duration, byte count, status, expiry, and deletion markers.
+The client receives the opaque SpeechKit operation ID, while every poll verifies
+ownership against its hash. Students and anonymous users reuse the same fail-closed
+teacher authentication guard as the text assistant.
+
+The browser recording is intentionally bounded to 3 minutes and split into ordered
+50-second WAV segments. Each segment is approximately 1.6 MB as raw PCM WAV and
+2.14 MB after Base64 encoding. This remains below the 3.5 MB Cloud Functions JSON
+request limit and supports a natural list of many short tasks. Recording can be
+cancelled before upload. A successful transcription is automatically interpreted,
+but no planner item is written until the teacher confirms selected drafts.
+
+Production remains disabled until a separate rollout explicitly provides:
+
+- folder-level `ai.speechkit-stt.user` for the runtime service account;
+- a separate scoped SpeechKit API key injected through Lockbox as
+  `SPEECHKIT_API_KEY`;
+- `VOICE_INPUT_ENABLED=true` in the AI function and
+  `VITE_VOICE_INPUT_ENABLED=true` in the Pages build;
+- a function version containing the voice endpoints, followed by anonymous,
+  student, teacher, CORS, size-limit, deletion, and public mobile smoke tests.
+
+No SpeechKit TTS role is needed. The existing language-model key and Firebase
+credential must not be copied, widened, or exposed to the browser.

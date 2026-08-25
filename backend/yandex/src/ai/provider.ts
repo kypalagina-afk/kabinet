@@ -49,6 +49,7 @@ Required contracts:
 - LESSON_SUMMARY_DRAFT: {actionType,draftId,summary,lessonId,studentId,topic,understandingScore,examTaskNumbers,errors,studentComment,privateNote}. understandingScore is an integer from 1 to 10. examTaskNumbers is an array of positive integers. errors is an array of strings. studentComment and privateNote are strings.
 - CLARIFICATION_REQUIRED: {actionType,draftId,summary,question}.
 - UNSUPPORTED_REQUEST: {actionType,draftId,summary,reason}.
+Voice input can be a natural monologue without the words "task" or "plan". If it contains several independent future actions, return PLANNER_ITEMS_DRAFT and split them into separate items in spoken order. Preserve a date or time that applies to the following items. Do not merge unrelated actions. Return at most 30 items.
 If any required identity, lesson, date, time or duration is missing or ambiguous, MUST return CLARIFICATION_REQUIRED; never return a partial action draft and never guess missing values. Default planner priority is medium. Never grade, change payments, delete students, cancel lessons, or write data.`;
 }
 

@@ -21,6 +21,7 @@ interface ImportMetaEnv {
   readonly VITE_AI_API_BASE?: string;
   readonly VITE_PRODUCTION_BACKEND_ENABLED?: "true" | "false";
   readonly VITE_AI_ASSISTANT_ENABLED?: "true" | "false";
+  readonly VITE_VOICE_INPUT_ENABLED?: "true" | "false";
 }
 
 interface ImportMeta {

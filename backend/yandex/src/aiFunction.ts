@@ -1,6 +1,7 @@
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
 import { isTeacherAIActor } from "./ai/authorization.js";
 import { rescheduleClarification } from "./ai/clarification.js";
 import {
@@ -12,7 +13,16 @@ import {
 } from "./ai/context.js";
 import { safeAIProviderErrorCode, YandexAIProvider } from "./ai/provider.js";
 import { referenceClarification, validateDraftReferences } from "./ai/references.js";
-import { aiInterpretInputSchema } from "./ai/schema.js";
+import {
+  aiInterpretInputSchema,
+  voiceTranscriptionInputSchema,
+  voiceTranscriptionStatusInputSchema,
+} from "./ai/schema.js";
+import {
+  MAX_VOICE_AUDIO_BYTES,
+  SpeechKitError,
+  YandexSpeechKitProvider,
+} from "./ai/speechkit.js";
 import { parseFirebaseCredential } from "./firebaseCredential.js";
 
 type Json = Record<string, unknown>;
@@ -60,9 +70,17 @@ const aiBaseUrl = process.env.AI_BASE_URL?.trim() || "https://ai.api.cloud.yande
 const aiModelUri = required("AI_MODEL_URI");
 const aiApiKey = required("AI_API_KEY");
 const dailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || "100");
+const voiceInputEnabled = process.env.VOICE_INPUT_ENABLED === "true";
+const speechKitBaseUrl = process.env.SPEECHKIT_BASE_URL?.trim() || "https://stt.api.cloud.yandex.net";
+const speechKitOperationsBaseUrl = process.env.SPEECHKIT_OPERATIONS_BASE_URL?.trim() || "https://operation.api.cloud.yandex.net";
+const speechKitApiKey = process.env.SPEECHKIT_API_KEY?.trim() || "";
+const voiceDailyRequestLimit = Number(process.env.VOICE_DAILY_REQUEST_LIMIT || "50");
 
 if (!Number.isInteger(dailyRequestLimit) || dailyRequestLimit < 1 || dailyRequestLimit > 1000) {
   throw new Error("AI_DAILY_REQUEST_LIMIT must be an integer from 1 to 1000");
+}
+if (!Number.isInteger(voiceDailyRequestLimit) || voiceDailyRequestLimit < 1 || voiceDailyRequestLimit > 500) {
+  throw new Error("VOICE_DAILY_REQUEST_LIMIT must be an integer from 1 to 500");
 }
 
 const credentialJson = parseFirebaseCredential(
@@ -348,6 +366,99 @@ async function aiUsage(event: FunctionEvent) {
   };
 }
 
+function transcriptionJobId(operationId: string): string {
+  return createHash("sha256").update(operationId).digest("hex");
+}
+
+function speechKitProvider(): YandexSpeechKitProvider {
+  if (!voiceInputEnabled) throw new HttpError(404, "Голосовой ввод пока не включён");
+  if (!speechKitApiKey) throw new HttpError(503, "Голосовой ввод временно недоступен");
+  return new YandexSpeechKitProvider(speechKitBaseUrl, speechKitApiKey, speechKitOperationsBaseUrl);
+}
+
+function validatedWav(audioBase64: string): Buffer {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(audioBase64)) {
+    throw new HttpError(400, "Некорректная аудиозапись");
+  }
+  const audio = Buffer.from(audioBase64, "base64");
+  if (audio.length < 44 || audio.length > MAX_VOICE_AUDIO_BYTES) {
+    throw new HttpError(413, "Аудиозапись слишком большая");
+  }
+  if (audio.subarray(0, 4).toString("ascii") !== "RIFF" || audio.subarray(8, 12).toString("ascii") !== "WAVE") {
+    throw new HttpError(400, "Поддерживается только WAV-аудио");
+  }
+  return audio;
+}
+
+async function startVoiceTranscription(event: FunctionEvent, context: FunctionContext) {
+  const provider = speechKitProvider();
+  const identity = await authenticateTeacher(event);
+  const parsed = voiceTranscriptionInputSchema.safeParse(jsonBody(event, context));
+  if (!parsed.success) throw new HttpError(400, "Некорректная аудиозапись");
+  const audio = validatedWav(parsed.data.audioBase64);
+  const dayKey = new Date().toISOString().slice(0, 10);
+  await rateLimit(identity.uid, `voice_transcription_${dayKey}`, voiceDailyRequestLimit);
+
+  const operationId = await provider.submitWav(audio.toString("base64"));
+  const now = Date.now();
+  await db.doc(`aiTranscriptionJobs/${transcriptionJobId(operationId)}`).set({
+    teacherId: identity.uid,
+    operationIdHash: transcriptionJobId(operationId),
+    status: "pending",
+    durationMs: parsed.data.durationMs,
+    audioBytes: audio.length,
+    rawAudioStored: false,
+    transcriptStored: false,
+    createdAt: FieldValue.serverTimestamp(),
+    expiresAt: Timestamp.fromMillis(now + 60 * 60_000),
+    schemaVersion: 1,
+  });
+  return { status: "pending", operationId };
+}
+
+async function pollVoiceTranscription(event: FunctionEvent, context: FunctionContext) {
+  const provider = speechKitProvider();
+  const identity = await authenticateTeacher(event);
+  const parsed = voiceTranscriptionStatusInputSchema.safeParse(jsonBody(event, context));
+  if (!parsed.success) throw new HttpError(400, "Некорректный идентификатор распознавания");
+  const reference = db.doc(`aiTranscriptionJobs/${transcriptionJobId(parsed.data.operationId)}`);
+  const snapshot = await reference.get();
+  if (!snapshot.exists || snapshot.data()?.teacherId !== identity.uid) {
+    throw new HttpError(403, "Распознавание недоступно");
+  }
+  if (snapshot.data()?.status === "consumed") {
+    throw new HttpError(410, "Результат распознавания уже получен");
+  }
+  const expiresAt = snapshot.data()?.expiresAt;
+  if (expiresAt?.toMillis && expiresAt.toMillis() < Date.now()) {
+    throw new HttpError(410, "Время ожидания распознавания истекло");
+  }
+
+  const result = await provider.status(parsed.data.operationId);
+  if (result.status === "pending") return result;
+  await provider.deleteResult(parsed.data.operationId);
+  await reference.set({
+    status: "consumed",
+    resultDeletedAt: FieldValue.serverTimestamp(),
+    transcriptStored: false,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await db.collection("aiActionAuditEvents").add({
+    teacherId: identity.uid,
+    actionType: "VOICE_TRANSCRIPTION",
+    status: "completed",
+    relatedEntityIds: [],
+    model: "speechkit-general",
+    durationMs: Number(snapshot.data()?.durationMs ?? 0),
+    audioBytes: Number(snapshot.data()?.audioBytes ?? 0),
+    rawAudioStored: false,
+    transcriptStored: false,
+    createdAt: FieldValue.serverTimestamp(),
+    schemaVersion: 1,
+  });
+  return { status: "done", transcript: result.transcript };
+}
+
 export async function handler(event: FunctionEvent, context: FunctionContext) {
   let origin: string | null = null;
   try {
@@ -356,13 +467,19 @@ export async function handler(event: FunctionEvent, context: FunctionContext) {
     if (method === "OPTIONS") return corsResponse(origin);
     const path = pathOf(event).replace(/\/+$/, "") || "/";
     if (method === "GET" && path === "/v1/health") {
-      return response(200, { status: "ok", service: "kabinet-ai-api", projectId: firebaseProjectId }, origin);
+      return response(200, { status: "ok", service: "kabinet-ai-api", projectId: firebaseProjectId, voiceInputEnabled: voiceInputEnabled && Boolean(speechKitApiKey) }, origin);
     }
     if (method === "POST" && (path === "/v1/ai/interpret" || path === "/ai/interpret")) {
       return response(200, await interpretAI(event, context), origin);
     }
     if (method === "GET" && (path === "/v1/ai/usage" || path === "/ai/usage")) {
       return response(200, await aiUsage(event), origin);
+    }
+    if (method === "POST" && path === "/v1/ai/transcribe") {
+      return response(202, await startVoiceTranscription(event, context), origin);
+    }
+    if (method === "POST" && path === "/v1/ai/transcription") {
+      return response(200, await pollVoiceTranscription(event, context), origin);
     }
     throw new HttpError(404, "Endpoint not found");
   } catch (error) {
@@ -373,6 +490,7 @@ export async function handler(event: FunctionEvent, context: FunctionContext) {
         requestId: context.requestId ?? null,
         status,
         error: error instanceof Error ? error.name : "Error",
+        errorCode: error instanceof SpeechKitError ? error.code : null,
       }),
     );
     return response(status, { error: message }, origin);

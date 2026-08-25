@@ -27,6 +27,7 @@ test("capture Phase 11 planner and AI surfaces", async ({ browser }) => {
     await page.getByLabel("Что подготовить?").fill("Запланируй на завтра: проверить сочинения; в 15:00 ногти");
     await page.getByRole("button", { name: "Подготовить черновик" }).click();
     await expect(page.getByText("Подготовлено задач: 2")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ fullPage: true, path: `${output}/ai-preview-${width}.png` });
     await page.close();
   }

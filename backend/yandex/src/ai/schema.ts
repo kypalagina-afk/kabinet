@@ -27,3 +27,13 @@ export const aiInterpretInputSchema = z.object({
     selectedStudentId: z.string().max(200).nullable(),
   }),
 });
+
+export const voiceTranscriptionInputSchema = z.object({
+  audioBase64: z.string().min(1).max(2_900_000),
+  contentType: z.literal("audio/wav"),
+  durationMs: z.number().int().min(300).max(60_000),
+});
+
+export const voiceTranscriptionStatusInputSchema = z.object({
+  operationId: z.string().min(1).max(500),
+});

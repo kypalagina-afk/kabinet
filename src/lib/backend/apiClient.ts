@@ -5,6 +5,7 @@ type RequestOptions = {
   method?: "GET" | "POST" | "DELETE";
   body?: unknown;
   user?: User | null;
+  signal?: AbortSignal;
 };
 
 function backendBaseUrl(): string {
@@ -31,6 +32,7 @@ async function requestFrom<T>(baseUrl: string, path: string, options: RequestOpt
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: options.signal,
   });
   const result = await response.json().catch(() => ({})) as { error?: string } & T;
   if (!response.ok) throw new Error(result.error ?? "Серверная операция не выполнена.");

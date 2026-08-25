@@ -55,6 +55,7 @@ test("capture Phase 10.1 manual acceptance set", async ({ page }) => {
   await page.goto("/#/teacher/planner");
   await expect(page.getByTestId("planner-day-category-board")).toBeVisible();
   await expect(page.getByText("Подготовить материалы к занятию")).toBeVisible();
+  await page.locator('.planner-category-column[data-category="Когда-нибудь"] .planner-backlog-heading').click();
   await expect(page.getByText("Обновить подборку диктантов")).toBeVisible();
   await page.screenshot({ fullPage: true, path: `${output}/planner-day.png` });
   await page.locator('.planner-category-column[data-category="Когда-нибудь"]').screenshot({ path: `${output}/planner-backlog.png` });

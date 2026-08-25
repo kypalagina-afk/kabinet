@@ -7,6 +7,7 @@ import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
+import { AIShortcutButton } from "../features/ai/AIShortcutButton";
 import {
   addCalendarDays,
   addCalendarMonths,
@@ -771,6 +772,7 @@ export function TeacherCalendarPage() {
                     ? "Бесплатно"
                     : "Не оплачено"}
               </span>
+              <AIShortcutButton prompt={`Подведи итоги урока с ${data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "учеником"}`}>Черновик итогов</AIShortcutButton>
               {selectedLesson.data.status === "planned" ||
               selectedLesson.data.status === "completed" ? (
                 <CompleteLessonForm

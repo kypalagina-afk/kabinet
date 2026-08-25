@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where, type Firestore } from "firebase/firestore";
-import { createPlannerGoal, createPlannerItem, createPlannerSubgoal, createRecurringPlannerTask, materializePlannerRecurrence, plannerGoalProgress, schedulePlannerItem, setPlannerItemCompleted } from "../../src/lib/firebase/services/plannerWorkflow.js";
+import { archiveRecurringPlannerTaskScope, createPlannerGoal, createPlannerItem, createPlannerItemsFromAssistant, createPlannerSubgoal, createRecurringPlannerTask, materializePlannerRecurrence, plannerGoalProgress, schedulePlannerItem, setPlannerItemCompleted, updateRecurringPlannerTaskScope } from "../../src/lib/firebase/services/plannerWorkflow.js";
+import { plannerOccurrenceId } from "../../src/features/planner/recurrence.js";
 import { getTeacherResourceSummary } from "../../src/lib/firebase/services/resourceMonitoring.js";
 
 let environment: RulesTestEnvironment;
@@ -14,6 +15,7 @@ beforeAll(async () => {
   });
   await environment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "users", "teacher-planner"), { role: "teacher" });
+    await setDoc(doc(context.firestore(), "users", "teacher-other"), { role: "teacher" });
     await setDoc(doc(context.firestore(), "users", "student-planner-auth"), { role: "student", teacherId: "teacher-planner", studentId: "student-planner" });
     await setDoc(doc(context.firestore(), "students", "student-planner"), { teacherId: "teacher-planner", displayName: "Ученик" });
   });
@@ -54,6 +56,33 @@ describe("teacher planner rules and workflow", () => {
     expect(await materializePlannerRecurrence(db, "teacher-planner", seriesId, "2026-08-24")).toBe(0);
     const repeatSnapshot = await getDocs(query(collection(db, "plannerItems"), where("teacherId", "==", "teacher-planner")));
     expect(repeatSnapshot.docs.filter((item) => item.id === seriesId || item.data().recurrenceSeriesId === seriesId)).toHaveLength(5);
+  });
+
+  test("recurring edit/delete scopes preserve completed history", async () => {
+    const db = environment.authenticatedContext("teacher-planner").firestore() as unknown as Firestore;
+    const input = { itemType: "task" as const, title: "Серия до изменения", category: "work" as const, date: "2026-08-24", startTime: null, endTime: null, durationMinutes: null, deadline: null, notes: null, goalId: null, subgoalId: null, priority: "medium" as const };
+    const seriesId = await createRecurringPlannerTask(db, "teacher-planner", input, { pattern: "daily", weekdays: [], startsOn: "2026-08-24", endsOn: "2026-08-27" }, "2026-08-24");
+    const firstId = plannerOccurrenceId(seriesId, "2026-08-24");
+    const secondId = plannerOccurrenceId(seriesId, "2026-08-25");
+    const thirdId = plannerOccurrenceId(seriesId, "2026-08-26");
+    await setPlannerItemCompleted(db, "teacher-planner", firstId, true);
+    await updateRecurringPlannerTaskScope(db, "teacher-planner", secondId, { ...input, title: "Серия после изменения", date: "2026-08-25" }, "following");
+    expect((await getDoc(doc(db, "plannerItems", firstId))).data()?.title).toBe("Серия до изменения");
+    expect((await getDoc(doc(db, "plannerItems", secondId))).data()?.title).toBe("Серия после изменения");
+    await archiveRecurringPlannerTaskScope(db, "teacher-planner", thirdId, "following");
+    expect((await getDoc(doc(db, "plannerItems", firstId))).data()?.active).toBe(true);
+    expect((await getDoc(doc(db, "plannerItems", thirdId))).data()?.active).toBe(false);
+    await archiveRecurringPlannerTaskScope(db, "teacher-planner", thirdId, "following");
+    expect((await getDoc(doc(db, "plannerItems", thirdId))).data()?.active).toBe(false);
+  });
+
+  test("AI planner confirmation is idempotent and teacher-owned", async () => {
+    const db = environment.authenticatedContext("teacher-planner").firestore() as unknown as Firestore;
+    const items = [{ draftItemId: "one", input: { itemType: "task" as const, title: "AI план", category: "work" as const, date: "2026-08-24", startTime: null, endTime: null, durationMinutes: null, deadline: null, notes: null, priority: "medium" as const, goalId: null, subgoalId: null } }];
+    expect(await createPlannerItemsFromAssistant(db, "teacher-planner", "draft-safe", items)).toEqual({ created: 1, existing: 0 });
+    expect(await createPlannerItemsFromAssistant(db, "teacher-planner", "draft-safe", items)).toEqual({ created: 0, existing: 1 });
+    const otherDb = environment.authenticatedContext("teacher-other").firestore();
+    await assertFails(getDoc(doc(otherDb, "plannerItems", "ai__teacher-planner__draft-safe__one")));
   });
 
   test("student and anonymous cannot read, list or write planner data", async () => {

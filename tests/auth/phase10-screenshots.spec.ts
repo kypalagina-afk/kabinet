@@ -28,6 +28,7 @@ test("capture Phase 10 acceptance surfaces", async ({ page }) => {
   await expect(page.locator(".planner-entry--lesson").first()).toBeVisible();
   await shot(page, "planner-day-light");
   await page.getByTestId("planner-goals").screenshot({ path: `${output}/planner-goals.png` });
+  await page.locator('.planner-category-column[data-category="Когда-нибудь"] .planner-backlog-heading').click();
   await page.locator('.planner-category-column[data-category="Когда-нибудь"]').screenshot({ path: `${output}/planner-someday.png` });
   await page.getByRole("button", { name: "Неделя" }).click();
   await shot(page, "planner-week");

@@ -315,7 +315,12 @@ service cloud.firestore {
     }
 
     match /plannerItems/{id} {
-      allow read: if teacherOwns(resource.data);
+      allow get: if teacherOwns(resource.data)
+        || (
+          isTeacher()
+          && id.matches('^ai__' + request.auth.uid + '__.*$')
+        );
+      allow list: if teacherOwns(resource.data);
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data)
         && request.resource.data.teacherId == resource.data.teacherId;

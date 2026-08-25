@@ -17,7 +17,9 @@ import {
   plannerRecurrenceDates,
   plannerRecurrenceHorizon,
   plannerRecurrenceWeekdays,
+  canRewritePlannerOccurrence,
 } from "../../../features/planner/recurrence.js";
+import { aiPlannerConfirmationDocumentId } from "../../../features/ai/confirmation.js";
 
 export type PlannerItemInput = Pick<
   PlannerItem,
@@ -42,6 +44,8 @@ export interface PlannerRecurrenceInput {
   endsOn: string | null;
 }
 
+export type PlannerRecurrenceScope = "occurrence" | "following" | "series";
+
 function normalizedItem(input: PlannerItemInput) {
   const title = input.title.trim();
   if (!title) throw new Error("Название обязательно");
@@ -61,7 +65,7 @@ function normalizedItem(input: PlannerItemInput) {
     notes: input.notes?.trim() || null,
     endTime: input.startTime ? input.endTime : null,
     durationMinutes: input.startTime ? input.durationMinutes : null,
-    priority: input.priority ?? "calm",
+    priority: input.priority ?? "medium",
     status: input.category === "someday" && !input.date ? "backlog" : "todo",
   } as const;
 }
@@ -86,6 +90,50 @@ export async function createPlannerItem(
     });
   });
   return reference.id;
+}
+
+export async function createPlannerItemsFromAssistant(
+  db: Firestore,
+  teacherId: string,
+  draftId: string,
+  items: Array<{ draftItemId: string; input: PlannerItemInput }>,
+): Promise<{ created: number; existing: number }> {
+  if (!items.length) return { created: 0, existing: 0 };
+  const confirmationId = `ai-${draftId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120)}`;
+  const references = items.map(({ draftItemId }) =>
+    doc(db, "plannerItems", aiPlannerConfirmationDocumentId(teacherId, draftId, draftItemId))
+  );
+  return runTransaction(db, async (transaction) => {
+    const snapshots = await Promise.all(references.map((reference) => transaction.get(reference)));
+    let created = 0;
+    let existing = 0;
+    items.forEach(({ input }, index) => {
+      const snapshot = snapshots[index]!;
+      if (snapshot.exists()) {
+        const current = snapshot.data() as PlannerItem;
+        if (current.teacherId !== teacherId || current.aiConfirmationId !== confirmationId) {
+          throw new Error("Конфликт идентификатора AI-подтверждения");
+        }
+        existing += 1;
+        return;
+      }
+      const value = normalizedItem(input);
+      transaction.set(references[index]!, {
+        teacherId,
+        ...value,
+        sortOrder: Date.now() + index,
+        completedAt: null,
+        active: true,
+        aiDraftId: draftId,
+        aiConfirmationId: confirmationId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        schemaVersion: 1,
+      });
+      created += 1;
+    });
+    return { created, existing };
+  });
 }
 
 export async function createRecurringPlannerTask(
@@ -310,6 +358,126 @@ export async function archivePlannerItem(
       throw new Error("Пункт плана не найден");
     transaction.update(reference, {
       active: false,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+function recurrenceReferences(
+  db: Firestore,
+  seriesId: string,
+  recurrence: NonNullable<PlannerItem["recurrence"]>,
+) {
+  return plannerRecurrenceDates(
+    recurrence,
+    recurrence.startsOn,
+    recurrence.materializedThrough,
+  ).map((date) => ({ date, reference: doc(db, "plannerItems", plannerOccurrenceId(seriesId, date)) }));
+}
+
+export async function updateRecurringPlannerTaskScope(
+  db: Firestore,
+  teacherId: string,
+  itemId: string,
+  input: PlannerItemInput,
+  scope: PlannerRecurrenceScope,
+): Promise<void> {
+  if (scope === "occurrence") {
+    await updatePlannerItem(db, teacherId, itemId, input);
+    return;
+  }
+  const occurrenceReference = doc(db, "plannerItems", itemId);
+  await runTransaction(db, async (transaction) => {
+    const occurrenceSnapshot = await transaction.get(occurrenceReference);
+    if (!occurrenceSnapshot.exists() || occurrenceSnapshot.data().teacherId !== teacherId) {
+      throw new Error("Повторение не найдено");
+    }
+    const occurrence = occurrenceSnapshot.data() as PlannerItem;
+    if (!occurrence.recurrenceSeriesId || !occurrence.recurrenceDate) {
+      throw new Error("Задача не относится к серии");
+    }
+    const templateReference = doc(db, "plannerItems", occurrence.recurrenceSeriesId);
+    const templateSnapshot = await transaction.get(templateReference);
+    if (!templateSnapshot.exists() || templateSnapshot.data().teacherId !== teacherId) {
+      throw new Error("Серия не найдена");
+    }
+    const template = templateSnapshot.data() as PlannerItem;
+    if (!template.recurrence) throw new Error("Настройки серии не найдены");
+    const normalized = normalizedItem(input);
+    const references = recurrenceReferences(db, occurrence.recurrenceSeriesId, template.recurrence);
+    const snapshots = await Promise.all(references.map(({ reference }) => transaction.get(reference)));
+    references.forEach(({ date, reference }, index) => {
+      const snapshot = snapshots[index]!;
+      if (!snapshot.exists()) return;
+      const current = snapshot.data() as PlannerItem;
+      if (current.teacherId !== teacherId || !canRewritePlannerOccurrence(current, date, occurrence.recurrenceDate!, scope)) return;
+      transaction.update(reference, {
+        ...normalized,
+        date: current.date,
+        recurrenceSeriesId: occurrence.recurrenceSeriesId,
+        recurrenceDate: current.recurrenceDate,
+        status: current.status,
+        completedAt: current.completedAt ?? null,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    transaction.update(templateReference, {
+      itemType: normalized.itemType,
+      title: normalized.title,
+      category: normalized.category,
+      startTime: normalized.startTime,
+      endTime: normalized.endTime,
+      durationMinutes: normalized.durationMinutes,
+      notes: normalized.notes,
+      priority: normalized.priority,
+      goalId: normalized.goalId,
+      subgoalId: normalized.subgoalId,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function archiveRecurringPlannerTaskScope(
+  db: Firestore,
+  teacherId: string,
+  itemId: string,
+  scope: PlannerRecurrenceScope,
+): Promise<void> {
+  if (scope === "occurrence") {
+    await archivePlannerItem(db, teacherId, itemId);
+    return;
+  }
+  const occurrenceReference = doc(db, "plannerItems", itemId);
+  await runTransaction(db, async (transaction) => {
+    const occurrenceSnapshot = await transaction.get(occurrenceReference);
+    if (!occurrenceSnapshot.exists() || occurrenceSnapshot.data().teacherId !== teacherId) {
+      throw new Error("Повторение не найдено");
+    }
+    const occurrence = occurrenceSnapshot.data() as PlannerItem;
+    if (!occurrence.recurrenceSeriesId || !occurrence.recurrenceDate) {
+      throw new Error("Задача не относится к серии");
+    }
+    const templateReference = doc(db, "plannerItems", occurrence.recurrenceSeriesId);
+    const templateSnapshot = await transaction.get(templateReference);
+    if (!templateSnapshot.exists() || templateSnapshot.data().teacherId !== teacherId) {
+      throw new Error("Серия не найдена");
+    }
+    const template = templateSnapshot.data() as PlannerItem;
+    if (!template.recurrence) throw new Error("Настройки серии не найдены");
+    const references = recurrenceReferences(db, occurrence.recurrenceSeriesId, template.recurrence);
+    const snapshots = await Promise.all(references.map(({ reference }) => transaction.get(reference)));
+    references.forEach(({ date, reference }, index) => {
+      const snapshot = snapshots[index]!;
+      if (!snapshot.exists()) return;
+      const current = snapshot.data() as PlannerItem;
+      if (current.teacherId !== teacherId || !canRewritePlannerOccurrence(current, date, occurrence.recurrenceDate!, scope)) return;
+      transaction.update(reference, { active: false, updatedAt: serverTimestamp() });
+    });
+    transaction.update(templateReference, {
+      active: scope === "series" ? false : template.active,
+      recurrence: scope === "following"
+        ? { ...template.recurrence, endsOn: addPlannerDays(occurrence.recurrenceDate, -1) }
+        : template.recurrence,
       updatedAt: serverTimestamp(),
     });
   });

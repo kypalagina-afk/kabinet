@@ -18,7 +18,9 @@ interface ImportMetaEnv {
   readonly VITE_FIRESTORE_EMULATOR_HOST?: string;
   readonly VITE_FIRESTORE_EMULATOR_PORT?: string;
   readonly VITE_KABINET_API_BASE?: string;
+  readonly VITE_AI_API_BASE?: string;
   readonly VITE_PRODUCTION_BACKEND_ENABLED?: "true" | "false";
+  readonly VITE_AI_ASSISTANT_ENABLED?: "true" | "false";
 }
 
 interface ImportMeta {

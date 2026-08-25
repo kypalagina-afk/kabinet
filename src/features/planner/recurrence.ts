@@ -76,3 +76,26 @@ export function plannerOccurrenceId(seriesId: string, date: string) {
 export function isPlannerRecurrenceTemplate(value: { recordType?: string }) {
   return value.recordType === "recurrence";
 }
+
+export type PlannerRecurrenceMutationScope = "occurrence" | "following" | "series";
+
+export function plannerRecurrenceDateInScope(
+  date: string,
+  anchorDate: string,
+  scope: PlannerRecurrenceMutationScope,
+) {
+  return scope === "series" || scope === "occurrence"
+    ? true
+    : date >= anchorDate;
+}
+
+export function canRewritePlannerOccurrence(
+  occurrence: { status: string; active: boolean },
+  date: string,
+  anchorDate: string,
+  scope: PlannerRecurrenceMutationScope,
+) {
+  if (occurrence.status === "done") return false;
+  if (scope === "occurrence") return date === anchorDate;
+  return plannerRecurrenceDateInScope(date, anchorDate, scope);
+}

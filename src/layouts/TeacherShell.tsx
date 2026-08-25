@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { ChevronLeftIcon, ChevronRightIcon } from "../components/Icons";
 import { useAuth } from "../features/auth/AuthProvider";
 import { Avatar, AvatarPicker } from "../features/avatar/Avatar";
 import { moscowTimezoneLabel, resolveTimezone } from "../features/schedule/timezone";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
+import { teacherAIAssistantEnabled } from "../features/ai/featureFlag";
+
+const TeacherAIAssistant = lazy(() => import("../features/ai/TeacherAIAssistant").then((module) => ({ default: module.TeacherAIAssistant })));
 
 const links = [
   ["/teacher", "Главная", "🏠", true],
@@ -27,6 +30,8 @@ export function TeacherShell() {
   const { profile, error, logout, setAvatar, setTimezone } = useAuth();
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantPrompt, setAssistantPrompt] = useState("");
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("teacher-sidebar-collapsed") === "true",
   );
@@ -36,6 +41,15 @@ export function TeacherShell() {
       return !value;
     });
   }
+  useEffect(() => {
+    const openAssistant = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt?: string }>).detail;
+      setAssistantPrompt(detail?.prompt ?? "");
+      setAssistantOpen(true);
+    };
+    window.addEventListener("open-teacher-ai", openAssistant);
+    return () => window.removeEventListener("open-teacher-ai", openAssistant);
+  }, []);
   return (
     <div
       className={`teacher-shell${collapsed ? " teacher-shell--collapsed" : ""}`}
@@ -164,6 +178,7 @@ export function TeacherShell() {
             <p className="shell-title">Здравствуйте, {profile?.displayName ?? profile?.username}</p>
           </div>
           <div className="shell-actions">
+            {teacherAIAssistantEnabled() ? <button aria-label="Открыть AI-помощника" className="ai-assistant-button" onClick={() => setAssistantOpen(true)} type="button">✨ <span>Помощник</span></button> : null}
             <ThemeToggle />
             <button
               className="secondary-button"
@@ -181,6 +196,7 @@ export function TeacherShell() {
         ) : null}
         <Outlet />
       </div>
+      {assistantOpen ? <Suspense fallback={<div className="assistant-loading" role="status">Загружаем помощника…</div>}><TeacherAIAssistant initialCommand={assistantPrompt} onClose={() => setAssistantOpen(false)} /></Suspense> : null}
     </div>
   );
 }

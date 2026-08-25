@@ -29,6 +29,7 @@ test("planner combines lessons and private plans with CRUD and goals", async ({ 
   await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"]')).toBeVisible();
   await expect(page.getByText("Подготовить материалы к занятию")).toBeVisible();
   await expect(page.locator('.planner-category-column[data-category="Работа"] .planner-entry--lesson').first()).toBeVisible();
+  await page.locator('.planner-category-column[data-category="Когда-нибудь"] .planner-backlog-heading').click();
   await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"]')).toContainText("Обновить подборку диктантов");
   await expect(page.getByTestId("planner-goals")).toContainText("Сильный учебный месяц");
 
@@ -50,7 +51,7 @@ test("planner combines lessons and private plans with CRUD and goals", async ({ 
   await task.getByRole("button", { name: "Выполнить задачу" }).click();
   await expect(task).toHaveClass(/planner-entry--done/);
 
-  await page.getByRole("button", { name: /Обновить подборку диктантов/ }).click();
+  await page.locator(".someday-item").filter({ hasText: "Обновить подборку диктантов" }).getByRole("button", { name: "Изменить" }).click();
   dialog = page.getByRole("dialog", { name: "Изменить план" });
   await dialog.getByLabel("Категория").selectOption("work");
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);

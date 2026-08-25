@@ -26,6 +26,17 @@ import {
   validateUploadIntent,
   type UploadIntentInput,
 } from "./policy";
+import { aiInterpretInputSchema } from "./ai/schema.js";
+import { YandexAIProvider } from "./ai/provider.js";
+import { isTeacherAIActor } from "./ai/authorization.js";
+import {
+  findStudentsByName,
+  getActiveHomework,
+  getPendingHomeworkReviews,
+  getPlannerItemsRange,
+  getTeacherScheduleRange,
+} from "./ai/context.js";
+import { parseFirebaseCredential } from "./firebaseCredential.js";
 
 type Json = Record<string, unknown>;
 
@@ -88,14 +99,13 @@ const allowedOrigins = new Set(
     .filter(Boolean),
 );
 const requireAppCheck = process.env.REQUIRE_APP_CHECK === "true";
+const aiAssistantEnabled = process.env.AI_ASSISTANT_ENABLED === "true";
 
-const credentialJson = JSON.parse(
-  Buffer.from(required("FIREBASE_ADMIN_JSON_B64"), "base64").toString("utf8"),
-) as { project_id?: string; client_email?: string; private_key?: string };
-if (credentialJson.project_id !== firebaseProjectId) throw new Error("Firebase credential project mismatch");
-if (!credentialJson.client_email || !credentialJson.private_key) {
-  throw new Error("Firebase credential is incomplete");
-}
+const credentialJson = parseFirebaseCredential(
+  firebaseProjectId,
+  process.env.FIREBASE_ADMIN_JSON,
+  process.env.FIREBASE_ADMIN_JSON_B64,
+);
 
 const firebaseApp =
   getApps()[0] ?? initializeApp({
@@ -606,6 +616,104 @@ async function resetStudentPassword(event: FunctionEvent, context: FunctionConte
   return { status: "reset" };
 }
 
+function addIsoDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function interpretAI(event: FunctionEvent, context: FunctionContext) {
+  if (!aiAssistantEnabled) throw new HttpError(404, "AI assistant is disabled");
+  const identity = await authenticate(event);
+  if (!isTeacherAIActor(identity.profile)) throw new HttpError(403, "Teacher role required");
+  const dayKey = new Date().toISOString().slice(0, 10);
+  await rateLimit(identity.uid, `ai_interpret_${dayKey}`, 100);
+  const parsed = aiInterpretInputSchema.safeParse(jsonBody(event, context));
+  if (!parsed.success) throw new HttpError(400, "Не удалось разобрать команду");
+  if (parsed.data.context.selectedStudentId) {
+    await assertTeacherStudent(identity.uid, parsed.data.context.selectedStudentId);
+  }
+  const startedAt = Date.now();
+  const auditReference = db.collection("aiActionAuditEvents").doc();
+  const baseUrl = process.env.AI_BASE_URL?.trim() || "https://ai.api.cloud.yandex.net/v1";
+  const modelUri = process.env.AI_MODEL_URI?.trim();
+  const apiKey = process.env.AI_API_KEY?.trim();
+  if (!modelUri || !apiKey) throw new HttpError(503, "AI временно недоступен");
+  const students = await findStudentsByName(db, identity.uid, parsed.data.command);
+  if (parsed.data.context.selectedStudentId && !students.some(({ id }) => id === parsed.data.context.selectedStudentId)) {
+    const student = await db.doc(`students/${parsed.data.context.selectedStudentId}`).get();
+    if (student.exists) students.push({ id: student.id, displayName: String(student.data()?.displayName ?? "") });
+  }
+  const selectedStudentId = parsed.data.context.selectedStudentId ?? (students.length === 1 ? students[0]!.id : null);
+  const [lessons, plannerItems, activeHomework, pendingReviews] = await Promise.all([
+    getTeacherScheduleRange(db, identity.uid, Date.now() - 14 * 86_400_000, Date.now() + 90 * 86_400_000),
+    getPlannerItemsRange(db, identity.uid, addIsoDays(parsed.data.context.today, -14), addIsoDays(parsed.data.context.today, 90)),
+    selectedStudentId ? getActiveHomework(db, identity.uid, selectedStudentId) : Promise.resolve([]),
+    getPendingHomeworkReviews(db, identity.uid),
+  ]);
+  const provider = new YandexAIProvider(baseUrl, modelUri, apiKey);
+  try {
+    const result = await provider.interpret({
+      command: parsed.data.command,
+      context: {
+        now: new Date().toISOString(),
+        today: parsed.data.context.today,
+        timezone: parsed.data.context.timezone,
+        students,
+        selectedStudentId,
+        lessons,
+        plannerItems,
+        activeHomework,
+        pendingReviews,
+      },
+    });
+    const relatedIds = [
+      "studentId" in result.draft ? result.draft.studentId : null,
+      "lessonId" in result.draft ? result.draft.lessonId : null,
+      "itemId" in result.draft ? result.draft.itemId : null,
+    ].filter((value): value is string => Boolean(value));
+    await auditReference.set({
+      teacherId: identity.uid,
+      actionType: result.draft.actionType,
+      status: "draft_created",
+      relatedEntityIds: relatedIds,
+      model: result.model,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      rawPromptStored: false,
+      createdAt: FieldValue.serverTimestamp(),
+      schemaVersion: 1,
+    });
+    return result.draft;
+  } catch (error) {
+    await auditReference.set({ teacherId: identity.uid, actionType: "unknown", status: "failed", relatedEntityIds: [], model: modelUri, latencyMs: Date.now() - startedAt, errorCode: error instanceof Error ? error.name : "Error", rawPromptStored: false, createdAt: FieldValue.serverTimestamp(), schemaVersion: 1 }).catch(() => undefined);
+    throw new HttpError(503, "AI временно недоступен");
+  }
+}
+
+async function aiUsage(event: FunctionEvent) {
+  if (!aiAssistantEnabled) throw new HttpError(404, "AI assistant is disabled");
+  const identity = await authenticate(event);
+  if (!isTeacherAIActor(identity.profile)) throw new HttpError(403, "Teacher role required");
+  const snapshot = await db.collection("aiActionAuditEvents").where("teacherId", "==", identity.uid).limit(1000).get();
+  const now = new Date();
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).getTime();
+  const rows = snapshot.docs.map((document) => document.data()).filter((row) => row.createdAt?.toMillis);
+  const monthRows = rows.filter((row) => row.createdAt.toMillis() >= monthStart);
+  const actionTypes: Record<string, number> = {};
+  monthRows.forEach((row) => { actionTypes[String(row.actionType)] = (actionTypes[String(row.actionType)] ?? 0) + 1; });
+  return {
+    today: rows.filter((row) => row.createdAt.toMillis() >= dayStart).length,
+    month: monthRows.length,
+    failures: monthRows.filter((row) => row.status === "failed").length,
+    inputTokens: monthRows.reduce((sum, row) => sum + Number(row.inputTokens ?? 0), 0),
+    outputTokens: monthRows.reduce((sum, row) => sum + Number(row.outputTokens ?? 0), 0),
+    actionTypes,
+  };
+}
+
 export async function handler(event: FunctionEvent, context: FunctionContext) {
   let origin: string | null = null;
   try {
@@ -615,6 +723,8 @@ export async function handler(event: FunctionEvent, context: FunctionContext) {
     const path = pathOf(event).replace(/\/+$/, "") || "/";
     if (method === "GET" && path === "/v1/health") return response(200, { status: "ok", projectId: firebaseProjectId }, origin);
     if (method === "POST" && path === "/v1/students") return response(200, await createStudent(event, context), origin);
+    if (method === "POST" && (path === "/v1/ai/interpret" || path === "/ai/interpret")) return response(200, await interpretAI(event, context), origin);
+    if (method === "GET" && (path === "/v1/ai/usage" || path === "/ai/usage")) return response(200, await aiUsage(event), origin);
     const passwordMatch = path.match(/^\/v1\/students\/([^/]+)\/password$/);
     if (method === "POST" && passwordMatch) return response(200, await resetStudentPassword(event, context, decodeURIComponent(passwordMatch[1]!)), origin);
     if (method === "POST" && path === "/v1/files/upload-intent") return response(200, await createUploadIntent(event, context), origin);

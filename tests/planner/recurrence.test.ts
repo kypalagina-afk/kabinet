@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  canRewritePlannerOccurrence,
   plannerOccurrenceId,
   plannerRecurrenceDates,
   plannerRecurrenceHorizon,
@@ -40,5 +41,12 @@ describe("planner recurrence", () => {
     expect(() => plannerRecurrenceDates({
       pattern: "daily", weekdays: [], startsOn: "2026-08-25", endsOn: "2026-08-24",
     }, "2026-08-24", "2026-09-01")).toThrow("Дата окончания");
+  });
+
+  test("recurrence scopes preserve completed history", () => {
+    expect(canRewritePlannerOccurrence({ status: "todo", active: true }, "2026-08-26", "2026-08-26", "occurrence")).toBe(true);
+    expect(canRewritePlannerOccurrence({ status: "todo", active: true }, "2026-08-25", "2026-08-26", "following")).toBe(false);
+    expect(canRewritePlannerOccurrence({ status: "todo", active: true }, "2026-08-27", "2026-08-26", "following")).toBe(true);
+    expect(canRewritePlannerOccurrence({ status: "done", active: true }, "2026-08-27", "2026-08-26", "series")).toBe(false);
   });
 });

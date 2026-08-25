@@ -13,10 +13,16 @@ function backendBaseUrl(): string {
   return value;
 }
 
-export async function backendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+function aiBackendBaseUrl(): string {
+  const value = import.meta.env.VITE_AI_API_BASE?.trim().replace(/\/+$/, "");
+  if (!value) throw new Error("AI backend не настроен.");
+  return value;
+}
+
+async function requestFrom<T>(baseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {
   const user = options.user ?? getFirebaseAuth().currentUser;
   if (!user) throw new Error("Требуется вход в аккаунт.");
-  const endpoint = new URL(backendBaseUrl());
+  const endpoint = new URL(baseUrl);
   endpoint.searchParams.set("path", path);
   const response = await fetch(endpoint, {
     method: options.method ?? "GET",
@@ -29,4 +35,12 @@ export async function backendRequest<T>(path: string, options: RequestOptions = 
   const result = await response.json().catch(() => ({})) as { error?: string } & T;
   if (!response.ok) throw new Error(result.error ?? "Серверная операция не выполнена.");
   return result;
+}
+
+export function backendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestFrom<T>(backendBaseUrl(), path, options);
+}
+
+export function aiBackendRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestFrom<T>(aiBackendBaseUrl(), path, options);
 }

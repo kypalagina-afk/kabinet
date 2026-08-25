@@ -41,6 +41,8 @@ jobs:
           VITE_AUTH_ALIAS_DOMAIN: kabinet25.example.com
           VITE_PRODUCTION_BACKEND_ENABLED: "true"
           VITE_KABINET_API_BASE: https://functions.yandexcloud.net/d4edsp9vr31m8so71ul7
+          VITE_AI_API_BASE: https://functions.yandexcloud.net/d4egce769rgduoa7ot5s
+          VITE_AI_ASSISTANT_ENABLED: "true"
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:

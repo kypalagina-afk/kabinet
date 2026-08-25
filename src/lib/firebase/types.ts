@@ -528,7 +528,7 @@ export interface FileAsset extends AuditedDocument {
 
 export type PlannerCategory = "work" | "home" | "personal" | "someday";
 export type PlannerItemStatus = "todo" | "done" | "backlog";
-export type PlannerPriority = "high" | "medium" | "calm";
+export type PlannerPriority = "high" | "medium" | "low" | "calm";
 export type PlannerRecurrencePattern = "daily" | "weekdays" | "custom";
 
 export interface PlannerRecurrenceSettings {
@@ -561,6 +561,8 @@ export interface PlannerItem extends AuditedDocument {
   recurrence?: PlannerRecurrenceSettings | null;
   recurrenceSeriesId?: string | null;
   recurrenceDate?: string | null;
+  aiDraftId?: string | null;
+  aiConfirmationId?: string | null;
 }
 
 export interface PlannerGoal extends AuditedDocument {

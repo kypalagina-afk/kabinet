@@ -561,6 +561,8 @@ export interface PlannerItem extends AuditedDocument {
   recurrence?: PlannerRecurrenceSettings | null;
   recurrenceSeriesId?: string | null;
   recurrenceDate?: string | null;
+  carriedFromDate?: string | null;
+  carriedAt?: Timestamp | null;
   aiDraftId?: string | null;
   aiConfirmationId?: string | null;
 }

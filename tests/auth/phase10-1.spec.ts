@@ -30,10 +30,11 @@ test("planner day is a category board and goals open a dedicated workspace", asy
   await page.goto("/#/teacher/planner");
   const board = page.getByTestId("planner-day-category-board");
   await expect(board).toBeVisible();
-  await expect(board.locator(".planner-category-column")).toHaveCount(3);
+  await expect(board.locator(".planner-category-column")).toHaveCount(2);
   await expect(board.locator('[data-category="Работа"] .planner-entry--lesson').first()).toBeVisible();
-  await board.locator('[data-category="Когда-нибудь"] .planner-backlog-heading').click();
-  await expect(board.locator('[data-category="Когда-нибудь"]')).toContainText("Обновить подборку диктантов");
+  const backlog = page.locator(".planner-sidebar .planner-backlog-toggle");
+  await backlog.click();
+  await expect(page.locator(".planner-sidebar")).toContainText("Обновить подборку диктантов");
   await page.locator(".planner-goals-open").click();
   await expect(page.getByTestId("planner-goals-workspace")).toBeVisible();
   await expect(page.getByTestId("planner-goals-workspace")).toContainText("Цель → подцели → задачи → планер");

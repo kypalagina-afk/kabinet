@@ -7,7 +7,7 @@ export async function findStudentsByName(db: Firestore, teacherId: string, text:
 }
 
 export async function getTeacherScheduleRange(db: Firestore, teacherId: string, startMillis: number, endMillis: number) {
-  const snapshot = await db.collection("lessons").where("teacherId", "==", teacherId).where("startAt", ">=", new Date(startMillis)).where("startAt", "<", new Date(endMillis)).limit(200).get();
+  const snapshot = await db.collection("lessons").where("teacherId", "==", teacherId).where("startAt", ">=", new Date(startMillis)).where("startAt", "<", new Date(endMillis)).limit(80).get();
   return snapshot.docs.map((document) => { const data = document.data(); return { id: document.id, studentId: data.studentId, startAtMillis: data.startAt.toMillis(), endAtMillis: data.endAt.toMillis(), updatedAtMillis: data.updatedAt?.toMillis?.() ?? null, status: data.status, topic: data.topic ?? null }; });
 }
 
@@ -23,7 +23,7 @@ export async function getStudentUpcomingLessons(db: Firestore, teacherId: string
 
 export async function getPlannerItemsRange(db: Firestore, teacherId: string, startDate: string, endDate: string) {
   const snapshot = await db.collection("plannerItems").where("teacherId", "==", teacherId).limit(2000).get();
-  return snapshot.docs.filter((document) => { const data = document.data(); return data.active === true && data.recordType !== "recurrence" && typeof data.date === "string" && data.date >= startDate && data.date <= endDate; }).slice(0, 200).map((document) => { const data = document.data(); return { id: document.id, title: data.title, category: data.category, date: data.date, startTime: data.startTime, priority: data.priority, updatedAtMillis: data.updatedAt?.toMillis?.() ?? null }; });
+  return snapshot.docs.filter((document) => { const data = document.data(); return data.active === true && data.recordType !== "recurrence" && typeof data.date === "string" && data.date >= startDate && data.date <= endDate; }).sort((left, right) => { const a = left.data(); const b = right.data(); return String(a.date).localeCompare(String(b.date)) || String(a.startTime ?? "").localeCompare(String(b.startTime ?? "")); }).slice(0, 80).map((document) => { const data = document.data(); return { id: document.id, title: data.title, category: data.category, date: data.date, startTime: data.startTime, priority: data.priority, updatedAtMillis: data.updatedAt?.toMillis?.() ?? null }; });
 }
 
 export async function getActiveHomework(db: Firestore, teacherId: string, studentId: string) {

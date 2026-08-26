@@ -23,6 +23,9 @@ test("capture Phase 11 planner and AI surfaces", async ({ browser }) => {
     await page.screenshot({ fullPage: true, path: `${output}/planner-week-${width}.png` });
     await page.getByRole("button", { name: "Месяц" }).click();
     await page.screenshot({ fullPage: true, path: `${output}/planner-month-${width}.png` });
+    await page.getByRole("button", { name: "Временная шкала" }).click();
+    await expect(page.getByTestId("planner-timeline")).toBeVisible();
+    await page.screenshot({ fullPage: true, path: `${output}/planner-timeline-${width}.png` });
     await page.getByRole("button", { name: "Открыть AI-помощника" }).click();
     await page.getByLabel("Что подготовить?").fill("Запланируй на завтра: проверить сочинения; в 15:00 ногти");
     await page.getByRole("button", { name: "Подготовить черновик" }).click();

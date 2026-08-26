@@ -53,6 +53,22 @@ Voice input can be a natural monologue without the words "task" or "plan". If it
 If any required identity, lesson, date, time or duration is missing or ambiguous, MUST return CLARIFICATION_REQUIRED; never return a partial action draft and never guess missing values. Default planner priority is medium. Never grade, change payments, delete students, cancel lessons, or write data.`;
 }
 
+export function parseAIJsonResponse(raw: string): unknown {
+  const trimmed = raw.trim();
+  const unfenced = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(unfenced);
+  } catch {
+    const firstBrace = unfenced.indexOf("{");
+    const lastBrace = unfenced.lastIndexOf("}");
+    if (firstBrace < 0 || lastBrace <= firstBrace) throw new SyntaxError("AI response has no JSON object");
+    return JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
+  }
+}
+
 export class YandexAIProvider implements AIProvider {
   constructor(
     private readonly baseUrl: string,
@@ -82,7 +98,7 @@ export class YandexAIProvider implements AIProvider {
       try {
         const raw = payload.choices?.[0]?.message?.content;
         if (!raw) throw new Error("AI provider returned empty content");
-        return { draft: aiActionDraftSchema.parse(JSON.parse(raw)), model: this.modelUri, inputTokens: payload.usage?.prompt_tokens ?? null, outputTokens: payload.usage?.completion_tokens ?? null };
+        return { draft: aiActionDraftSchema.parse(parseAIJsonResponse(raw)), model: this.modelUri, inputTokens: payload.usage?.prompt_tokens ?? null, outputTokens: payload.usage?.completion_tokens ?? null };
       } catch (error) {
         const code = error instanceof SyntaxError ? "AI_RESPONSE_JSON_INVALID" : safeSchemaIssueCode(error);
         lastError = new AIProviderError(code);

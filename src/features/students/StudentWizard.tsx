@@ -6,20 +6,7 @@ import {
   getStudentProvisioningService,
 } from "../../lib/firebase/services/studentProvisioning";
 import type { DocumentWithId, ProgramProfile } from "../../lib/firebase/types";
-
-const timezones = [
-  ["Europe/Kaliningrad", "МСК−1 · Калининград"],
-  ["Europe/Moscow", "МСК · Москва"],
-  ["Europe/Samara", "МСК+1 · Самара"],
-  ["Asia/Yekaterinburg", "МСК+2 · Екатеринбург"],
-  ["Asia/Omsk", "МСК+3 · Омск"],
-  ["Asia/Novosibirsk", "МСК+4 · Новосибирск"],
-  ["Asia/Irkutsk", "МСК+5 · Иркутск"],
-  ["Asia/Yakutsk", "МСК+6 · Якутск"],
-  ["Asia/Vladivostok", "МСК+7 · Владивосток"],
-  ["Asia/Magadan", "МСК+8 · Магадан"],
-  ["Asia/Kamchatka", "МСК+9 · Камчатка"],
-] as const;
+import { russianTimezoneOptions } from "../schedule/timezoneOptions";
 
 export function StudentWizard({
   user,
@@ -127,7 +114,7 @@ export function StudentWizard({
             <label className="form-field">
               <span>Часовой пояс</span>
               <select defaultValue="Europe/Moscow" name="timezone">
-                {timezones.map(([value, label]) => (
+                {russianTimezoneOptions.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>

@@ -49,12 +49,12 @@ test("planner week and month use responsive overview models", async ({ page }) =
 test("backlog state persists and recurring edits require an explicit scope", async ({ page }) => {
   await login(page, "test.teacher", "Teacher-test-2026!", "teacher");
   await page.goto("/#/teacher/planner");
-  const backlog = page.locator('.planner-category-column[data-category="Когда-нибудь"] .planner-backlog-heading');
+  const backlog = page.locator(".planner-sidebar .planner-backlog-toggle");
   await expect(backlog).toHaveAttribute("aria-expanded", "false");
   await backlog.click();
   await expect(backlog).toHaveAttribute("aria-expanded", "true");
   await page.reload();
-  await expect(page.locator('.planner-category-column[data-category="Когда-нибудь"] .planner-backlog-heading')).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".planner-sidebar .planner-backlog-toggle")).toHaveAttribute("aria-expanded", "true");
 
   await page.getByRole("button", { name: "+ Регулярная задача" }).click();
   let dialog = page.getByRole("dialog", { name: "Новая регулярная задача" });

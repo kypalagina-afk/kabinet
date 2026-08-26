@@ -104,6 +104,43 @@ export async function updateStudentProfile(
   await batch.commit();
 }
 
+export async function updateStudentTimezone(
+  db: Firestore,
+  input: {
+    teacherId: string;
+    studentId: string;
+    iana: string;
+    moscowOffsetMinutes: number | null;
+  },
+) {
+  const studentReference = doc(db, "students", input.studentId);
+  const userReference = doc(db, "users", input.studentId);
+  const auditReference = doc(collection(db, "teacherAuditEvents"));
+  await runTransaction(db, async (transaction) => {
+    const studentSnapshot = await transaction.get(studentReference);
+    if (!studentSnapshot.exists() || (studentSnapshot.data() as Student).teacherId !== input.teacherId) {
+      throw new Error("Student ownership mismatch");
+    }
+    transaction.update(userReference, {
+      timezone: {
+        iana: input.iana,
+        moscowOffsetMinutes: input.moscowOffsetMinutes,
+      },
+      updatedAt: serverTimestamp(),
+    });
+    transaction.set(auditReference, {
+      teacherId: input.teacherId,
+      studentId: input.studentId,
+      entityType: "student",
+      entityId: input.studentId,
+      action: "timezone_updated",
+      summary: "Часовой пояс ученика обновлён",
+      createdAt: serverTimestamp(),
+      schemaVersion: 1,
+    });
+  });
+}
+
 export async function setStudentArchived(
   db: Firestore,
   input: { teacherId: string; studentId: string; archived: boolean },

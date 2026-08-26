@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   AIProviderError,
   MockAIProvider,
+  parseAIJsonResponse,
   safeAIProviderErrorCode,
 } from "../../backend/yandex/src/ai/provider.js";
 import { isTeacherAIActor } from "../../backend/yandex/src/ai/authorization.js";
@@ -32,5 +33,12 @@ describe("backend AI provider", () => {
     expect(safeAIProviderErrorCode(new Error("secret provider response"))).toBe(
       "AI_PROVIDER_UNKNOWN",
     );
+  });
+
+  test("accepts a JSON object wrapped in a model code fence or short preface", () => {
+    expect(parseAIJsonResponse("```json\n{\"actionType\":\"UNSUPPORTED_REQUEST\"}\n```"))
+      .toEqual({ actionType: "UNSUPPORTED_REQUEST" });
+    expect(parseAIJsonResponse("Готово: {\"actionType\":\"PLANNER_ITEMS_DRAFT\"}"))
+      .toEqual({ actionType: "PLANNER_ITEMS_DRAFT" });
   });
 });

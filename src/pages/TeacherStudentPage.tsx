@@ -10,6 +10,7 @@ import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { LessonJournal } from "../features/schedule/LessonJournal";
 import { formatDateTimeForTimezone, resolveTimezone } from "../features/schedule/timezone";
+import { russianTimezoneOptions, timezoneOffsetMinutes } from "../features/schedule/timezoneOptions";
 import { useLessonTeacherNotes } from "../features/schedule/useLessonTeacherNotes";
 import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
 import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
@@ -28,6 +29,7 @@ import {
   setStudentArchived,
   updateStudentConferenceLinks,
   updateStudentProfile,
+  updateStudentTimezone,
 } from "../lib/firebase/services/studentManagement";
 import type { Student } from "../lib/firebase/types";
 
@@ -105,6 +107,13 @@ export function TeacherStudentPage() {
       conferenceUrl: primary,
       secondaryConferenceUrl: secondary,
     });
+    const timezoneIana = String(form.get("timezone") || "Europe/Moscow");
+    await updateStudentTimezone(getFirebaseDb(), {
+      teacherId: user.uid,
+      studentId,
+      iana: timezoneIana,
+      moscowOffsetMinutes: timezoneOffsetMinutes(timezoneIana),
+    });
     setEditing(false);
     setNotice("Карточка обновлена.");
   }
@@ -143,6 +152,11 @@ export function TeacherStudentPage() {
             {student.classGrade
               ? `${student.classGrade} класс`
               : "Класс не указан"}
+          </p>
+          <p>
+            Часовой пояс: {russianTimezoneOptions.find(([value]) => value === data.studentUser?.data.timezone.iana)?.[1]
+              ?? data.studentUser?.data.timezone.iana
+              ?? "не указан"}
           </p>
         </div>
         <div className="student-profile-actions">
@@ -217,6 +231,17 @@ export function TeacherStudentPage() {
               name="classGrade"
               type="number"
             />
+          </label>
+          <label className="form-field">
+            <span>Часовой пояс ученика</span>
+            <select
+              defaultValue={data.studentUser?.data.timezone.iana ?? "Europe/Moscow"}
+              name="timezone"
+            >
+              {russianTimezoneOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </label>
           <button className="primary-button primary-button--fit">
             Сохранить

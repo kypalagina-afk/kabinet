@@ -453,7 +453,15 @@ export function TeacherCalendarPage() {
           >
             ←
           </button>
-          <strong>{monthLabel}</strong>
+          <label className="calendar-date-picker">
+            <span>{monthLabel}</span>
+            <input
+              aria-label="Выбрать дату календаря занятий"
+              onChange={(event) => setFocusDate(event.target.value)}
+              type="date"
+              value={focusDate}
+            />
+          </label>
           <button
             className="icon-button"
             aria-label={view === "month" ? "Следующий месяц" : view === "week" ? "Следующая неделя" : "Следующий день"}

@@ -445,6 +445,57 @@ describe("teacher access", () => {
     await assertFails(getDoc(doc(db, "users", "student-2")));
     await assertFails(getDocs(collection(db, "users")));
   });
+
+  test("allows a teacher to update only the owned student's timezone", async () => {
+    await seedFixture();
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore();
+
+    await assertSucceeds(updateDoc(doc(db, "users", "student-1"), {
+      timezone: { iana: "Asia/Novosibirsk", moscowOffsetMinutes: 420 },
+      updatedAt: Timestamp.now(),
+    }));
+    await assertFails(updateDoc(doc(db, "users", "student-1"), {
+      displayName: "Нельзя менять",
+      updatedAt: Timestamp.now(),
+    }));
+    await assertFails(updateDoc(doc(db, "users", "student-2"), {
+      timezone: { iana: "Asia/Omsk", moscowOffsetMinutes: 360 },
+      updatedAt: Timestamp.now(),
+    }));
+  });
+
+  test("allows cleanup deletion only for completed one-off teacher planner items", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      const base = {
+        teacherId: teacherAuth.uid,
+        itemType: "task",
+        title: "Личная задача",
+        category: "work",
+        date: "2026-07-01",
+        active: true,
+        ...baseTimestamps(),
+      };
+      await Promise.all([
+        setDoc(doc(db, "plannerItems", "cleanup-done"), { ...base, status: "done" }),
+        setDoc(doc(db, "plannerItems", "cleanup-open"), { ...base, status: "todo" }),
+        setDoc(doc(db, "plannerItems", "cleanup-recurring"), {
+          ...base,
+          status: "done",
+          recurrenceSeriesId: "series-1",
+        }),
+      ]);
+    });
+    const teacherDb = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore();
+    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
+    await assertSucceeds(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-done")));
+    await assertFails(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-open")));
+    await assertFails(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-recurring")));
+    await assertFails(deleteDoc(doc(studentDb, "plannerItems", "cleanup-open")));
+  });
 });
 
 describe("student access", () => {

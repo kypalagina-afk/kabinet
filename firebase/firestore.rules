@@ -103,17 +103,23 @@ service cloud.firestore {
       allow list: if false;
       allow update: if signedIn()
         && (
-          request.auth.uid == uid
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["preferences", "avatarKey", "timezone", "updatedAt"])
-          && (
-            !("timezone" in request.resource.data)
-            || (
-              request.resource.data.timezone.iana is string
-              && (
-                request.resource.data.timezone.moscowOffsetMinutes is int
-                || request.resource.data.timezone.moscowOffsetMinutes == null
-              )
+          (
+            request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(["preferences", "avatarKey", "timezone", "updatedAt"])
+          ) || (
+            teacherCanReadOwnedStudentUser(uid)
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(["timezone", "updatedAt"])
+          )
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["timezone"])
+          || (
+            request.resource.data.timezone.iana is string
+            && (
+              request.resource.data.timezone.moscowOffsetMinutes is int
+              || request.resource.data.timezone.moscowOffsetMinutes == null
             )
           )
         );
@@ -324,7 +330,10 @@ service cloud.firestore {
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data)
         && request.resource.data.teacherId == resource.data.teacherId;
-      allow delete: if false;
+      allow delete: if teacherOwns(resource.data)
+        && (!("recordType" in resource.data) || resource.data.recordType != "recurrence")
+        && (!("recurrenceSeriesId" in resource.data) || resource.data.recurrenceSeriesId == null)
+        && (resource.data.status == "done" || resource.data.active == false);
     }
 
     match /plannerGoals/{id} {

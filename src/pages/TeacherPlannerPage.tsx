@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { Timestamp } from "firebase/firestore";
 import { Modal } from "../components/Modal";
 import { AIShortcutButton } from "../features/ai/AIShortcutButton";
@@ -35,6 +35,16 @@ import {
 } from "../lib/firebase/services/plannerWorkflow";
 import { isPlannerRecurrenceTemplate } from "../features/planner/recurrence";
 import { plannerCategoryCounts, sortPlannerItems } from "../features/planner/sorting";
+import {
+  plannerIntervalEnd,
+  plannerMinutesToTime,
+  plannerTimeToMinutes,
+  plannerTimelineBounds,
+} from "../features/planner/timeline";
+import {
+  carryForwardOneOffPlannerItems,
+  cleanupCompletedOneOffPlannerItems,
+} from "../lib/firebase/services/plannerMaintenance";
 import { rescheduleLesson } from "../lib/firebase/services/scheduleOperations";
 import type {
   DocumentWithId,
@@ -46,7 +56,7 @@ import type {
   Student,
 } from "../lib/firebase/types";
 
-type ViewMode = "day" | "week" | "month";
+type ViewMode = "day" | "week" | "month" | "timeline";
 type DisplayFilter = "all" | "work" | "home";
 
 const categoryLabels: Record<PlannerCategory, string> = {
@@ -119,6 +129,13 @@ function lessonTime(lesson: Lesson, timezone: ResolvedTimezone) {
   });
 }
 
+function lessonEndTime(lesson: Lesson, timezone: ResolvedTimezone) {
+  return formatDateTimeForTimezone(lesson.endAt.toDate(), timezone, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 const emptyInput = (date: string): PlannerItemInput => ({
   itemType: "task",
   title: "",
@@ -159,7 +176,7 @@ export function TeacherPlannerPage() {
   const [message, setMessage] = useState("");
   const planner = useTeacherPlanner(teacherId);
   const range = useMemo(() => {
-    const dates = calendarVisibleDates(view, focusDate);
+    const dates = calendarVisibleDates(view === "timeline" ? "day" : view, focusDate);
     return dateRangeForTimezone(dates[0]!, addCalendarDays(dates.at(-1)!, 1), teacherTimezone);
   }, [focusDate, teacherTimezone, view]);
   const schedule = useTeacherSchedule(teacherId, range);
@@ -171,7 +188,7 @@ export function TeacherPlannerPage() {
       : data.category === filter;
   });
   const lessons = filter === "all" || filter === "work" ? schedule.data.lessons : [];
-  const selectedDates = view === "day" ? [focusDate] : view === "week" ? weekDates(focusDate) : monthDates(focusDate);
+  const selectedDates = view === "day" || view === "timeline" ? [focusDate] : view === "week" ? weekDates(focusDate) : monthDates(focusDate);
   const focusItems = visibleItems.filter(({ data }) => data.date === focusDate);
   const focusLessons = lessons.filter(({ data }) => lessonDate(data, teacherTimezone) === focusDate);
   const backlogItems = planner.data.items.filter(
@@ -203,6 +220,39 @@ export function TeacherPlannerPage() {
       ),
     ).catch(() => setMessage("Не удалось продлить одну из регулярных задач."));
   }, [currentDate, recurrenceSignature, recurrenceTemplateIds, teacherId]);
+
+  useEffect(() => {
+    if (!teacherId || planner.loading) return;
+    let cancelled = false;
+    const cleanupMarker = `teacher-planner-cleanup:${teacherId}:${currentDate.slice(0, 7)}`;
+    void (async () => {
+      const carried = await carryForwardOneOffPlannerItems(
+        getFirebaseDb(),
+        teacherId,
+        planner.data.items,
+        currentDate,
+      );
+      let deleted = 0;
+      if (localStorage.getItem(cleanupMarker) !== "done") {
+        deleted = await cleanupCompletedOneOffPlannerItems(
+          getFirebaseDb(),
+          teacherId,
+          planner.data.items,
+          currentDate,
+        );
+        localStorage.setItem(cleanupMarker, "done");
+      }
+      if (!cancelled && (carried || deleted)) {
+        setMessage([
+          carried ? `Перенесено на сегодня: ${carried}.` : "",
+          deleted ? `Очищено завершённых старых задач: ${deleted}.` : "",
+        ].filter(Boolean).join(" "));
+      }
+    })().catch(() => {
+      if (!cancelled) setMessage("Не удалось выполнить автоматическое обслуживание личного планера.");
+    });
+    return () => { cancelled = true; };
+  }, [currentDate, planner.data.items, planner.loading, teacherId]);
 
   function openCreate(date = focusDate, startTime: string | null = null, itemType: "event" | "task" = "task") {
     setEditing(null);
@@ -332,12 +382,12 @@ export function TeacherPlannerPage() {
 
       <section className="planner-toolbar">
         <div className="segmented-control" aria-label="Вид планера">
-          {(["day", "week", "month"] as const).map((mode) => <button aria-pressed={view === mode} key={mode} onClick={() => setView(mode)} type="button">{{ day: "День", week: "Неделя", month: "Месяц" }[mode]}</button>)}
+          {(["day", "week", "month", "timeline"] as const).map((mode) => <button aria-pressed={view === mode} key={mode} onClick={() => setView(mode)} type="button">{{ day: "День", week: "Неделя", month: "Месяц", timeline: "Временная шкала" }[mode]}</button>)}
         </div>
         <div className="planner-date-nav">
-          <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" ? -1 : view === "week" ? -7 : -28))} type="button">←</button>
+          <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" || view === "timeline" ? -1 : view === "week" ? -7 : -28))} type="button">←</button>
           <input aria-label="Дата планера" onChange={(event) => setFocusDate(event.target.value)} type="date" value={focusDate} />
-          <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" ? 1 : view === "week" ? 7 : 28))} type="button">→</button>
+          <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" || view === "timeline" ? 1 : view === "week" ? 7 : 28))} type="button">→</button>
           <button className="secondary-button" onClick={() => setFocusDate(todayKey())} type="button">Сегодня</button>
         </div>
         <div className="planner-filter" aria-label="Фильтр планера">
@@ -369,15 +419,6 @@ export function TeacherPlannerPage() {
                 title="Дом"
                 timezone={teacherTimezone}
               />
-              <BacklogColumn
-                expanded={backlogExpanded}
-                items={backlogItems}
-                onCreate={() => { openCreate(""); setDraft({ ...emptyInput(""), category: "someday", date: null }); }}
-                onEdit={openEdit}
-                onMove={(item, date, startTime, category) => void schedulePlannerItem(getFirebaseDb(), teacherId, item.id, date, startTime, category)}
-                onToggle={toggleBacklog}
-                today={todayKey()}
-              />
             </div>
           ) : view === "week" ? (
             <PlannerWeek
@@ -393,7 +434,7 @@ export function TeacherPlannerPage() {
               onOpenDay={(date) => { setFocusDate(date); setView("day"); }}
               onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
             />
-          ) : (
+          ) : view === "month" ? (
             <PlannerMonth
               dates={selectedDates}
               focusDate={focusDate}
@@ -402,14 +443,26 @@ export function TeacherPlannerPage() {
               timezone={teacherTimezone}
               onOpenDay={(date) => { setFocusDate(date); setView("day"); }}
             />
+          ) : (
+            <PlannerTimeline
+              date={focusDate}
+              items={focusItems}
+              lessons={focusLessons}
+              students={schedule.data.students}
+              timezone={teacherTimezone}
+              onCreate={openCreate}
+              onDrop={dropOnDate}
+              onEdit={openEdit}
+              onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
+            />
           )}
         </section>
 
         <aside className="planner-sidebar">
-          {view !== "day" ? <section className="planner-backlog-panel" data-testid="planner-someday">
+          <section className="planner-backlog-panel" data-testid="planner-someday">
             <button aria-expanded={backlogExpanded} className="planner-backlog-toggle" onClick={toggleBacklog} type="button"><span><span className="eyebrow">Backlog</span><strong>Когда-нибудь</strong></span><span>{backlogItems.length} {backlogExpanded ? "▴" : "▾"}</span></button>
             {backlogExpanded ? <div className="planner-backlog-list"><button className="planner-inline-add" onClick={() => { openCreate(""); setDraft({ ...emptyInput(""), category: "someday", date: null }); }} type="button">+ Добавить</button>{backlogItems.map((item) => <BacklogItem item={item} key={item.id} onEdit={() => openEdit(item)} onMove={(date, startTime, category) => void schedulePlannerItem(getFirebaseDb(), teacherId, item.id, date, startTime, category)} today={todayKey()} />)}</div> : null}
-          </section> : null}
+          </section>
           <section data-testid="planner-goals">
             <div className="section-heading"><button className="planner-goals-open" onClick={() => { setSelectedGoalId(planner.data.goals.find(({ data }) => data.status !== "archived")?.id ?? null); setGoalsWorkspaceOpen(true); }} type="button"><span><span className="eyebrow">Направление</span><strong>Большие цели</strong></span><span aria-hidden="true">→</span></button></div>
             {planner.data.goals.filter(({ data }) => data.status !== "archived").map((goal) => {
@@ -444,12 +497,16 @@ export function TeacherPlannerPage() {
 
 function PlannerLesson({ lesson, studentName, timezone }: { lesson: DocumentWithId<Lesson>; studentName?: string; timezone: ResolvedTimezone }) {
   const duration = Math.round((lesson.data.endAt.toMillis() - lesson.data.startAt.toMillis()) / 60_000);
-  return <article className="planner-entry planner-entry--lesson" draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></article>;
+  return <article className="planner-entry planner-entry--lesson" draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)}–{lessonEndTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></article>;
 }
 
 function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerItem>; onEdit(): void; onToggle(): void }) {
   const priority = item.data.priority === "calm" ? "low" : (item.data.priority ?? "medium");
-  return <article className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button"><span>{priority === "high" ? "🔴 Высокий" : priority === "medium" ? "🟠 Средний" : "🟢 Низкий"}{item.data.recurrenceSeriesId ? " · ↻ регулярно" : ""}</span><strong>{item.data.startTime ? `${item.data.startTime} — ` : ""}{item.data.title}{item.data.durationMinutes ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
+  const time = item.data.startTime
+    ? `${item.data.startTime}${item.data.endTime ? `–${item.data.endTime}` : ""} — `
+    : "";
+  const priorityLabel = priority === "high" ? "Высокий приоритет" : priority === "medium" ? "Средний приоритет" : "Низкий приоритет";
+  return <article aria-label={priorityLabel} className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)} title={priorityLabel}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button">{item.data.recurrenceSeriesId ? <span>↻ регулярно</span> : null}<strong>{time}{item.data.title}{item.data.durationMinutes && !item.data.endTime ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
 }
 
 function PlannerCategoryColumn({ emoji, title, items, lessons, timezone, onCreate, onEdit, onToggle }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {
@@ -460,10 +517,6 @@ function BacklogItem({ item, today, onEdit, onMove }: { item: DocumentWithId<Pla
   const [customDate, setCustomDate] = useState(today);
   const [customTime, setCustomTime] = useState("");
   return <article className="someday-item" draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)}><strong>{item.data.title}</strong><div className="someday-item-actions"><button onClick={() => onMove(today, null, "work")} type="button">Сегодня</button><button onClick={() => onMove(addDays(today, 1), null, "work")} type="button">Завтра</button><button onClick={() => onMove(today, null, "work")} type="button">В работу</button><button onClick={() => onMove(today, null, "home")} type="button">Дом</button><button onClick={onEdit} type="button">Изменить</button></div><div className="someday-schedule"><input aria-label="Дата для задачи" onChange={(event) => setCustomDate(event.target.value)} type="date" value={customDate} /><input aria-label="Время для задачи" onChange={(event) => setCustomTime(event.target.value)} type="time" value={customTime} /><button onClick={() => onMove(customDate, customTime || null, "work")} type="button">Запланировать</button></div></article>;
-}
-
-function BacklogColumn({ items, expanded, today, onCreate, onEdit, onMove, onToggle }: { items: Array<DocumentWithId<PlannerItem>>; expanded: boolean; today: string; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onMove(item: DocumentWithId<PlannerItem>, date: string, startTime: string | null, category: "work" | "home"): void; onToggle(): void }) {
-  return <section className="planner-category-column planner-category-column--backlog" data-category="Когда-нибудь"><header><button aria-expanded={expanded} className="planner-backlog-heading" onClick={onToggle} type="button"><h2>🌙 Когда-нибудь</h2><span>{items.length} {expanded ? "▴" : "▾"}</span></button><button aria-label="Добавить в Когда-нибудь" onClick={onCreate} type="button">+</button></header>{expanded ? <div className="planner-category-list">{sortPlannerItems(items).map((item) => <BacklogItem item={item} key={item.id} onEdit={() => onEdit(item)} onMove={(date, time, category) => onMove(item, date, time, category)} today={today} />)}{!items.length ? <p className="content-state">Пока пусто</p> : null}</div> : <p className="planner-backlog-hint">Список свёрнут — задачи сохранены.</p>}</section>;
 }
 
 interface PlannerCalendarViewProps {
@@ -486,14 +539,104 @@ function PlannerWeek({ dates, focusDate, items, lessons, students, timezone, onC
   })}</div>;
 }
 
+function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, onDrop, onEdit, onToggle }: {
+  date: string;
+  items: Array<DocumentWithId<PlannerItem>>;
+  lessons: Array<DocumentWithId<Lesson>>;
+  students: Array<DocumentWithId<Student>>;
+  timezone: ResolvedTimezone;
+  onCreate(date: string, startTime?: string | null, itemType?: "event" | "task"): void;
+  onDrop(event: React.DragEvent, date: string, time?: string | null): void;
+  onEdit(item: DocumentWithId<PlannerItem>): void;
+  onToggle(item: DocumentWithId<PlannerItem>): void;
+}) {
+  const timedItems = sortPlannerItems(items.filter(({ data }) => Boolean(data.startTime)));
+  const intervals = [
+    ...timedItems.map(({ data }) => ({
+      startTime: data.startTime!,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+    })),
+    ...lessons.map(({ data }) => ({
+      startTime: lessonTime(data, timezone),
+      endTime: lessonEndTime(data, timezone),
+      durationMinutes: null,
+    })),
+  ];
+  const bounds = plannerTimelineBounds(intervals);
+  const slots = Array.from(
+    { length: Math.max(1, (bounds.end - bounds.start) / 30) },
+    (_, index) => bounds.start + index * 30,
+  );
+  const events = [
+    ...timedItems.map((item) => ({
+      id: item.id,
+      kind: "task" as const,
+      title: item.data.title,
+      start: plannerTimeToMinutes(item.data.startTime!),
+      end: plannerIntervalEnd({
+        startTime: item.data.startTime!,
+        endTime: item.data.endTime,
+        durationMinutes: item.data.durationMinutes,
+      }),
+      item,
+      done: item.data.status === "done",
+    })),
+    ...lessons.map((lesson) => ({
+      id: lesson.id,
+      kind: "lesson" as const,
+      title: `${students.find(({ id }) => id === lesson.data.studentId)?.data.displayName ?? "Ученик"} · ${lesson.data.topic ?? "Урок"}`,
+      start: plannerTimeToMinutes(lessonTime(lesson.data, timezone)),
+      end: plannerTimeToMinutes(lessonEndTime(lesson.data, timezone)),
+      lesson,
+      done: lesson.data.status === "completed",
+    })),
+  ].sort((left, right) => left.start - right.start || left.end - right.end);
+  const laneEnds: number[] = [];
+  const laidOut = events.map((event) => {
+    let lane = laneEnds.findIndex((end) => end <= event.start);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = event.end;
+    return { ...event, lane };
+  });
+  const laneCount = Math.max(1, laneEnds.length);
+  const rowHeight = 42;
+  const untimed = sortPlannerItems(items.filter(({ data }) => !data.startTime));
+
+  return <div className="planner-timeline" data-testid="planner-timeline-content">
+    <header className="planner-timeline__heading">
+      <div><p className="eyebrow">Временная шкала</p><h2>{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long" }).format(dateFromKey(date))}</h2></div>
+      <button className="secondary-button" onClick={() => onCreate(date, plannerMinutesToTime(bounds.start))} type="button">+ Задача ко времени</button>
+    </header>
+    <div className="planner-timeline__grid" style={{ height: slots.length * rowHeight } as CSSProperties}>
+      {slots.map((minutes, index) => <div className="planner-timeline__slot" key={minutes} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void onDrop(event, date, plannerMinutesToTime(minutes))} style={{ top: index * rowHeight }}><button aria-label={`Добавить на ${plannerMinutesToTime(minutes)}`} onClick={() => onCreate(date, plannerMinutesToTime(minutes))} type="button">{plannerMinutesToTime(minutes)}</button></div>)}
+      <div className="planner-timeline__events">
+        {laidOut.map((event) => {
+          const style = {
+            top: ((event.start - bounds.start) / 30) * rowHeight + 2,
+            height: Math.max(rowHeight - 4, ((Math.max(event.end, event.start + 30) - event.start) / 30) * rowHeight - 4),
+            left: `calc(${(event.lane / laneCount) * 100}% + 0.2rem)`,
+            width: `calc(${100 / laneCount}% - 0.4rem)`,
+          } as CSSProperties;
+          if (event.kind === "task") {
+            return <article className={`planner-timeline__event planner-timeline__event--task${event.done ? " planner-timeline__event--done" : ""}`} draggable key={`task-${event.id}`} onDragStart={(drag) => drag.dataTransfer.setData("text/planner-item-id", event.id)} style={style}><button onClick={() => onEdit(event.item)} type="button"><time>{plannerMinutesToTime(event.start)}–{plannerMinutesToTime(event.end)}</time><strong>{event.title}</strong></button><button aria-label={event.done ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={() => onToggle(event.item)} type="button">{event.done ? "✓" : "○"}</button></article>;
+          }
+          return <article className={`planner-timeline__event planner-timeline__event--lesson${event.done ? " planner-timeline__event--done" : ""}`} draggable={event.lesson.data.status === "planned"} key={`lesson-${event.id}`} onDragStart={(drag) => drag.dataTransfer.setData("text/planner-lesson-id", event.id)} style={style}><time>{plannerMinutesToTime(event.start)}–{plannerMinutesToTime(event.end)}</time><strong>{event.title}</strong></article>;
+        })}
+      </div>
+    </div>
+    {untimed.length ? <section className="planner-timeline__untimed"><div className="section-heading"><h3>Без времени</h3><button onClick={() => onCreate(date)} type="button">+</button></div>{untimed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}
+  </div>;
+}
+
 function PlannerMonth({ dates, focusDate, items, lessons, timezone, onOpenDay }: PlannerCalendarViewProps) {
   return <><div className="planner-month-weekdays">{weekdayLabels.map((day) => <span key={day}>{day}</span>)}</div><div className="planner-days">{dates.map((date) => {
     const dayItems = sortPlannerItems(items.filter(({ data }) => data.date === date));
     const dayLessons = lessons.filter(({ data }) => lessonDate(data, timezone) === date).sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis());
     const timedItems = dayItems.filter(({ data }) => data.startTime && data.status !== "done");
     const highlights = [
-      ...dayLessons.map((lesson) => ({ id: `lesson-${lesson.id}`, time: lessonTime(lesson.data, timezone), title: lesson.data.topic ?? "Урок" })),
-      ...timedItems.map((item) => ({ id: item.id, time: item.data.startTime ?? "", title: item.data.title })),
+      ...dayLessons.map((lesson) => ({ id: `lesson-${lesson.id}`, time: `${lessonTime(lesson.data, timezone)}–${lessonEndTime(lesson.data, timezone)}`, title: lesson.data.topic ?? "Урок" })),
+      ...timedItems.map((item) => ({ id: item.id, time: `${item.data.startTime ?? ""}${item.data.endTime ? `–${item.data.endTime}` : ""}`, title: item.data.title })),
     ].sort((left, right) => left.time.localeCompare(right.time));
     const counts = plannerCategoryCounts(dayItems);
     const hidden = Math.max(0, dayLessons.length + dayItems.length - Math.min(2, highlights.length));

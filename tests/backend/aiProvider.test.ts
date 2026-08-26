@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   AIProviderError,
   MockAIProvider,
+  normalizeAIResponse,
   parseAIJsonResponse,
   safeAIProviderErrorCode,
 } from "../../backend/yandex/src/ai/provider.js";
@@ -40,5 +41,24 @@ describe("backend AI provider", () => {
       .toEqual({ actionType: "UNSUPPORTED_REQUEST" });
     expect(parseAIJsonResponse("Готово: {\"actionType\":\"PLANNER_ITEMS_DRAFT\"}"))
       .toEqual({ actionType: "PLANNER_ITEMS_DRAFT" });
+  });
+
+  test("normalizes translated and unknown planner priorities to safe enum values", () => {
+    const normalized = normalizeAIResponse({
+      actionType: "PLANNER_ITEMS_DRAFT",
+      items: [
+        { priority: "Высокий" },
+        { priority: "низкий" },
+        { priority: "обычный" },
+        {},
+      ],
+    }) as { items: Array<{ priority: string }> };
+
+    expect(normalized.items.map(({ priority }) => priority)).toEqual([
+      "high",
+      "low",
+      "medium",
+      "medium",
+    ]);
   });
 });

@@ -69,6 +69,40 @@ export function parseAIJsonResponse(raw: string): unknown {
   }
 }
 
+function normalizePlannerPriority(value: unknown): "high" | "medium" | "low" {
+  if (typeof value !== "string") return "medium";
+  const normalized = value.trim().toLowerCase();
+  if (["high", "highest", "urgent", "critical", "высокий", "высокая", "срочный", "срочно"].includes(normalized)) return "high";
+  if (["low", "lowest", "низкий", "низкая"].includes(normalized)) return "low";
+  return "medium";
+}
+
+/**
+ * YandexGPT occasionally translates enum values even when the JSON contract
+ * explicitly asks for English literals. Priority is presentation metadata, so
+ * an unknown or omitted value can safely use the documented medium default
+ * instead of rejecting an otherwise valid multi-item draft.
+ */
+export function normalizeAIResponse(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const draft = value as Record<string, unknown>;
+  if (draft.actionType === "PLANNER_ITEMS_DRAFT" && Array.isArray(draft.items)) {
+    return {
+      ...draft,
+      items: draft.items.map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+        return { ...item, priority: normalizePlannerPriority((item as Record<string, unknown>).priority) };
+      }),
+    };
+  }
+  if (draft.actionType === "PLANNER_ITEM_UPDATE_DRAFT" && draft.patch && typeof draft.patch === "object" && !Array.isArray(draft.patch)) {
+    const patch = draft.patch as Record<string, unknown>;
+    if (!("priority" in patch)) return value;
+    return { ...draft, patch: { ...patch, priority: normalizePlannerPriority(patch.priority) } };
+  }
+  return value;
+}
+
 export class YandexAIProvider implements AIProvider {
   constructor(
     private readonly baseUrl: string,
@@ -98,7 +132,7 @@ export class YandexAIProvider implements AIProvider {
       try {
         const raw = payload.choices?.[0]?.message?.content;
         if (!raw) throw new Error("AI provider returned empty content");
-        return { draft: aiActionDraftSchema.parse(parseAIJsonResponse(raw)), model: this.modelUri, inputTokens: payload.usage?.prompt_tokens ?? null, outputTokens: payload.usage?.completion_tokens ?? null };
+        return { draft: aiActionDraftSchema.parse(normalizeAIResponse(parseAIJsonResponse(raw))), model: this.modelUri, inputTokens: payload.usage?.prompt_tokens ?? null, outputTokens: payload.usage?.completion_tokens ?? null };
       } catch (error) {
         const code = error instanceof SyntaxError ? "AI_RESPONSE_JSON_INVALID" : safeSchemaIssueCode(error);
         lastError = new AIProviderError(code);

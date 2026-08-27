@@ -35,7 +35,10 @@ test("planner combines lessons and private plans with CRUD and goals", async ({ 
 
   await page.getByRole("button", { name: "Добавить в Дом" }).click();
   let dialog = page.getByRole("dialog", { name: "Новый пункт плана" });
-  await dialog.getByLabel("Название").fill("Личная встреча");
+  const plannerTitle = dialog.getByLabel("Название");
+  await plannerTitle.pressSequentially("Личная встреча");
+  await expect(plannerTitle).toHaveValue("Личная встреча");
+  await expect(plannerTitle).toBeFocused();
   await dialog.getByLabel("Время начала").fill("15:00");
   await dialog.getByLabel("Время окончания").fill("16:00");
   await dialog.getByRole("button", { name: "Добавить" }).click();

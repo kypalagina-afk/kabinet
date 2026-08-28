@@ -6,9 +6,10 @@ import { useProgramProfiles } from "../features/materials/hooks";
 import { StudentWizard } from "../features/students/StudentWizard";
 import { isProductionBackendAvailable, isUsingFirebaseEmulators } from "../lib/firebase/client";
 import { useTeacherStudentPrograms, useTeacherStudents } from "../features/vertical-slice/hooks";
+import { isDemoProfile } from "../features/demo/demoMode";
 
 export function TeacherStudentsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const students = useTeacherStudents(user?.uid ?? "");
   const programs = useTeacherStudentPrograms(user?.uid ?? "");
   const profiles = useProgramProfiles();
@@ -17,7 +18,8 @@ export function TeacherStudentsPage() {
   const [status, setStatus] = useState("active");
   const [classGrade, setClassGrade] = useState("");
   const [programId, setProgramId] = useState("");
-  const provisioningAvailable = isUsingFirebaseEmulators() || isProductionBackendAvailable();
+  const demoMode = isDemoProfile(profile);
+  const provisioningAvailable = !demoMode && (isUsingFirebaseEmulators() || isProductionBackendAvailable());
   const visible = useMemo(() => students.data.filter(({ id, data }) => {
     const assigned = programs.data.find((item) => item.data.studentId === id && item.data.status === "active");
     return data.displayName.toLocaleLowerCase("ru").includes(search.toLocaleLowerCase("ru"))
@@ -28,7 +30,7 @@ export function TeacherStudentsPage() {
 
   return <main className="shell-content" aria-labelledby="teacher-students-title">
     <header className="page-heading page-heading--split"><div><p className="eyebrow">Ученики</p><h1 id="teacher-students-title">Мои ученики</h1><p>Программы, цели и текущие задачи в одном месте.</p></div><button className="primary-button primary-button--fit" disabled={!provisioningAvailable} onClick={() => setWizard(true)} title={provisioningAvailable ? undefined : "Создание аккаунтов временно недоступно в публичной версии"} type="button">+ Добавить ученика</button></header>
-    {!provisioningAvailable ? <p className="shell-notice">Создание новых аккаунтов временно недоступно в публичной версии. Для него требуется защищённый серверный provisioning.</p> : null}
+    {!provisioningAvailable ? <p className="shell-notice">{demoMode ? "В демо-режиме создание новых аккаунтов отключено." : "Создание новых аккаунтов временно недоступно в публичной версии. Для него требуется защищённый серверный provisioning."}</p> : null}
     <section className="filter-bar" aria-label="Фильтры учеников">
       <label><span>Поиск</span><input aria-label="Поиск ученика" onChange={(event) => setSearch(event.target.value)} placeholder="Имя ученика" type="search" value={search} /></label>
       <label><span>Программа</span><select onChange={(event) => setProgramId(event.target.value)} value={programId}><option value="">Все</option>{profiles.data.map(({ id, data }) => <option key={id} value={id}>{data.title}</option>)}</select></label>

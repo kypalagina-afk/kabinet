@@ -61,6 +61,9 @@ function isUserProfile(value: unknown): value is UserProfile {
   const candidate = value as Partial<UserProfile>;
   return (
     (candidate.role === "teacher" || candidate.role === "student") &&
+    (candidate.accountMode === undefined ||
+      candidate.accountMode === "standard" ||
+      candidate.accountMode === "demo") &&
     typeof candidate.username === "string" &&
     !!candidate.preferences &&
     (candidate.preferences.theme === "light" ||

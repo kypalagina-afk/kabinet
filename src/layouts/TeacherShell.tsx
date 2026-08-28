@@ -6,6 +6,7 @@ import { Avatar, AvatarPicker } from "../features/avatar/Avatar";
 import { moscowTimezoneLabel, resolveTimezone } from "../features/schedule/timezone";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { teacherAIAssistantEnabled } from "../features/ai/featureFlag";
+import { DEMO_MUTATION_NOTICE, isDemoProfile } from "../features/demo/demoMode";
 
 const TeacherAIAssistant = lazy(() => import("../features/ai/TeacherAIAssistant").then((module) => ({ default: module.TeacherAIAssistant })));
 
@@ -189,6 +190,12 @@ export function TeacherShell() {
             </button>
           </div>
         </header>
+        {isDemoProfile(profile) ? (
+          <aside className="demo-mode-banner" data-testid="demo-mode-banner">
+            <strong>Демо-режим</strong>
+            <span>{DEMO_MUTATION_NOTICE} AI: до 12 запросов и 3 голосовых записей в день.</span>
+          </aside>
+        ) : null}
         {error ? (
           <p className="shell-notice" role="alert">
             {error}

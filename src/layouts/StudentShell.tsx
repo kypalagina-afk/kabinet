@@ -5,6 +5,7 @@ import { useAuth } from "../features/auth/AuthProvider";
 import { Avatar } from "../features/avatar/Avatar";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
+import { DEMO_MUTATION_NOTICE, isDemoProfile } from "../features/demo/demoMode";
 
 const links = [
   ["/student", "Главная", "🏠", true],
@@ -133,6 +134,12 @@ export function StudentShell() {
             </button>
           </div>
         </header>
+        {isDemoProfile(profile) ? (
+          <aside className="demo-mode-banner" data-testid="demo-mode-banner">
+            <strong>Демо-режим</strong>
+            <span>{DEMO_MUTATION_NOTICE}</span>
+          </aside>
+        ) : null}
         <main className="student-content">
           {error ? (
             <p className="shell-notice" role="alert">

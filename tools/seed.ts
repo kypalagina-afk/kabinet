@@ -78,6 +78,14 @@ export interface RuntimeContext {
 
 type PlannedAction = "create" | "exists" | "update" | "noop" | "ensure" | "conflict";
 
+function isApprovedDemoPlan(plan: SeedPlan): boolean {
+  return (
+    plan.authUsers.length === 1 &&
+    plan.authUsers[0]?.uid === "teacher-demo-review-v1" &&
+    argumentValue("--confirm-demo-auth") === "teacher-demo-review-v1"
+  );
+}
+
 interface AuthAction {
   uid: string;
   role: AuthSeedUser["role"];
@@ -227,8 +235,8 @@ export function validatePlan(value: unknown): SeedPlan {
   if (candidate.writes.length === 0 || candidate.writes.length > MAX_BATCH_WRITES) {
     throw new Error(`Seed must contain between 1 and ${MAX_BATCH_WRITES} writes`);
   }
-  if (candidate.authUsers.length !== 2) {
-    throw new Error("Pilot seed must contain exactly one teacher and one student Auth user");
+  if (candidate.authUsers.length < 1 || candidate.authUsers.length > 2) {
+    throw new Error("Seed must contain one teacher and at most one student Auth user");
   }
 
   const seenAuthKeys = new Set<string>();
@@ -302,17 +310,20 @@ function numericScore(value: SeedValue | undefined, path: string): { earned: num
 
 export function validatePilotRelations(plan: SeedPlan): void {
   const teacher = plan.authUsers.find(({ key }) => key === "teacher");
-  const student = plan.authUsers.find(({ key }) => key === "student");
-  if (!teacher || !student) throw new Error("Pilot principals are missing");
-
   const writes = new Map(plan.writes.map((write) => [write.path, write]));
-  for (const user of [teacher, student]) {
+  if (!teacher) throw new Error("Teacher principal is missing");
+  const studentAuth = plan.authUsers.find(({ key }) => key === "student");
+  const studentWrite = plan.writes.find(({ path }) => path.startsWith("students/"));
+  const studentUid = studentAuth?.uid ?? studentWrite?.path.split("/")[1];
+  if (!studentUid) throw new Error("Student tenant document is missing");
+
+  for (const user of plan.authUsers) {
     if (!writes.has(`users/${user.uid}`)) {
       throw new Error(`Missing users/${user.uid} for Auth principal`);
     }
   }
-  if (!writes.has(`students/${student.uid}`)) {
-    throw new Error(`Student document ID must match deterministic Auth UID ${student.uid}`);
+  if (!writes.has(`users/${studentUid}`) || !writes.has(`students/${studentUid}`)) {
+    throw new Error(`Missing deterministic student tenant documents for ${studentUid}`);
   }
 
   const ownedCollections = new Set([
@@ -329,7 +340,7 @@ export function validatePilotRelations(plan: SeedPlan): void {
       throw new Error(`${write.path} must match pilot teacherId`);
     }
     if (!ownedCollections.has(collectionName ?? "")) continue;
-    if (write.data.teacherId !== teacher.uid || write.data.studentId !== student.uid) {
+    if (write.data.teacherId !== teacher.uid || write.data.studentId !== studentUid) {
       throw new Error(`${write.path} must match pilot teacherId/studentId`);
     }
   }
@@ -695,9 +706,42 @@ function assertProductionApplyGuards(plan: SeedPlan): void {
         `--confirm-write=${APPLY_CONFIRMATION}`,
     );
   }
+  if (plan.authUsers.length === 1 && !isApprovedDemoPlan(plan)) {
+    throw new Error(
+      "Demo apply requires --confirm-demo-auth=teacher-demo-review-v1",
+    );
+  }
 }
 
 async function applyProduction(plan: SeedPlan, livePlan: LivePlan): Promise<void> {
+  const isDemoPlan = isApprovedDemoPlan(plan);
+  if (isDemoPlan) {
+    const sharedNoopPaths = new Set([
+      "programProfiles/oge-russian-2027",
+      "examBlueprints/oge-russian-2026-pilot-v1",
+    ]);
+    const unexpectedAuth = livePlan.auth.filter(({ action }) => action !== "create");
+    const unexpectedFirestore = livePlan.firestore.filter(({ path, action }) =>
+      sharedNoopPaths.has(path) ? action !== "noop" : action !== "create",
+    );
+    if (
+      livePlan.auth.length !== 1 ||
+      livePlan.firestore.length !== 14 ||
+      unexpectedAuth.length > 0 ||
+      unexpectedFirestore.length > 0
+    ) {
+      throw new Error(
+        "Demo preflight failed; no writes performed. Expected 1 Auth create, " +
+          "12 Firestore creates and 2 approved shared noops. " +
+          `Unexpected Auth: ${unexpectedAuth
+            .map(({ uid, action, reason }) => `${uid}:${action}${reason ? `(${reason})` : ""}`)
+            .join(", ") || "none"}. ` +
+          `Unexpected Firestore: ${unexpectedFirestore
+            .map(({ path, action }) => `${path}:${action}`)
+            .join(", ") || "none"}.`,
+      );
+    }
+  } else {
   const resumeAfterTeacherCreate =
     argumentValue("--resume-after-auth-create") === "teacher-pilot-v1";
   const expectedAuthAction = (action: AuthAction): PlannedAction =>
@@ -724,12 +768,15 @@ async function applyProduction(plan: SeedPlan, livePlan: LivePlan): Promise<void
           .join(", ") || "none"}.`,
     );
   }
+  }
 
-  const typedProject = await promptVisible(
-    `Для финального подтверждения production project введите ${PRODUCTION_PROJECT_ID}: `,
-  );
-  if (typedProject !== PRODUCTION_PROJECT_ID) {
-    throw new Error("Production project confirmation did not match; no writes performed");
+  if (!isDemoPlan) {
+    const typedProject = await promptVisible(
+      `Для финального подтверждения production project введите ${PRODUCTION_PROJECT_ID}: `,
+    );
+    if (typedProject !== PRODUCTION_PROJECT_ID) {
+      throw new Error("Production project confirmation did not match; no writes performed");
+    }
   }
 
   const app = getApps().find((candidate) => candidate.name === "pilot-production-seed");
@@ -758,9 +805,7 @@ async function applyProduction(plan: SeedPlan, livePlan: LivePlan): Promise<void
     }
   }
 
-  const pendingWrites = livePlan.firestore.filter(({ action }) =>
-    action === "create" || action === "update",
-  );
+  const pendingWrites = livePlan.firestore.filter(({ action }) => action === "create");
   if (pendingWrites.length > 0) {
     const batch = db.batch();
     pendingWrites.forEach(({ path, data }) => {
@@ -770,7 +815,7 @@ async function applyProduction(plan: SeedPlan, livePlan: LivePlan): Promise<void
   }
   console.log(
     `Applied ${livePlan.auth.filter(({ action }) => action === "create").length} Auth creates and ` +
-      `${pendingWrites.length} Firestore create/update operations to ${PRODUCTION_PROJECT_ID}.`,
+      `${pendingWrites.length} Firestore create operations to ${PRODUCTION_PROJECT_ID}.`,
   );
 }
 
@@ -811,7 +856,9 @@ async function main(): Promise<void> {
     throw new Error("Production apply requires an interactive local teacher login prompt");
   }
   let teacherUsername: string;
-  if (applyMode) {
+  if (applyMode && isApprovedDemoPlan(plan) && typeof teacherSeed.username === "string") {
+    teacherUsername = normalizeUsername(teacherSeed.username);
+  } else if (applyMode) {
     teacherUsername = normalizeUsername(
       await promptVisible("Локальный login преподавателя (пароль сейчас не нужен): "),
     );

@@ -15,6 +15,7 @@ export interface AuditedDocument extends VersionedDocument {
 
 export interface UserProfile extends AuditedDocument {
   role: UserRole;
+  accountMode?: "standard" | "demo";
   displayName?: string | null;
   username: string;
   usernameNormalized: string;

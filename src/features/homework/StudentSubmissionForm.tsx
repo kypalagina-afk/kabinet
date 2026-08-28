@@ -16,6 +16,8 @@ import type {
   HomeworkItem,
   HomeworkSubmission,
 } from "../../lib/firebase/types";
+import { useAuth } from "../auth/AuthProvider";
+import { isDemoProfile } from "../demo/demoMode";
 
 const labels: Record<HomeworkItem["type"], string> = {
   theory: "Теория",
@@ -41,6 +43,7 @@ export function StudentSubmissionForm({
   homework: Homework;
   submissions: HomeworkSubmission[];
 }) {
+  const { profile } = useAuth();
   const [note, setNote] = useState("");
   const [earned, setEarned] = useState("");
   const [maximum, setMaximum] = useState("");
@@ -50,7 +53,7 @@ export function StudentSubmissionForm({
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
-  const uploadsAvailable = isFirebaseStorageUploadAvailable();
+  const uploadsAvailable = !isDemoProfile(profile) && isFirebaseStorageUploadAvailable();
   const submissionNumber =
     Math.max(0, ...submissions.map((submission) => submission.submissionNumber)) + 1;
   const items = homework.items ?? [];

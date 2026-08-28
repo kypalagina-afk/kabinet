@@ -24,6 +24,12 @@ const accounts: TestAccount[] = [
     role: "student",
     theme: "dark",
   },
+  {
+    username: "demo.teacher",
+    password: "Demo-teacher-2026!",
+    role: "teacher",
+    theme: "light",
+  },
 ];
 
 const achievementDefinitions = [
@@ -81,6 +87,7 @@ export default async function globalSetup() {
   const db = getFirestore(app);
   const teacherUid = await createAuthAccount(accounts[0]);
   const studentUid = await createAuthAccount(accounts[1]);
+  const demoTeacherUid = await createAuthAccount(accounts[2]);
   const now = Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z"));
   const freshMaterialCreatedAt = Timestamp.fromMillis(Date.now() - 86_400_000);
   const localNow = new Date();
@@ -179,6 +186,21 @@ export default async function globalSetup() {
       preferences: { theme: accounts[0].theme },
       timezone: { iana: "Asia/Novosibirsk", moscowOffsetMinutes: 240 },
       avatarKey: "animal_05",
+      createdAt: now,
+      updatedAt: now,
+      schemaVersion: 1,
+    }),
+    db.doc(`users/${demoTeacherUid}`).set({
+      role: "teacher",
+      accountMode: "demo",
+      displayName: "Демо-преподаватель",
+      username: accounts[2].username,
+      usernameNormalized: accounts[2].username,
+      teacherId: null,
+      studentId: null,
+      preferences: { theme: accounts[2].theme },
+      timezone: { iana: "Europe/Moscow", moscowOffsetMinutes: 180 },
+      avatarKey: "animal_02",
       createdAt: now,
       updatedAt: now,
       schemaVersion: 1,

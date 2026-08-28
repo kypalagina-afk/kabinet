@@ -32,7 +32,12 @@
     "rules:inspect-production": "tsx tools/inspectProductionRules.ts",
     "rules:deploy-production": "tsx tools/deployProductionRules.ts",
     "smoke:production": "tsx tools/smokeProduction.ts",
-    "phase10-1:migration": "tsx tools/phase10_1Migration.ts"
+    "phase10-1:migration": "tsx tools/phase10_1Migration.ts",
+    "demo:prepare-plan": "tsx tools/createDemoSeedPlan.ts",
+    "demo:plan": "npm run demo:prepare-plan && tsx tools/seed.ts --plan --input=private/demo-review.phase11.json",
+    "demo:seed:emulator": "tsx tools/createDemoSeedPlan.ts --apply-emulator",
+    "demo:inspect-production": "npm run demo:prepare-plan && tsx tools/seed.ts --plan --inspect-production --input=private/demo-review.phase11.json",
+    "demo:apply-production": "npm run demo:prepare-plan && tsx tools/seed.ts --apply --input=private/demo-review.phase11.json --confirm-project=kabinet-25 --confirm-write=APPLY_PRODUCTION_SEED --confirm-demo-auth=teacher-demo-review-v1"
   },
   "dependencies": {
     "firebase": "^12.17.1",

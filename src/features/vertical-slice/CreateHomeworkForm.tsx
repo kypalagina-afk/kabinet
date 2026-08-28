@@ -24,6 +24,8 @@ import type {
   ProgramProfile,
   DocumentWithId,
 } from "../../lib/firebase/types";
+import { useAuth } from "../auth/AuthProvider";
+import { isDemoProfile } from "../demo/demoMode";
 
 interface Props {
   teacherId: string;
@@ -78,8 +80,9 @@ function criteriaForItem(
 }
 
 export function CreateHomeworkForm(props: Props) {
+  const { profile } = useAuth();
   const draftKey = `homework-draft:${props.teacherId}:${props.studentId}${props.sourceLesson ? `:${props.sourceLesson.id}` : ""}`;
-  const uploadsAvailable = isFirebaseStorageUploadAvailable();
+  const uploadsAvailable = !isDemoProfile(profile) && isFirebaseStorageUploadAvailable();
   const [title, setTitle] = useState(() =>
     props.sourceLesson?.data.topic
       ? `Закрепить тему: ${props.sourceLesson.data.topic}`

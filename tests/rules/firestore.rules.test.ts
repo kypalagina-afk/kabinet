@@ -1276,4 +1276,38 @@ describe("idempotent domain operations", () => {
       ...baseTimestamps(),
     }));
   });
+
+  test("isolates a demo tenant from the real teacher tenant", async () => {
+    const demoTeacher = { uid: "teacher-demo-review-v1", token: { email: "demo.teacher@example.test" } };
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await Promise.all([
+        setDoc(doc(db, "users", demoTeacher.uid), {
+          role: "teacher",
+          accountMode: "demo",
+          teacherId: null,
+          studentId: null,
+          preferences: { theme: "light" },
+          timezone: { iana: "Europe/Moscow", moscowOffsetMinutes: 180 },
+          ...baseTimestamps(),
+        }),
+        setDoc(doc(db, "students", "student-demo-review-v1"),
+          studentDocument(demoTeacher.uid, "Демо-ученик")),
+        setDoc(doc(db, "homeworks", "demo-homework"),
+          homeworkDocument(demoTeacher.uid, "student-demo-review-v1")),
+      ]);
+    });
+    const demoDb = testEnvironment.authenticatedContext(demoTeacher.uid, demoTeacher.token).firestore();
+    await assertSucceeds(getDoc(doc(demoDb, "students", "student-demo-review-v1")));
+    await assertFails(getDoc(doc(demoDb, "students", "student-1")));
+    const own = await assertSucceeds(getDocs(query(
+      collection(demoDb, "homeworks"),
+      where("teacherId", "==", demoTeacher.uid),
+    )));
+    expect(own.size).toBe(1);
+    await assertFails(getDocs(query(
+      collection(demoDb, "homeworks"),
+      where("teacherId", "==", teacherAuth.uid),
+    )));
+  });
 });

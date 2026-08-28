@@ -32,6 +32,7 @@ import {
   updateStudentTimezone,
 } from "../lib/firebase/services/studentManagement";
 import type { Student } from "../lib/firebase/types";
+import { isDemoProfile } from "../features/demo/demoMode";
 
 type Tab = "overview" | "lessons" | "homework" | "mocks" | "payment";
 const tabs: Array<[Tab, string]> = [
@@ -44,7 +45,6 @@ const tabs: Array<[Tab, string]> = [
 type ConferenceLink = NonNullable<Student["conferenceLinks"]>[number];
 
 export function TeacherStudentPage() {
-  const provisioningAvailable = isUsingFirebaseEmulators() || isProductionBackendAvailable();
   const { studentId = "" } = useParams();
   const location = useLocation();
   const [params] = useSearchParams();
@@ -54,6 +54,8 @@ export function TeacherStudentPage() {
       : "overview"
   ) as Tab;
   const { user, profile } = useAuth();
+  const demoMode = isDemoProfile(profile);
+  const provisioningAvailable = !demoMode && (isUsingFirebaseEmulators() || isProductionBackendAvailable());
   const [editing, setEditing] = useState(false);
   const [credentialPassword, setCredentialPassword] = useState(
     () =>
@@ -121,7 +123,9 @@ export function TeacherStudentPage() {
     if (!user) return;
     if (!provisioningAvailable) {
       setNotice(
-        "Сброс пароля временно недоступен в публичной версии: требуется защищённый серверный provisioning.",
+        demoMode
+          ? "В демо-режиме сброс пароля ученика отключён."
+          : "Сброс пароля временно недоступен в публичной версии: требуется защищённый серверный provisioning.",
       );
       return;
     }

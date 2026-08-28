@@ -2142,6 +2142,36 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 }
 
 /* Phase 10 · planner, uploads and refined teacher controls */
+.demo-mode-banner {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent, #7053f6) 12%, var(--surface, #fff));
+  border: 1px solid color-mix(in srgb, var(--accent, #7053f6) 38%, transparent);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 12px 16px;
+}
+
+.demo-mode-banner strong {
+  color: var(--accent, #7053f6);
+  white-space: nowrap;
+}
+
+.demo-mode-banner span {
+  color: var(--text-muted, #625f7a);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 767px) {
+  .demo-mode-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    margin-inline: 16px;
+  }
+}
+
 .avatar--custom,.avatar-picker .avatar--custom{width:var(--avatar-size);height:var(--avatar-size)}
 .avatar--rounded-square{border-radius:28%}
 .avatar--selected{outline:3px solid color-mix(in srgb,var(--color-accent) 34%,transparent);outline-offset:2px}

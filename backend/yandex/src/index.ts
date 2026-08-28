@@ -29,7 +29,7 @@ import {
 import { aiInterpretInputSchema } from "./ai/schema.js";
 import { YandexAIProvider } from "./ai/provider.js";
 import { canonicalizeDraftIdentity } from "./ai/identity.js";
-import { isTeacherAIActor } from "./ai/authorization.js";
+import { isTeacherAIActor, requestLimitForActor } from "./ai/authorization.js";
 import {
   findStudentsByName,
   getActiveHomework,
@@ -61,6 +61,7 @@ interface FunctionContext {
 interface UserProfile extends Json {
   role: "teacher" | "student";
   studentId?: string | null;
+  accountMode?: "standard" | "demo";
 }
 
 interface FileAssetData extends Json {
@@ -101,6 +102,15 @@ const allowedOrigins = new Set(
 );
 const requireAppCheck = process.env.REQUIRE_APP_CHECK === "true";
 const aiAssistantEnabled = process.env.AI_ASSISTANT_ENABLED === "true";
+const aiDailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || "100");
+const demoAiDailyRequestLimit = Number(process.env.DEMO_AI_DAILY_REQUEST_LIMIT || "12");
+
+if (!Number.isInteger(aiDailyRequestLimit) || aiDailyRequestLimit < 1 || aiDailyRequestLimit > 1000) {
+  throw new Error("AI_DAILY_REQUEST_LIMIT must be an integer from 1 to 1000");
+}
+if (!Number.isInteger(demoAiDailyRequestLimit) || demoAiDailyRequestLimit < 1 || demoAiDailyRequestLimit > 100) {
+  throw new Error("DEMO_AI_DAILY_REQUEST_LIMIT must be an integer from 1 to 100");
+}
 
 const credentialJson = parseFirebaseCredential(
   firebaseProjectId,
@@ -192,6 +202,12 @@ async function authenticate(event: FunctionEvent): Promise<{ uid: string; profil
   const profile = profileSnapshot.data() as UserProfile;
   if (profile.role !== "teacher" && profile.role !== "student") throw new HttpError(403, "Unsupported role");
   return { uid: decoded.uid, profile };
+}
+
+function assertDemoSafeMutation(profile: UserProfile): void {
+  if (profile.accountMode === "demo") {
+    throw new HttpError(403, "This operation is disabled in demo mode");
+  }
 }
 
 async function rateLimit(uid: string, action: string, limit: number): Promise<void> {
@@ -307,6 +323,7 @@ function inputFromBody(body: Json): UploadIntentInput {
 
 async function createUploadIntent(event: FunctionEvent, context: FunctionContext) {
   const identity = await authenticate(event);
+  assertDemoSafeMutation(identity.profile);
   await rateLimit(identity.uid, "file_intent", 300);
   const input = inputFromBody(jsonBody(event, context));
   try {
@@ -378,6 +395,7 @@ function attachment(assetId: string, asset: FileAssetData) {
 
 async function finalizeUpload(event: FunctionEvent, context: FunctionContext, assetId: string) {
   const identity = await authenticate(event);
+  assertDemoSafeMutation(identity.profile);
   await rateLimit(identity.uid, "file_finalize", 300);
   const reference = db.doc(`fileAssets/${assetId}`);
   const snapshot = await reference.get();
@@ -457,6 +475,7 @@ async function downloadFile(event: FunctionEvent, context: FunctionContext, asse
 
 async function deleteFile(event: FunctionEvent, context: FunctionContext, assetId: string) {
   const identity = await authenticate(event);
+  assertDemoSafeMutation(identity.profile);
   await rateLimit(identity.uid, "file_delete", 300);
   const reference = db.doc(`fileAssets/${assetId}`);
   const snapshot = await reference.get();
@@ -504,6 +523,7 @@ function rollingMoscowLessons(startsOn: string, weekday: number, time: string, d
 async function createStudent(event: FunctionEvent, context: FunctionContext) {
   const identity = await authenticate(event);
   if (identity.profile.role !== "teacher") throw new HttpError(403, "Teacher role required");
+  assertDemoSafeMutation(identity.profile);
   await rateLimit(identity.uid, "student_create", 10);
   const body = jsonBody(event, context);
   const username = String(body.username ?? "").trim().toLowerCase();
@@ -603,6 +623,7 @@ async function createStudent(event: FunctionEvent, context: FunctionContext) {
 async function resetStudentPassword(event: FunctionEvent, context: FunctionContext, studentId: string) {
   const identity = await authenticate(event);
   if (identity.profile.role !== "teacher") throw new HttpError(403, "Teacher role required");
+  assertDemoSafeMutation(identity.profile);
   await rateLimit(identity.uid, "password_reset", 20);
   const body = jsonBody(event, context);
   const password = String(body.password ?? "");
@@ -628,7 +649,11 @@ async function interpretAI(event: FunctionEvent, context: FunctionContext) {
   const identity = await authenticate(event);
   if (!isTeacherAIActor(identity.profile)) throw new HttpError(403, "Teacher role required");
   const dayKey = new Date().toISOString().slice(0, 10);
-  await rateLimit(identity.uid, `ai_interpret_${dayKey}`, 100);
+  await rateLimit(
+    identity.uid,
+    `ai_interpret_${dayKey}`,
+    requestLimitForActor(identity.profile, aiDailyRequestLimit, demoAiDailyRequestLimit),
+  );
   const parsed = aiInterpretInputSchema.safeParse(jsonBody(event, context));
   if (!parsed.success) throw new HttpError(400, "Не удалось разобрать команду");
   if (parsed.data.context.selectedStudentId) {

@@ -30,6 +30,7 @@ import type {
   ExamBlueprint,
   Material,
 } from "../lib/firebase/types";
+import { isDemoProfile } from "../features/demo/demoMode";
 
 const typeLabels: Record<Material["type"], string> = {
   pdf: "PDF",
@@ -57,7 +58,8 @@ function initialInput(programId = ""): MaterialInput {
 }
 
 export function TeacherMaterialsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const uploadsAvailable = !isDemoProfile(profile) && isFirebaseStorageUploadAvailable();
   const navigate = useNavigate();
   const materials = useTeacherMaterials(user?.uid ?? "");
   const programs = useProgramProfiles();
@@ -544,11 +546,11 @@ export function TeacherMaterialsPage() {
                 value={input.externalUrl}
               />
             </label>
-            <label className="file-drop" aria-disabled={!isFirebaseStorageUploadAvailable()}>
-              <span>{isFirebaseStorageUploadAvailable() ? "Или загрузите файл до 15 МБ" : "Загрузка файлов недоступна в публичной версии"}</span>
+            <label className="file-drop" aria-disabled={!uploadsAvailable}>
+              <span>{uploadsAvailable ? "Или загрузите файл до 15 МБ" : isDemoProfile(profile) ? "Загрузка файлов отключена в демо-режиме" : "Загрузка файлов недоступна в публичной версии"}</span>
               <input
                 accept="image/jpeg,image/png,image/webp,.pdf,.txt,.doc,.docx"
-                disabled={!isFirebaseStorageUploadAvailable()}
+                disabled={!uploadsAvailable}
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                 type="file"
               />

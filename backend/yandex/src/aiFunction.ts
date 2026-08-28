@@ -2,7 +2,7 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
-import { isTeacherAIActor } from "./ai/authorization.js";
+import { isTeacherAIActor, requestLimitForActor } from "./ai/authorization.js";
 import { rescheduleClarification } from "./ai/clarification.js";
 import { canonicalizeDraftIdentity } from "./ai/identity.js";
 import {
@@ -45,6 +45,7 @@ interface FunctionContext {
 
 interface UserProfile extends Json {
   role: "teacher" | "student";
+  accountMode?: "standard" | "demo";
 }
 
 class HttpError extends Error {
@@ -71,17 +72,25 @@ const aiBaseUrl = process.env.AI_BASE_URL?.trim() || "https://ai.api.cloud.yande
 const aiModelUri = required("AI_MODEL_URI");
 const aiApiKey = required("AI_API_KEY");
 const dailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || "100");
+const demoDailyRequestLimit = Number(process.env.DEMO_AI_DAILY_REQUEST_LIMIT || "12");
 const voiceInputEnabled = process.env.VOICE_INPUT_ENABLED === "true";
 const speechKitBaseUrl = process.env.SPEECHKIT_BASE_URL?.trim() || "https://stt.api.cloud.yandex.net";
 const speechKitOperationsBaseUrl = process.env.SPEECHKIT_OPERATIONS_BASE_URL?.trim() || "https://operation.api.cloud.yandex.net";
 const speechKitApiKey = process.env.SPEECHKIT_API_KEY?.trim() || "";
 const voiceDailyRequestLimit = Number(process.env.VOICE_DAILY_REQUEST_LIMIT || "50");
+const demoVoiceDailyRequestLimit = Number(process.env.DEMO_VOICE_DAILY_REQUEST_LIMIT || "3");
 
 if (!Number.isInteger(dailyRequestLimit) || dailyRequestLimit < 1 || dailyRequestLimit > 1000) {
   throw new Error("AI_DAILY_REQUEST_LIMIT must be an integer from 1 to 1000");
 }
+if (!Number.isInteger(demoDailyRequestLimit) || demoDailyRequestLimit < 1 || demoDailyRequestLimit > 100) {
+  throw new Error("DEMO_AI_DAILY_REQUEST_LIMIT must be an integer from 1 to 100");
+}
 if (!Number.isInteger(voiceDailyRequestLimit) || voiceDailyRequestLimit < 1 || voiceDailyRequestLimit > 500) {
   throw new Error("VOICE_DAILY_REQUEST_LIMIT must be an integer from 1 to 500");
+}
+if (!Number.isInteger(demoVoiceDailyRequestLimit) || demoVoiceDailyRequestLimit < 1 || demoVoiceDailyRequestLimit > 50) {
+  throw new Error("DEMO_VOICE_DAILY_REQUEST_LIMIT must be an integer from 1 to 50");
 }
 
 const credentialJson = parseFirebaseCredential(
@@ -214,7 +223,11 @@ async function interpretAI(event: FunctionEvent, context: FunctionContext) {
   if (!aiAssistantEnabled) throw new HttpError(404, "AI assistant is disabled");
   const identity = await authenticateTeacher(event);
   const dayKey = new Date().toISOString().slice(0, 10);
-  await rateLimit(identity.uid, `ai_interpret_${dayKey}`, dailyRequestLimit);
+  await rateLimit(
+    identity.uid,
+    `ai_interpret_${dayKey}`,
+    requestLimitForActor(identity.profile, dailyRequestLimit, demoDailyRequestLimit),
+  );
 
   const parsed = aiInterpretInputSchema.safeParse(jsonBody(event, context));
   if (!parsed.success) throw new HttpError(400, "Не удалось разобрать команду");
@@ -399,7 +412,11 @@ async function startVoiceTranscription(event: FunctionEvent, context: FunctionCo
   if (!parsed.success) throw new HttpError(400, "Некорректная аудиозапись");
   const audio = validatedWav(parsed.data.audioBase64);
   const dayKey = new Date().toISOString().slice(0, 10);
-  await rateLimit(identity.uid, `voice_transcription_${dayKey}`, voiceDailyRequestLimit);
+  await rateLimit(
+    identity.uid,
+    `voice_transcription_${dayKey}`,
+    requestLimitForActor(identity.profile, voiceDailyRequestLimit, demoVoiceDailyRequestLimit),
+  );
 
   const operationId = await provider.submitWav(audio.toString("base64"));
   const now = Date.now();

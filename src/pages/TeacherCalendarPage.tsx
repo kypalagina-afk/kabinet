@@ -32,6 +32,7 @@ import {
   cancelLessonSeries,
   createOneOffLesson,
   createLessonSeries,
+  deleteLessonSeriesFuture,
   hardDeleteLesson,
   rescheduleLesson,
   changeRecurringSeriesFuture,
@@ -214,9 +215,11 @@ export function TeacherCalendarPage() {
     try {
       await operation();
       setOperationStatus(success);
-    } catch {
+    } catch (error) {
+      console.error("Calendar operation failed", error);
+      const reason = error instanceof Error ? error.message : "Неизвестная ошибка";
       setOperationError(
-        "Операция не выполнена. Проверьте состояние занятия и повторите.",
+        `Операция не выполнена: ${reason}`,
       );
     }
   };
@@ -232,6 +235,8 @@ export function TeacherCalendarPage() {
         teacherId,
         studentId,
       );
+      if (!studentProgramId)
+        throw new Error("у ученика нет активной программы. Откройте карточку ученика и проверьте назначенную программу");
       return createLessonSeries(getFirebaseDb(), {
         teacherId,
         studentId,
@@ -987,6 +992,28 @@ export function TeacherCalendarPage() {
                     ) : null}
                   </div>
                 </>
+              ) : null}
+              {selectedLesson.data.lessonSeriesId ? (
+                <button
+                  className="secondary-button secondary-button--danger"
+                  data-testid="delete-series-future"
+                  onClick={() => {
+                    if (!window.confirm("Удалить все будущие занятия этой серии? Уже проведённые уроки и история оплат сохранятся.")) return;
+                    void runOperation(
+                      () => deleteLessonSeriesFuture(getFirebaseDb(), {
+                        seriesId: selectedLesson.data.lessonSeriesId!,
+                        teacherId: user?.uid ?? "",
+                      }).then((result) => {
+                        setSelectedLessonId(null);
+                        return result;
+                      }),
+                      "Будущие занятия удалены, серия завершена. История проведённых уроков сохранена.",
+                    );
+                  }}
+                  type="button"
+                >
+                  Удалить будущие уроки серии
+                </button>
               ) : null}
             </>
           ) : (

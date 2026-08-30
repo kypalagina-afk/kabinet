@@ -29,6 +29,7 @@ import {
   setStudentArchived,
   updateStudentConferenceLinks,
   updateStudentProfile,
+  updateStudentProgramGoal,
   updateStudentTimezone,
 } from "../lib/firebase/services/studentManagement";
 import type { Student } from "../lib/firebase/types";
@@ -116,6 +117,14 @@ export function TeacherStudentPage() {
       iana: timezoneIana,
       moscowOffsetMinutes: timezoneOffsetMinutes(timezoneIana),
     });
+    if (data.studentProgram) {
+      await updateStudentProgramGoal(getFirebaseDb(), {
+        teacherId: user.uid,
+        studentId,
+        studentProgramId: data.studentProgram.id,
+        displayText: String(form.get("programGoal") ?? data.studentProgram.data.goal.displayText),
+      });
+    }
     setEditing(false);
     setNotice("Карточка обновлена.");
   }
@@ -247,6 +256,16 @@ export function TeacherStudentPage() {
               ))}
             </select>
           </label>
+          {data.studentProgram ? (
+            <label className="form-field">
+              <span>Цель занятий по программе</span>
+              <input
+                defaultValue={data.studentProgram.data.goal.displayText}
+                name="programGoal"
+                required
+              />
+            </label>
+          ) : null}
           <button className="primary-button primary-button--fit">
             Сохранить
           </button>

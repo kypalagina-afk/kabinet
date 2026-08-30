@@ -183,7 +183,11 @@ service cloud.firestore {
     }
 
     match /lessonSeries/{id} {
-      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/lessonSeries/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data) && ownershipUnchanged();
       allow delete: if false;
@@ -198,7 +202,7 @@ service cloud.firestore {
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data) && ownershipUnchanged();
       allow delete: if teacherOwns(resource.data)
-        && resource.data.status == "planned"
+        && resource.data.status in ["planned", "cancelled_teacher"]
         && resource.data.rescheduledFromLessonId == null
         && resource.data.rescheduledToLessonId == null
         && recurringLessonDeleteIsSuppressed(id);

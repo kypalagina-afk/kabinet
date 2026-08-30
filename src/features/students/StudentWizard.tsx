@@ -25,7 +25,8 @@ export function StudentWizard({
   const [programProfileId, setProgramProfileId] = useState(
     () => programs[0]?.id ?? "",
   );
-  const selectedProgram = programs.find(({ id }) => id === programProfileId)?.data;
+  const effectiveProgramProfileId = programProfileId || programs[0]?.id || "";
+  const selectedProgram = programs.find(({ id }) => id === effectiveProgramProfileId)?.data;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +39,7 @@ export function StudentWizard({
       const result = await getStudentProvisioningService().create(user, {
         displayName: String(form.get("displayName")),
         classGrade: Number(form.get("classGrade")),
-        programProfileId,
+        programProfileId: effectiveProgramProfileId,
         goal,
         goalType,
         targetGrade: goalType === "grade" ? numericGoal : null,
@@ -114,7 +115,7 @@ export function StudentWizard({
                 name="programProfileId"
                 onChange={(event) => setProgramProfileId(event.target.value)}
                 required
-                value={programProfileId}
+                value={effectiveProgramProfileId}
               >
                 {programs.map(({ id, data }) => (
                   <option key={id} value={id}>

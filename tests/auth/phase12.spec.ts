@@ -67,3 +67,14 @@ test("EGE student sees the preserved result", async ({ page }) => {
   await page.goto("/#/student/homework");
   await expect(page.getByText("Проверить сочинение №27")).toBeVisible();
 });
+
+test("teacher can schedule the EGE student", async ({ page }) => {
+  await login(page);
+  await page.goto("/#/teacher/calendar");
+  const form = page.locator("form.recurring-series-form");
+  await form.getByLabel("Ученик").selectOption({ label: "Анна · ЕГЭ" });
+  await form.getByLabel("Начало серии").fill("2026-09-03");
+  await form.getByRole("button", { name: "Создать серию" }).click();
+  await expect(page.getByText("Серия сохранена и материализована на 12 недель.")).toBeVisible();
+  await expect(page.getByText("Операция не выполнена", { exact: false })).toHaveCount(0);
+});

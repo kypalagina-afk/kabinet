@@ -214,8 +214,8 @@ export async function hardDeleteLesson(
   const preflightLesson = preflight.data() as Lesson;
   if (preflightLesson.teacherId !== input.teacherId)
     throw new Error("Lesson ownership mismatch");
-  if (preflightLesson.status !== "planned")
-    throw new Error("Only a planned accidental lesson can be permanently deleted");
+  if (preflightLesson.status !== "planned" && preflightLesson.status !== "cancelled_teacher")
+    throw new Error("Only a planned or teacher-cancelled lesson can be permanently deleted");
   if (preflightLesson.rescheduledFromLessonId || preflightLesson.rescheduledToLessonId)
     throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
 
@@ -242,8 +242,8 @@ export async function hardDeleteLesson(
     const target = targetSnapshot.data() as Lesson;
     if (target.teacherId !== input.teacherId || target.studentId !== preflightLesson.studentId)
       throw new Error("Lesson ownership mismatch");
-    if (target.status !== "planned")
-      throw new Error("Only a planned accidental lesson can be permanently deleted");
+    if (target.status !== "planned" && target.status !== "cancelled_teacher")
+      throw new Error("Only a planned or teacher-cancelled lesson can be permanently deleted");
     if (target.rescheduledFromLessonId || target.rescheduledToLessonId)
       throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
 
@@ -362,6 +362,45 @@ export async function cancelLessonSeries(
     });
     return { status: "applied" as const, cancelledLessonIds };
   });
+}
+
+export async function deleteLessonSeriesFuture(
+  db: Firestore,
+  input: { seriesId: string; teacherId: string; effectiveAt?: Timestamp },
+): Promise<OperationResult & { deletedLessonIds: string[] }> {
+  const effectiveAt = input.effectiveAt ?? Timestamp.now();
+  const seriesReference = doc(db, "lessonSeries", input.seriesId);
+  const seriesSnapshot = await getDoc(seriesReference);
+  if (!seriesSnapshot.exists()) throw new Error(`Lesson series ${input.seriesId} does not exist`);
+  const series = seriesSnapshot.data() as LessonSeries;
+  if (series.teacherId !== input.teacherId) throw new Error("Lesson series ownership mismatch");
+
+  await updateDoc(seriesReference, {
+    active: false,
+    cancelledAt: serverTimestamp(),
+    cancelledBy: "teacher",
+    updatedAt: serverTimestamp(),
+  });
+  const candidates = await getDocs(query(
+    collection(db, "lessons"),
+    where("teacherId", "==", input.teacherId),
+    where("lessonSeriesId", "==", input.seriesId),
+    where("startAt", ">=", effectiveAt),
+  ));
+  const deletedLessonIds: string[] = [];
+  for (const candidate of candidates.docs) {
+    const lesson = candidate.data() as Lesson;
+    if (lesson.status !== "planned" && lesson.status !== "cancelled_teacher") continue;
+    const result = await hardDeleteLesson(db, {
+      lessonId: candidate.id,
+      teacherId: input.teacherId,
+    });
+    if (result.status === "applied") deletedLessonIds.push(candidate.id);
+  }
+  return {
+    status: deletedLessonIds.length || series.active ? "applied" : "noop",
+    deletedLessonIds,
+  };
 }
 
 export async function updateLessonPaymentStatus(

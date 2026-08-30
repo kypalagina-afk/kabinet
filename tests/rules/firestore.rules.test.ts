@@ -28,6 +28,7 @@ import { FirestoreScheduledLessonMaterializer } from "../../src/lib/firebase/ser
 import {
   cancelLesson,
   cancelLessonSeries,
+  deleteLessonSeriesFuture,
   hardDeleteLesson,
   rescheduleLesson,
 } from "../../src/lib/firebase/services/scheduleOperations.js";
@@ -42,6 +43,7 @@ import {
 } from "../../src/lib/firebase/services/materialsWorkflow.js";
 import { syncStudentAchievements } from "../../src/lib/firebase/services/gamificationWorkflow.js";
 import { createHomework } from "../../src/lib/firebase/services/verticalSliceWrites.js";
+import { updateStudentProgramGoal } from "../../src/lib/firebase/services/studentManagement.js";
 
 const PROJECT_ID = "demo-kabinet-25";
 const RULES_PATH = fileURLToPath(
@@ -1123,6 +1125,48 @@ describe("idempotent domain operations", () => {
       "completed",
     );
     expect((await getDoc(doc(db, "lessons", "series-past"))).data()?.status).toBe("planned");
+  });
+
+  test("deletes future series occurrences but preserves completed and past lessons", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await Promise.all([
+        setDoc(doc(db, "lessons", "series-delete-planned"), scheduledLessonDocument(new Date("2026-08-20T07:00:00.000Z"))),
+        setDoc(doc(db, "lessons", "series-delete-cancelled"), scheduledLessonDocument(new Date("2026-08-21T07:00:00.000Z"), "cancelled_teacher")),
+        setDoc(doc(db, "lessons", "series-delete-completed"), scheduledLessonDocument(new Date("2026-08-27T07:00:00.000Z"), "completed")),
+        setDoc(doc(db, "lessons", "series-delete-past"), scheduledLessonDocument(new Date("2026-08-01T07:00:00.000Z"))),
+      ]);
+    });
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    const result = await deleteLessonSeriesFuture(db, {
+      seriesId: "series-1",
+      teacherId: teacherAuth.uid,
+      effectiveAt: Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z")),
+    });
+    expect(result.deletedLessonIds.sort()).toEqual(["series-delete-cancelled", "series-delete-planned"]);
+    expect((await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active).toBe(false);
+    expect((await getDoc(doc(db, "lessons", "series-delete-planned"))).exists()).toBe(false);
+    expect((await getDoc(doc(db, "lessons", "series-delete-cancelled"))).exists()).toBe(false);
+    expect((await getDoc(doc(db, "lessons", "series-delete-completed"))).exists()).toBe(true);
+    expect((await getDoc(doc(db, "lessons", "series-delete-past"))).exists()).toBe(true);
+  });
+
+  test("teacher can edit the owned active program goal", async () => {
+    await seedFixture();
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    await updateStudentProgramGoal(db, {
+      teacherId: teacherAuth.uid,
+      studentId: "student-1",
+      studentProgramId: "student-1-program",
+      displayText: "ЕГЭ на 85+ баллов",
+    });
+    expect((await getDoc(doc(db, "studentPrograms", "student-1-program"))).data()?.goal.displayText)
+      .toBe("ЕГЭ на 85+ баллов");
   });
 
   test("completes a lesson atomically and returns a no-op on retry", async () => {

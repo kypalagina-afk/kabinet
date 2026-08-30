@@ -9,7 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { Student, StudentProgram } from "../types";
+import type { Student, StudentProgram } from "../types.js";
 
 export async function setActiveStudentProgram(
   db: Firestore,
@@ -135,6 +135,42 @@ export async function updateStudentTimezone(
       entityId: input.studentId,
       action: "timezone_updated",
       summary: "Часовой пояс ученика обновлён",
+      createdAt: serverTimestamp(),
+      schemaVersion: 1,
+    });
+  });
+}
+
+export async function updateStudentProgramGoal(
+  db: Firestore,
+  input: {
+    teacherId: string;
+    studentId: string;
+    studentProgramId: string;
+    displayText: string;
+  },
+) {
+  const displayText = input.displayText.trim();
+  if (!displayText) throw new Error("Цель программы не может быть пустой");
+  const programReference = doc(db, "studentPrograms", input.studentProgramId);
+  const auditReference = doc(collection(db, "teacherAuditEvents"));
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(programReference);
+    if (!snapshot.exists()) throw new Error("Программа ученика не найдена");
+    const program = snapshot.data() as StudentProgram;
+    if (program.teacherId !== input.teacherId || program.studentId !== input.studentId)
+      throw new Error("Student program ownership mismatch");
+    transaction.update(programReference, {
+      "goal.displayText": displayText,
+      updatedAt: serverTimestamp(),
+    });
+    transaction.set(auditReference, {
+      teacherId: input.teacherId,
+      studentId: input.studentId,
+      entityType: "studentProgram",
+      entityId: input.studentProgramId,
+      action: "goal_updated",
+      summary: `Цель программы обновлена: ${displayText}`,
       createdAt: serverTimestamp(),
       schemaVersion: 1,
     });

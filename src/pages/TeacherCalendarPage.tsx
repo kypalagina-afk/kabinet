@@ -229,6 +229,7 @@ export function TeacherCalendarPage() {
     const form = new FormData(event.currentTarget);
     const studentId = String(form.get("studentId") ?? "");
     const teacherId = user?.uid ?? "";
+    const startsOn = String(form.get("startsOn"));
     await runOperation(async () => {
       const studentProgramId = await findActiveStudentProgramId(
         getFirebaseDb(),
@@ -237,7 +238,7 @@ export function TeacherCalendarPage() {
       );
       if (!studentProgramId)
         throw new Error("у ученика нет активной программы. Откройте карточку ученика и проверьте назначенную программу");
-      return createLessonSeries(getFirebaseDb(), {
+      const result = await createLessonSeries(getFirebaseDb(), {
         teacherId,
         studentId,
         studentProgramId,
@@ -246,9 +247,13 @@ export function TeacherCalendarPage() {
         startLocalTime: String(form.get("startLocalTime")),
         durationMinutes: Number(form.get("durationMinutes")),
         baseTimezone: "Europe/Moscow",
-        startsOn: String(form.get("startsOn")),
+        startsOn,
         endsOn: String(form.get("endsOn") || "") || null,
       });
+      setSelectedStudentId(studentId);
+      setFocusDate(startsOn);
+      setSelectedLessonId(result.createdLessonIds[0] ?? null);
+      return result;
     }, "Серия сохранена и материализована на 12 недель.");
   };
 

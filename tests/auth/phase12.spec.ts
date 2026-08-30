@@ -77,4 +77,7 @@ test("teacher can schedule the EGE student", async ({ page }) => {
   await form.getByRole("button", { name: "Создать серию" }).click();
   await expect(page.getByText("Серия сохранена и материализована на 12 недель.")).toBeVisible();
   await expect(page.getByText("Операция не выполнена", { exact: false })).toHaveCount(0);
+  await expect(
+    page.locator(".calendar-student-filter").filter({ hasText: "Ученик" }).locator("option:checked"),
+  ).toHaveText("Анна · ЕГЭ");
 });

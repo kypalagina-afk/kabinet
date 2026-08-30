@@ -36,6 +36,7 @@
     "phase10-1:migration": "tsx tools/phase10_1Migration.ts",
     "demo:prepare-plan": "tsx tools/createDemoSeedPlan.ts",
     "phase12:migration:plan": "tsx tools/phase12MigrationPlan.ts",
+    "phase12:migration:production": "tsx tools/phase12ProductionMigration.ts",
     "demo:plan": "npm run demo:prepare-plan && tsx tools/seed.ts --plan --input=private/demo-review.phase11.json",
     "demo:seed:emulator": "tsx tools/createDemoSeedPlan.ts --apply-emulator",
     "demo:inspect-production": "npm run demo:prepare-plan && tsx tools/seed.ts --plan --inspect-production --input=private/demo-review.phase11.json",

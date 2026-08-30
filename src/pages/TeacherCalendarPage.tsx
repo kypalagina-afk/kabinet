@@ -8,6 +8,7 @@ import { useTeacherSchedule } from "../features/schedule/hooks";
 import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import { AIShortcutButton } from "../features/ai/AIShortcutButton";
+import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
 import {
   addCalendarDays,
   addCalendarMonths,
@@ -140,6 +141,10 @@ export function TeacherCalendarPage() {
   );
   const selectedLesson =
     data.lessons.find(({ id }) => id === selectedLessonId) ?? null;
+  const selectedStudentWorkspace = useTeacherStudentWorkspace(
+    user?.uid ?? "",
+    selectedLesson?.data.studentId ?? "",
+  );
   const visibleLessons = (
     selectedStudentId
       ? data.lessons.filter(
@@ -785,6 +790,9 @@ export function TeacherCalendarPage() {
               selectedLesson.data.status === "completed" ? (
                 <CompleteLessonForm
                   lesson={selectedLesson}
+                  taskNumbers={selectedStudentWorkspace.data.examBlueprint?.data.tasks.map(
+                    (task) => task.number,
+                  ) ?? []}
                   teacherId={user?.uid ?? ""}
                 />
               ) : null}

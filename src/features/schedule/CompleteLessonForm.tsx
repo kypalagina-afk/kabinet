@@ -32,7 +32,7 @@ export function CompleteLessonForm({
   lesson,
   teacherId,
   previousHomework,
-  taskNumbers = Array.from({ length: 13 }, (_, index) => index + 1),
+  taskNumbers = [],
 }: {
   lesson: DocumentWithId<Lesson>;
   teacherId: string;

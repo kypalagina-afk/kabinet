@@ -31,6 +31,10 @@ export interface CreateHomeworkInput extends OwnedStudentProgramInput {
   attachments?: Attachment[];
   draft?: boolean;
   reviewCriteria?: Homework["reviewCriteria"];
+  examBlueprintId?: string | null;
+  criteriaVersion?: string | null;
+  maxScoreSnapshot?: number | null;
+  minimumWordCountSnapshot?: number | null;
 }
 
 export interface CreateMockExamInput extends OwnedStudentProgramInput {
@@ -139,6 +143,10 @@ export async function createHomework(
       templateId: null,
       draft: input.draft ?? false,
       reviewCriteria: input.reviewCriteria ?? null,
+      examBlueprintId: input.examBlueprintId ?? null,
+      criteriaVersion: input.criteriaVersion ?? null,
+      maxScoreSnapshot: input.maxScoreSnapshot ?? null,
+      minimumWordCountSnapshot: input.minimumWordCountSnapshot ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       schemaVersion: 1,

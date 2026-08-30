@@ -163,9 +163,9 @@ function localProvisioningPlugin(): Plugin {
               programProfileId,
               status: "active",
               goal: {
-                type: "custom",
-                targetGrade: null,
-                targetScore: null,
+                type: String(body.goalType ?? "custom"),
+                targetGrade: body.targetGrade ?? null,
+                targetScore: body.targetScore ?? null,
                 displayText: String(body.goal ?? ""),
               },
               startedAt: now,

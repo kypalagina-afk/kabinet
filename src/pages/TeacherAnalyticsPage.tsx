@@ -10,7 +10,6 @@ import {
   useTeacherMasteryOverrides,
   useTeacherTaskCoverage,
 } from "../features/analytics/mastery";
-import { calculateMockAnalytics } from "../features/analytics/mockAnalytics";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
 import { useExamBlueprints, useProgramProfiles } from "../features/materials/hooks";
@@ -21,6 +20,7 @@ import {
   useTeacherStudentWorkspace,
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb } from "../lib/firebase/client";
+import { programBlueprintId, programDisplayName } from "../features/exams/blueprints";
 
 export function TeacherAnalyticsPage() {
   const { user } = useAuth();
@@ -35,6 +35,7 @@ export function TeacherAnalyticsPage() {
   const [studentId, setStudentId] = useState(
     () => sessionStorage.getItem("teacher-analytics-student") ?? "all",
   );
+  const [programFilter, setProgramFilter] = useState<"all" | "oge" | "ege" | "school">("all");
   const activeStudentId = !students.loading
     && studentId !== "all"
     && !students.data.some(({ id }) => id === studentId)
@@ -79,6 +80,21 @@ export function TeacherAnalyticsPage() {
               ))}
             </select>
           </label>
+          {activeStudentId === "all" ? (
+            <label className="form-field compact-filter">
+              <span>Программа</span>
+              <select
+                aria-label="Программа аналитики"
+                onChange={(event) => setProgramFilter(event.target.value as typeof programFilter)}
+                value={programFilter}
+              >
+                <option value="all">Все программы</option>
+                <option value="oge">ОГЭ</option>
+                <option value="ege">ЕГЭ</option>
+                <option value="school">Школа</option>
+              </select>
+            </label>
+          ) : null}
         </div>
       </header>
       {activeStudentId === "all" ? (
@@ -89,6 +105,7 @@ export function TeacherAnalyticsPage() {
           coverage={coverage}
           mocks={mocks.data}
           profiles={profiles.data}
+          programFilter={programFilter}
           students={students.data}
         />
       ) : (
@@ -151,6 +168,12 @@ function TeacherAnalyticsWorkspace({
         masteryPublic={publicMastery}
         programTitle={data.programProfile?.data.title}
         taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
+        taskWeights={Object.fromEntries(
+          data.examBlueprint?.data.tasks.map((item) => [
+            item.number,
+            item.readinessWeight ?? item.maxScore,
+          ]) ?? [],
+        )}
         onCoverageChange={(taskNumber, state) =>
           data.studentProgram &&
           void saveTaskCoverage(getFirebaseDb(), {
@@ -235,6 +258,7 @@ function AllStudentsAnalytics({
   assignments,
   profiles,
   blueprints,
+  programFilter,
 }: {
   students: ReturnType<typeof useTeacherStudents>["data"];
   mocks: ReturnType<typeof useTeacherMockExams>["data"];
@@ -243,8 +267,16 @@ function AllStudentsAnalytics({
   assignments: ReturnType<typeof useTeacherStudentPrograms>["data"];
   profiles: ReturnType<typeof useProgramProfiles>["data"];
   blueprints: ReturnType<typeof useExamBlueprints>["data"];
+  programFilter: "all" | "oge" | "ege" | "school";
 }) {
-  const summaries = students.map((student) => {
+  const visibleStudents = students.filter((student) => {
+    if (programFilter === "all") return true;
+    const assignment = assignments.find(({ data }) => data.studentId === student.id && data.status === "active");
+    const profile = profiles.find(({ id }) => id === assignment?.data.programProfileId)?.data;
+    return (profile?.examKind ?? profile?.type) === programFilter;
+  });
+  const visibleStudentIds = new Set(visibleStudents.map(({ id }) => id));
+  const summaries = visibleStudents.map((student) => {
     const exams = mocks
       .filter(({ data }) => data.studentId === student.id)
       .sort(
@@ -261,7 +293,7 @@ function AllStudentsAnalytics({
       data.studentId === student.id && data.status === "active",
     );
     const profile = profiles.find(({ id }) => id === assignment?.data.programProfileId);
-    const blueprint = blueprints.find(({ id }) => id === profile?.data.examBlueprintId);
+    const blueprint = blueprints.find(({ id }) => id === (profile ? programBlueprintId(profile.data) : null));
     const evidenceTaskCount = new Set([
       ...coverage.filter(({ data }) => data.studentId === student.id).map(({ data }) => data.taskNumber),
       ...(latest?.data.taskResults.map((item) => item.taskNumber) ?? []),
@@ -278,10 +310,9 @@ function AllStudentsAnalytics({
         ? Math.round((latest.data.total.earned / latest.data.total.max) * 100)
         : 0,
       coverage: totalTasks ? Math.round((studied / totalTasks) * 100) : 0,
-      programTitle: profile?.data.title ?? "Программа не назначена",
+      programTitle: profile ? programDisplayName(profile.data) : "Программа не назначена",
     };
   });
-  const analytics = calculateMockAnalytics(mocks);
   const average = (values: number[]) =>
     values.length
       ? Math.round(
@@ -291,8 +322,8 @@ function AllStudentsAnalytics({
   return (
     <>
       <HomeworkAnalyticsPanel
-        homeworks={board.homeworks}
-        submissions={board.submissions}
+        homeworks={board.homeworks.filter(({ data }) => visibleStudentIds.has(data.studentId))}
+        submissions={board.submissions.filter(({ data }) => visibleStudentIds.has(data.studentId))}
         teacherControls
       />
       <section className="analytics-panel">
@@ -308,8 +339,8 @@ function AllStudentsAnalytics({
             <strong>{average(summaries.map((item) => item.coverage))}%</strong>
           </article>
           <article className="metric-card">
-            <span>Слабые задания</span>
-            <strong>{analytics.weakTasks.length}</strong>
+            <span>Ученики с зоной роста</span>
+            <strong>{summaries.filter((item) => item.readiness < 45).length}</strong>
           </article>
         </div>
         <div className="analytics-student-table">

@@ -22,6 +22,7 @@ const typeLabels: Record<Homework["type"], string> = {
   interactive: "Интерактив",
   essay: "Сочинение",
   exposition: "Изложение",
+  exam_written_work: "Письменная работа по критериям экзамена",
   writtenOther: "Другая письменная работа",
   other: "Задание",
 };

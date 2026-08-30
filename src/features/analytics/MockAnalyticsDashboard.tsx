@@ -14,6 +14,7 @@ export function MockAnalyticsDashboard({
   masteryPublic = [],
   coverage = [],
   taskNumbers,
+  taskWeights,
   programTitle,
   onEditMastery,
   onCoverageChange,
@@ -23,6 +24,7 @@ export function MockAnalyticsDashboard({
   masteryPublic?: Array<DocumentWithId<StudentTaskMasteryPublic>>;
   coverage?: Array<DocumentWithId<StudentTaskCoverage>>;
   taskNumbers?: number[];
+  taskWeights?: Record<number, number>;
   programTitle?: string;
   onEditMastery?(
     taskNumber: number,
@@ -51,6 +53,7 @@ export function MockAnalyticsDashboard({
     strongThreshold: 75,
     totalExamTasks: tasks.length,
     readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
+    taskWeights,
   });
   const studied = tasks.filter(
     (number) =>
@@ -65,18 +68,20 @@ export function MockAnalyticsDashboard({
   const coveragePercent = tasks.length
     ? Math.round((studied / tasks.length) * 100)
     : 0;
-  const masteryAverage = tasks.length
+  const weightFor = (taskNumber: number) => taskWeights?.[taskNumber] ?? 1;
+  const totalTaskWeight = tasks.reduce((sum, number) => sum + weightFor(number), 0);
+  const masteryAverage = totalTaskWeight
     ? Math.round(
         tasks.reduce((sum, number) => {
           const automatic =
             analytics.masteryByTask.find((item) => item.taskNumber === number)
               ?.mastery ?? 0;
           return (
-            sum +
+            sum + weightFor(number) *
             (masteryPublic.find(({ data }) => data.taskNumber === number)?.data
               .effectiveMastery ?? automatic)
           );
-        }, 0) / tasks.length,
+        }, 0) / totalTaskWeight,
       )
     : 0;
   const effectiveReadiness = latest
@@ -110,7 +115,11 @@ export function MockAnalyticsDashboard({
               : "—"}
           </strong>
           <small>
-            {latest ? `Оценка ${latest.data.grade}` : "Пробников пока нет"}
+            {latest
+              ? latest.data.grade
+                ? `Оценка ${latest.data.grade}`
+                : "Первичный балл"
+              : "Пробников пока нет"}
           </small>
         </article>
       </section>
@@ -260,14 +269,16 @@ export function MockExamReport({
   exam: MockExam;
   audience: "teacher" | "student";
 }) {
-  const sections = [
-    ["Тестовая часть", exam.sections.test],
-    ["Изложение", exam.sections.exposition],
-    ["Сочинение", exam.sections.essay],
-    ["Грамотность", exam.sections.literacy],
-    ["ФК", exam.sections.factualAccuracy],
-  ] as const;
-  const criteria = [
+  const sections: Array<readonly [string, { earned: number; max: number }]> = exam.sectionResults
+    ? Object.entries(exam.sectionResults)
+    : [
+        ["Тестовая часть", exam.sections.test],
+        ["Изложение", exam.sections.exposition],
+        ["Сочинение", exam.sections.essay],
+        ["Грамотность", exam.sections.literacy],
+        ["ФК", exam.sections.factualAccuracy],
+      ];
+  const criteria = exam.criteriaResults ?? [
     ...exam.sections.exposition.criteria,
     ...exam.sections.essay.criteria,
     ...exam.sections.literacy.criteria,
@@ -292,7 +303,7 @@ export function MockExamReport({
           <strong>
             {exam.total.earned}/{exam.total.max}
           </strong>
-          <span>Оценка {exam.grade}</span>
+          <span>{exam.grade ? `Оценка ${exam.grade}` : "Первичный балл"}</span>
         </div>
       </div>
       <div className="report-section-grid">
@@ -322,7 +333,7 @@ export function MockExamReport({
         </div>
       ) : null}
       <div className="criteria-report">
-        {[...criteria, factual].map((criterion) => (
+        {[...criteria, ...(exam.criteriaResults || factual.max === 0 ? [] : [factual])].map((criterion) => (
           <span
             className={criterionClass(criterion)}
             key={`${criterion.code}-${criterion.max}`}

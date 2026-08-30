@@ -9,6 +9,7 @@ export interface AnalyticsConfig {
     latestMock: number;
     studiedMastery: number;
   };
+  taskWeights?: Record<number, number>;
 }
 
 export const defaultAnalyticsConfig: AnalyticsConfig = {
@@ -86,10 +87,17 @@ export function calculateMockAnalytics(
       };
     })
     .sort((left, right) => left.taskNumber - right.taskNumber);
-  const studiedMastery = masteryByTask.length
+  const masteryWeight = (taskNumber: number) => config.taskWeights?.[taskNumber] ?? 1;
+  const masteryWeightTotal = masteryByTask.reduce(
+    (total, task) => total + masteryWeight(task.taskNumber),
+    0,
+  );
+  const studiedMastery = masteryWeightTotal
     ? Math.round(
-        masteryByTask.reduce((total, task) => total + task.mastery, 0) /
-          masteryByTask.length,
+        masteryByTask.reduce(
+          (total, task) => total + task.mastery * masteryWeight(task.taskNumber),
+          0,
+        ) / masteryWeightTotal,
       )
     : 0;
 
@@ -116,21 +124,29 @@ export function calculateMockAnalytics(
   const totalExamTasks = config.totalExamTasks || new Set(
     exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
   ).size || 1;
-  const studiedCoverage = Math.min(1, masteryByTask.length / totalExamTasks);
+  const allTaskWeight = config.taskWeights
+    ? Object.values(config.taskWeights).reduce((sum, value) => sum + value, 0)
+    : totalExamTasks;
+  const studiedCoverage = Math.min(
+    1,
+    masteryWeightTotal / Math.max(1, allTaskWeight),
+  );
   const examReadiness = Math.round(
     latestPercent * config.readinessWeights.latestMock +
       studiedMastery * studiedCoverage * config.readinessWeights.studiedMastery,
   );
 
   const latest = chronological.at(-1)?.data;
-  const sectionEntries = latest
-    ? [
-        ["Тестовая часть", latest.sections.test],
-        ["Изложение", latest.sections.exposition],
-        ["Сочинение", latest.sections.essay],
-        ["Грамотность", latest.sections.literacy],
-        ["Фактическая точность", latest.sections.factualAccuracy],
-      ] as const
+  const sectionEntries: Array<readonly [string, { earned: number; max: number }]> = latest
+    ? latest.sectionResults
+      ? Object.entries(latest.sectionResults)
+      : [
+          ["Тестовая часть", latest.sections.test],
+          ["Изложение", latest.sections.exposition],
+          ["Сочинение", latest.sections.essay],
+          ["Грамотность", latest.sections.literacy],
+          ["Фактическая точность", latest.sections.factualAccuracy],
+        ]
     : [];
   const strongestSections = sectionEntries
     .filter(([, score]) => percent(score.earned, score.max) >= config.strongThreshold)
@@ -174,11 +190,15 @@ export function gradeForBlueprint(
   earned: number,
   gkScore: number,
   blueprint: Pick<ExamBlueprint, "gradeRules" | "gradeThresholds">,
-): { grade: number; explanation: string | null } {
+): { grade: number | null; explanation: string | null } {
   const rule = blueprint.gradeRules
     ?.filter((candidate) => earned >= candidate.minScore && earned <= candidate.maxScore)
     .sort((left, right) => right.grade - left.grade)[0];
-  if (!rule) return { grade: gradeForScore(earned, blueprint.gradeThresholds), explanation: null };
+  if (!rule) {
+    if (!Object.keys(blueprint.gradeThresholds).length)
+      return { grade: null, explanation: "Официальная шкала перевода пока не опубликована." };
+    return { grade: gradeForScore(earned, blueprint.gradeThresholds), explanation: null };
+  }
   if (rule.minGkScore !== undefined && gkScore < rule.minGkScore) {
     return {
       grade: rule.fallbackGrade ?? Math.max(2, rule.grade - 1),

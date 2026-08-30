@@ -6,6 +6,11 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { gradeForBlueprint } from "../../../features/analytics/mockAnalytics.js";
+import {
+  blueprintPrimaryMax,
+  criteriaScore,
+  writingConfigForTask,
+} from "../../../features/exams/blueprints.js";
 import type {
   EvaluationCriterion,
   ExamBlueprint,
@@ -29,6 +34,7 @@ export interface DetailedMockExamInput {
   teacherComment: string | null;
   taskObservations?: Array<{ taskNumber: number; observation: string }>;
   publicRecommendations?: string[];
+  criteriaResults?: EvaluationCriterion[];
 }
 
 function validateScore(earned: number, maximum: number, label: string) {
@@ -61,13 +67,115 @@ function sumCriteria(criteria: EvaluationCriterion[]) {
 export function calculateDetailedMockExam(
   input: DetailedMockExamInput,
   blueprint: ExamBlueprint,
-): Pick<MockExam, "taskResults" | "sections" | "total" | "grade"> {
+): Pick<
+  MockExam,
+  | "taskResults"
+  | "criteriaResults"
+  | "sectionResults"
+  | "sections"
+  | "total"
+  | "grade"
+  | "secondaryScore"
+> {
   const taskNumbers = new Set<number>();
   for (const result of input.taskResults) {
     validateScore(result.earned, result.max, `task ${result.taskNumber}`);
     if (taskNumbers.has(result.taskNumber)) throw new Error("Duplicate exam task");
     taskNumbers.add(result.taskNumber);
   }
+  if (input.criteriaResults) {
+    const blueprintTasks = new Map(blueprint.tasks.map((task) => [task.number, task]));
+    const directTasks = blueprint.tasks.filter(
+      (task) => !writingConfigForTask(blueprint, task.number),
+    );
+    const expectedDirect = new Set(directTasks.map((task) => task.number));
+    for (const result of input.taskResults) {
+      const task = blueprintTasks.get(result.taskNumber);
+      if (!task || !expectedDirect.has(result.taskNumber) || result.max !== task.maxScore)
+        throw new Error(`Task ${result.taskNumber} does not match blueprint`);
+    }
+    if (input.taskResults.length !== directTasks.length)
+      throw new Error("Mock exam task set does not match blueprint");
+
+    const allowedCriteria = new Map<string, number>();
+    for (const task of blueprint.tasks) {
+      for (const criterion of writingConfigForTask(blueprint, task.number)?.criteria ?? [])
+        allowedCriteria.set(criterion.code, criterion.max);
+    }
+    for (const criterion of blueprint.crossTaskCriteria ?? [])
+      allowedCriteria.set(criterion.code, criterion.max);
+    const seen = new Set<string>();
+    for (const criterion of input.criteriaResults) {
+      validateScore(criterion.earned, criterion.max, criterion.code);
+      if (seen.has(criterion.code) || allowedCriteria.get(criterion.code) !== criterion.max)
+        throw new Error(`Criterion ${criterion.code} does not match blueprint`);
+      if (criterion.errorsCount !== null && criterion.errorsCount < 0)
+        throw new Error(`Invalid error count for ${criterion.code}`);
+      seen.add(criterion.code);
+    }
+    if (seen.size !== allowedCriteria.size)
+      throw new Error("Mock exam criteria set does not match blueprint");
+
+    const sectionResults: Record<string, { earned: number; max: number }> = {};
+    for (const section of blueprint.sections)
+      sectionResults[section.code] = { earned: 0, max: 0 };
+    for (const result of input.taskResults) {
+      const sectionCode = blueprintTasks.get(result.taskNumber)!.sectionCode;
+      const score = sectionResults[sectionCode] ?? { earned: 0, max: 0 };
+      sectionResults[sectionCode] = {
+        earned: score.earned + result.earned,
+        max: score.max + result.max,
+      };
+    }
+    const writingByTask = blueprint.writingCriteria?.byTask ?? [];
+    for (const writing of writingByTask) {
+      const sectionCode = blueprintTasks.get(writing.taskNumber)?.sectionCode ?? "writing";
+      const codes = new Set(writing.criteria.map((criterion) => criterion.code));
+      const score = criteriaScore(input.criteriaResults.filter((item) => codes.has(item.code)));
+      sectionResults[sectionCode] = score;
+    }
+    const crossCodes = new Set((blueprint.crossTaskCriteria ?? []).map((criterion) => criterion.code));
+    if (crossCodes.size)
+      sectionResults.cross = criteriaScore(input.criteriaResults.filter((item) => crossCodes.has(item.code)));
+    const total = Object.values(sectionResults).reduce(
+      (score, section) => ({ earned: score.earned + section.earned, max: score.max + section.max }),
+      { earned: 0, max: 0 },
+    );
+    if (total.max !== blueprintPrimaryMax(blueprint))
+      throw new Error(`Detailed mock maximum ${total.max} does not match blueprint ${blueprintPrimaryMax(blueprint)}`);
+    const expositionCodes = new Set(writingConfigForTask(blueprint, 1)?.criteria.map((item) => item.code) ?? []);
+    const essayTask = writingByTask.find((item) => item.taskNumber !== 1) ?? writingByTask[0];
+    const essayCodes = new Set(essayTask?.criteria.map((item) => item.code) ?? []);
+    const literacyCodes = new Set((blueprint.crossTaskCriteria ?? []).filter((item) => item.code.startsWith("ГК")).map((item) => item.code));
+    const factualCriterion = input.criteriaResults.find((item) => item.code.startsWith("ФК"));
+    const expositionCriteria = input.criteriaResults.filter((item) => expositionCodes.has(item.code));
+    const essayCriteria = input.criteriaResults.filter((item) => essayCodes.has(item.code));
+    const literacyCriteria = input.criteriaResults.filter((item) => literacyCodes.has(item.code)).map((item) => ({ ...item, category: item.code }));
+    const test = input.taskResults.reduce((score, result) => ({ earned: score.earned + result.earned, max: score.max + result.max }), { earned: 0, max: 0 });
+    const grade = gradeForBlueprint(
+      total.earned,
+      literacyCriteria.reduce((sum, item) => sum + item.earned, 0),
+      blueprint,
+    ).grade;
+    return {
+      taskResults: input.taskResults,
+      criteriaResults: input.criteriaResults,
+      sectionResults,
+      secondaryScore: null,
+      sections: {
+        test,
+        exposition: { ...criteriaScore(expositionCriteria), criteria: expositionCriteria },
+        essay: { ...criteriaScore(essayCriteria), criteria: essayCriteria, comment: input.essayComment?.trim() || null },
+        literacy: { ...criteriaScore(literacyCriteria), criteria: literacyCriteria },
+        factualAccuracy: factualCriterion
+          ? { earned: factualCriterion.earned, max: factualCriterion.max, errorsCount: factualCriterion.errorsCount }
+          : { earned: 0, max: 0, errorsCount: null },
+      },
+      total,
+      grade,
+    };
+  }
+
   const test = input.taskResults.reduce(
     (score, result) => ({
       earned: score.earned + result.earned,

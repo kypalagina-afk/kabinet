@@ -26,6 +26,11 @@ import type {
 } from "../../lib/firebase/types";
 import { useAuth } from "../auth/AuthProvider";
 import { isDemoProfile } from "../demo/demoMode";
+import {
+  programBlueprintId,
+  reviewCriteriaForTask,
+  writingConfigForTask,
+} from "../exams/blueprints";
 
 interface Props {
   teacherId: string;
@@ -39,6 +44,7 @@ const labels: Record<HomeworkItem["type"], string> = {
   interactive: "Интерактив",
   essay: "Сочинение",
   exposition: "Изложение",
+  exam_written_work: "Письменная работа по критериям экзамена",
   writtenOther: "Другая письменная работа",
   other: "Другое",
 };
@@ -70,13 +76,10 @@ function criteriaForItem(
   blueprint: ExamBlueprint | null,
 ): Homework["reviewCriteria"] {
   const config = blueprint?.writingCriteria;
-  if (!config || (item.type !== "essay" && item.type !== "exposition"))
+  const taskNumber = item.examTaskNumbers[0];
+  if (!config || !taskNumber)
     return null;
-  return {
-    content: item.type === "essay" ? config.essay : config.exposition,
-    literacy: config.literacy,
-    factual: config.factual,
-  };
+  return reviewCriteriaForTask(blueprint, taskNumber);
 }
 
 export function CreateHomeworkForm(props: Props) {
@@ -112,11 +115,13 @@ export function CreateHomeworkForm(props: Props) {
     Boolean(localStorage.getItem(draftKey)),
   );
   const [blueprint, setBlueprint] = useState<ExamBlueprint | null>(null);
+  const [blueprintId, setBlueprintId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<
     Array<DocumentWithId<HomeworkTemplate>>
   >([]);
   const [templateId, setTemplateId] = useState("");
   const [templateSaving, setTemplateSaving] = useState(false);
+  const [taskQuery, setTaskQuery] = useState("");
   const materials = useTeacherMaterials(props.teacherId);
   useEffect(
     () =>
@@ -142,17 +147,19 @@ export function CreateHomeworkForm(props: Props) {
       );
       if (
         !profile.exists() ||
-        !(profile.data() as ProgramProfile).examBlueprintId
+        !programBlueprintId(profile.data() as ProgramProfile)
       )
         return;
+      const activeBlueprintId = programBlueprintId(profile.data() as ProgramProfile)!;
       const result = await getDoc(
         doc(
           getFirebaseDb(),
           "examBlueprints",
-          (profile.data() as ProgramProfile).examBlueprintId!,
+          activeBlueprintId,
         ),
       );
       setBlueprint(result.exists() ? (result.data() as ExamBlueprint) : null);
+      setBlueprintId(result.exists() ? activeBlueprintId : null);
     })();
   }, [props.studentProgramId]);
   useEffect(() => {
@@ -185,21 +192,14 @@ export function CreateHomeworkForm(props: Props) {
   ]);
   const taskNumbers = useMemo(
     () =>
-      blueprint?.tasks.map((task) => task.number) ??
-      Array.from({ length: 13 }, (_, index) => index + 1),
+      blueprint?.tasks.map((task) => task.number) ?? [],
     [blueprint],
   );
   const reviewCriteria = useMemo<Homework["reviewCriteria"]>(() => {
-    const structured = items.find(
-      (item) => item.type === "essay" || item.type === "exposition",
+    const structured = items.find((item) =>
+      item.examTaskNumbers.some((task) => blueprint && writingConfigForTask(blueprint, task)),
     );
-    const config = blueprint?.writingCriteria;
-    if (!structured || !config) return null;
-    return {
-      content: structured.type === "essay" ? config.essay : config.exposition,
-      literacy: config.literacy,
-      factual: config.factual,
-    };
+    return structured && blueprint ? criteriaForItem(structured, blueprint) : null;
   }, [blueprint, items]);
   function restore() {
     const raw = localStorage.getItem(draftKey);
@@ -228,10 +228,17 @@ export function CreateHomeworkForm(props: Props) {
     );
   }
   function toggleTask(item: HomeworkItem, task: number) {
+    const writing = blueprint ? writingConfigForTask(blueprint, task) : null;
     patchItem(item.itemId, {
       examTaskNumbers: item.examTaskNumbers.includes(task)
         ? item.examTaskNumbers.filter((value) => value !== task)
         : [...item.examTaskNumbers, task].sort((a, b) => a - b),
+      ...(writing
+        ? {
+            type: "exam_written_work" as const,
+            title: item.title || writing.title,
+          }
+        : {}),
     });
   }
   function removeAttachment(attachment: Attachment, itemId?: string) {
@@ -324,6 +331,16 @@ export function CreateHomeworkForm(props: Props) {
         title: item.title.trim() || title.trim(),
         sortOrder,
         reviewCriteria: criteriaForItem(item, blueprint),
+        examBlueprintId: blueprintId,
+        criteriaVersion: item.examTaskNumbers[0] && blueprint
+          ? writingConfigForTask(blueprint, item.examTaskNumbers[0])?.criteriaVersion ?? null
+          : null,
+        minimumWordCountSnapshot: item.examTaskNumbers[0] && blueprint
+          ? writingConfigForTask(blueprint, item.examTaskNumbers[0])?.minWords ?? null
+          : null,
+        maxScoreSnapshot: item.examTaskNumbers[0] && blueprint
+          ? blueprint.tasks.find((task) => task.number === item.examTaskNumbers[0])?.maxScore ?? null
+          : null,
       }));
       const finalTitle = smartTitle(title, cleanItems);
       const id = await createHomework(getFirebaseDb(), {
@@ -339,6 +356,10 @@ export function CreateHomeworkForm(props: Props) {
         items: cleanItems,
         attachments,
         reviewCriteria,
+        examBlueprintId: blueprintId,
+        criteriaVersion: cleanItems.find((item) => item.criteriaVersion)?.criteriaVersion ?? null,
+        maxScoreSnapshot: cleanItems.reduce((sum, item) => sum + (item.maxScoreSnapshot ?? 0), 0) || null,
+        minimumWordCountSnapshot: cleanItems.find((item) => item.minimumWordCountSnapshot)?.minimumWordCountSnapshot ?? null,
       });
       localStorage.removeItem(draftKey);
       setCreatedId(id);
@@ -554,6 +575,10 @@ export function CreateHomeworkForm(props: Props) {
             ) : null}
             <fieldset className="task-chip-selector homework-item-tasks">
               <legend>Задания экзамена</legend>
+              <label className="form-field task-selector-search">
+                <span>Найти задание</span>
+                <input onChange={(event) => setTaskQuery(event.target.value)} placeholder="Номер или раздел" type="search" value={taskQuery} />
+              </label>
               <button
                 aria-pressed={!item.examTaskNumbers.length}
                 className="task-chip task-chip--general"
@@ -562,8 +587,15 @@ export function CreateHomeworkForm(props: Props) {
               >
                 Без номера
               </button>
-              {taskNumbers.map((task) => (
-                <button
+              {(blueprint?.sections ?? [{ code: "all", title: "Задания", maxScore: 0 }]).map((section) => {
+                const visibleTasks = taskNumbers.filter((taskNumber) => {
+                  const task = blueprint?.tasks.find((item) => item.number === taskNumber);
+                  if (blueprint && task?.sectionCode !== section.code) return false;
+                  const haystack = `${taskNumber} ${task?.title ?? ""} ${section.title}`.toLocaleLowerCase("ru");
+                  return !taskQuery.trim() || haystack.includes(taskQuery.trim().toLocaleLowerCase("ru"));
+                });
+                if (!visibleTasks.length) return null;
+                return <div className="task-selector-group" key={section.code}><strong>{section.title}</strong><div>{visibleTasks.map((task) => <button
                   aria-pressed={item.examTaskNumbers.includes(task)}
                   className="task-chip"
                   key={task}
@@ -571,9 +603,23 @@ export function CreateHomeworkForm(props: Props) {
                   type="button"
                 >
                   №{task}
-                </button>
-              ))}
+                </button>)}</div></div>;
+              })}
             </fieldset>
+            {blueprint?.tasks.find((task) => task.number === 13)?.variants?.length && item.examTaskNumbers.includes(13) ? (
+              <label className="form-field">
+                <span>Вариант сочинения</span>
+                <select
+                  onChange={(event) => patchItem(item.itemId, { writingVariant: event.target.value || null })}
+                  value={item.writingVariant ?? ""}
+                >
+                  <option value="">Выберите вариант</option>
+                  {blueprint.tasks.find((task) => task.number === 13)?.variants?.map((variant) => (
+                    <option key={variant} value={variant}>{variant}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <details className="homework-item-resources">
               <summary>Файлы и материалы</summary>
               <label className="file-drop file-drop--compact">

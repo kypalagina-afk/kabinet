@@ -6,6 +6,7 @@ import { Avatar } from "../features/avatar/Avatar";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
 import { DEMO_MUTATION_NOTICE, isDemoProfile } from "../features/demo/demoMode";
+import { blueprintExamKind } from "../features/exams/blueprints";
 
 const links = [
   ["/student", "Главная", "🏠", true],
@@ -26,6 +27,9 @@ export function StudentShell() {
   const days = examDate
     ? Math.max(0, Math.ceil((examDate.getTime() - today) / 86_400_000))
     : null;
+  const examLabel = workspace.data.examBlueprint
+    ? blueprintExamKind(workspace.data.examBlueprint.data).toUpperCase()
+    : "экзамена";
   function toggle() {
     setCollapsed((value) => {
       localStorage.setItem("student-sidebar-collapsed", String(!value));
@@ -81,7 +85,7 @@ export function StudentShell() {
         <nav aria-label="Навигация ученика">{navigation}</nav>
         {days !== null ? (
           <div className="sidebar-countdown">
-            <span className="student-nav-label">До ОГЭ</span>
+            <span className="student-nav-label">До {examLabel}</span>
             <strong>{days}</strong>
             <small className="student-nav-label">дней</small>
           </div>

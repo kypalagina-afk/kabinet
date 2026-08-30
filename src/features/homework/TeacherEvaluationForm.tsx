@@ -28,7 +28,7 @@ export function TeacherEvaluationForm({
 }) {
   const structured = (homework.items ?? []).filter(
     (item) =>
-      (item.type === "essay" || item.type === "exposition") &&
+      (item.type === "essay" || item.type === "exposition" || item.type === "exam_written_work") &&
       (item.reviewCriteria || homework.reviewCriteria),
   );
   if (structured.length)
@@ -108,6 +108,8 @@ function ItemEvaluationForm({
         config={(item.reviewCriteria ?? null) as ReviewConfig | null}
         existing={existing}
         itemId={item.itemId}
+        minimumWords={item.minimumWordCountSnapshot ?? null}
+        responseText={submission.studentInput.itemProgress?.find((progress) => progress.itemId === item.itemId)?.responseText ?? null}
         onEvaluate={(decision, scoreEarned, scoreMax, criteria, comment) =>
           evaluateHomeworkItem(getFirebaseDb(), {
             homeworkId,
@@ -175,6 +177,8 @@ function EvaluationEditor({
   existing,
   itemId,
   fallbackMax,
+  minimumWords,
+  responseText,
   onEvaluate,
 }: {
   config: ReviewConfig | null;
@@ -186,6 +190,8 @@ function EvaluationEditor({
   };
   itemId?: string;
   fallbackMax?: number | null;
+  minimumWords?: number | null;
+  responseText?: string | null;
   onEvaluate(
     decision: "checked" | "needs_revision",
     scoreEarned: number | null,
@@ -204,7 +210,10 @@ function EvaluationEditor({
                 existing?.criteria.find((value) => value.code === item.code)
                   ?.earned ?? 0,
               max: item.max,
-              errorsCount: null,
+              errorsCount: item.supportsErrorCount
+                ? existing?.criteria.find((value) => value.code === item.code)
+                    ?.errorsCount ?? 0
+                : null,
             })),
             ...config.literacy.map((item) => ({
               code: item.code,
@@ -242,11 +251,18 @@ function EvaluationEditor({
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
+  const wordCount = responseText?.trim()
+    ? responseText.trim().split(/\s+/u).filter(Boolean).length
+    : 0;
+  const belowMinimum = Boolean(minimumWords && wordCount < minimumWords);
+  const effectiveCriteria = belowMinimum
+    ? criteria.map((criterion) => ({ ...criterion, earned: 0 }))
+    : criteria;
   const calculatedMax = config
     ? initialCriteria.reduce((sum, item) => sum + item.max, 0)
     : (existing?.scoreMax ?? fallbackMax ?? null);
   const calculatedEarned = config
-    ? criteria.reduce((sum, item) => sum + item.earned, 0)
+    ? effectiveCriteria.reduce((sum, item) => sum + item.earned, 0)
     : earned === ""
       ? null
       : Number(earned);
@@ -265,7 +281,7 @@ function EvaluationEditor({
         decision,
         calculatedEarned,
         calculatedMax,
-        criteria,
+        effectiveCriteria,
         comment || null,
       );
       setState("success");
@@ -284,11 +300,18 @@ function EvaluationEditor({
     >
       {config ? (
         <>
+          {minimumWords ? (
+            <p className={belowMinimum ? "form-error" : "form-success"} role="status">
+              Объём: {wordCount} слов · минимум {minimumWords}.
+              {belowMinimum ? " По правилу blueprint итог по критериям будет 0." : " Полная проверка доступна."}
+            </p>
+          ) : null}
           <section className="criteria-editor">
             <h4>Критерии содержания</h4>
             {config.content.map((item) => (
               <CriterionInput
                 criterion={criteria.find((value) => value.code === item.code)!}
+                errorLabel={item.supportsErrorCount ? item.errorLabel ?? "Ошибок" : undefined}
                 key={item.code}
                 label={item.title}
                 onChange={patchCriterion}

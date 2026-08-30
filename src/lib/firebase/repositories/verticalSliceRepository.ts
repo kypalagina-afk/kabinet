@@ -24,6 +24,7 @@ import type {
   StudentProgram,
   UserProfile,
 } from "../types.js";
+import { programBlueprintId } from "../../../features/exams/blueprints.js";
 
 export interface StudentWorkspaceSnapshot {
   student: DocumentWithId<Student> | null;
@@ -173,7 +174,7 @@ function subscribeWorkspace(
         emit({ programProfile: profile, examBlueprint: null });
         stopExamBlueprint?.();
         stopExamBlueprint = null;
-        const blueprintId = profile?.data.examBlueprintId;
+        const blueprintId = profile ? programBlueprintId(profile.data) : null;
         if (blueprintId) {
           stopExamBlueprint = onSnapshot(
             doc(db, "examBlueprints", blueprintId),

@@ -1,7 +1,8 @@
 import type { Timestamp } from "firebase/firestore";
 
 export type UserRole = "teacher" | "student";
-export type ProgramType = "oge" | "ege" | "school";
+export type ProgramType = "exam" | "oge" | "ege" | "school";
+export type ExamKind = "oge" | "ege";
 export type DocumentStatus = "draft" | "active" | "archived";
 
 export interface VersionedDocument {
@@ -57,20 +58,33 @@ export interface Student extends AuditedDocument {
 
 export interface ProgramProfile extends AuditedDocument {
   type: ProgramType;
+  examKind?: ExamKind | null;
   subject: "russian";
   targetYear: number | null;
   title: string;
+  displayName?: string;
   examDate: Timestamp | null;
   status: DocumentStatus;
   examBlueprintId: string | null;
+  currentBlueprintId?: string | null;
 }
 
 export interface ExamBlueprint extends AuditedDocument {
-  programType: "oge" | "ege";
+  programType: ExamKind;
+  examKind?: ExamKind;
   subject: "russian";
   year: number;
+  versionYear?: number;
   version: string;
+  revision?: string;
   status: DocumentStatus;
+  sourceStatus?: "historical" | "project" | "approved";
+  sourceLabel?: string;
+  sourceUrls?: string[];
+  publishedAt?: Timestamp | null;
+  taskCount?: number;
+  primaryMaxScore?: number;
+  durationMinutes?: number;
   maxScore: number;
   gradeThresholds: Record<string, number>;
   gradeRules?: Array<{
@@ -79,17 +93,26 @@ export interface ExamBlueprint extends AuditedDocument {
     maxScore: number;
     minGkScore?: number;
     fallbackGrade?: number;
-  }>;
+  }> | null;
+  secondaryScoreScale?: Array<{ primary: number; secondary: number }> | null;
+  readinessWeights?: {
+    latestMock: number;
+    studiedMastery: number;
+  };
   sections: Array<{
     code: string;
     title: string;
     maxScore: number;
+    taskNumbers?: number[];
   }>;
   tasks: Array<{
     number: number;
     title: string;
     maxScore: number;
+    readinessWeight?: number;
     sectionCode: string;
+    variants?: string[];
+    assessmentMode?: "score" | "criteria";
   }>;
   writingCriteria?: {
     essay: Array<{ code: string; title: string; max: number }>;
@@ -101,7 +124,34 @@ export interface ExamBlueprint extends AuditedDocument {
       errorLabel: string;
     }>;
     factual: { code: string; max: number; errorLabel: string } | null;
+    byTask?: Array<{
+      taskNumber: number;
+      title: string;
+      criteriaVersion: string;
+      minWords: number | null;
+      criteria: Array<{
+        code: string;
+        title: string;
+        max: number;
+        errorLabel?: string;
+        supportsErrorCount?: boolean;
+      }>;
+    }>;
   };
+  crossTaskCriteria?: Array<{
+    code: string;
+    title: string;
+    max: number;
+    errorLabel?: string;
+    supportsErrorCount?: boolean;
+  }>;
+  wordCountRules?: Array<{
+    id: string;
+    taskNumbers: number[];
+    minimumWords: number;
+    effect: "zero-writing" | "zero-cross-task";
+    label: string;
+  }>;
 }
 
 export interface StudentProgram extends AuditedDocument {
@@ -110,7 +160,7 @@ export interface StudentProgram extends AuditedDocument {
   programProfileId: string;
   status: "active" | "paused" | "completed";
   goal: {
-    type: "grade" | "score" | "custom";
+    type: "grade" | "test_score" | "primary_score" | "score" | "custom";
     targetGrade: number | null;
     targetScore: number | null;
     displayText: string;
@@ -214,6 +264,7 @@ export interface Homework extends AuditedDocument {
     | "interactive"
     | "essay"
     | "exposition"
+    | "exam_written_work"
     | "writtenOther"
     | "other";
   title: string;
@@ -231,7 +282,13 @@ export interface Homework extends AuditedDocument {
   templateId?: string | null;
   draft?: boolean;
   reviewCriteria?: {
-    content: Array<{ code: string; title: string; max: number }>;
+    content: Array<{
+      code: string;
+      title: string;
+      max: number;
+      errorLabel?: string;
+      supportsErrorCount?: boolean;
+    }>;
     literacy: Array<{
       code: string;
       title: string;
@@ -240,6 +297,10 @@ export interface Homework extends AuditedDocument {
     }>;
     factual: { code: string; max: number; errorLabel: string } | null;
   } | null;
+  examBlueprintId?: string | null;
+  criteriaVersion?: string | null;
+  maxScoreSnapshot?: number | null;
+  minimumWordCountSnapshot?: number | null;
 }
 
 export type Attachment = {
@@ -260,6 +321,7 @@ export interface HomeworkItem {
     | "interactive"
     | "essay"
     | "exposition"
+    | "exam_written_work"
     | "writtenOther"
     | "other";
   title: string;
@@ -270,6 +332,11 @@ export interface HomeworkItem {
   materialIds: string[];
   sortOrder: number;
   reviewCriteria?: Homework["reviewCriteria"];
+  examBlueprintId?: string | null;
+  criteriaVersion?: string | null;
+  maxScoreSnapshot?: number | null;
+  minimumWordCountSnapshot?: number | null;
+  writingVariant?: string | null;
 }
 
 export interface StudentInput {
@@ -333,7 +400,7 @@ export interface HomeworkSubmission extends AuditedDocument {
   reviewedOpenedAt?: Timestamp | null;
 }
 
-interface MockSectionScore {
+export interface MockSectionScore {
   earned: number;
   max: number;
 }
@@ -351,6 +418,9 @@ export interface MockExam extends AuditedDocument {
     earned: number;
     max: number;
   }>;
+  criteriaResults?: EvaluationCriterion[];
+  sectionResults?: Record<string, MockSectionScore>;
+  secondaryScore?: number | null;
   sections: {
     test: MockSectionScore;
     exposition: MockSectionScore & { criteria: EvaluationCriterion[] };
@@ -368,7 +438,7 @@ export interface MockExam extends AuditedDocument {
     factualAccuracy: MockSectionScore & { errorsCount: number | null };
   };
   total: MockSectionScore;
-  grade: number;
+  grade: number | null;
   teacherComment: string | null;
   taskObservations?: Array<{ taskNumber: number; observation: string }>;
   publicRecommendations?: string[];

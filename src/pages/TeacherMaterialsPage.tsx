@@ -31,6 +31,7 @@ import type {
   Material,
 } from "../lib/firebase/types";
 import { isDemoProfile } from "../features/demo/demoMode";
+import { programBlueprintId, programDisplayName } from "../features/exams/blueprints";
 
 const typeLabels: Record<Material["type"], string> = {
   pdf: "PDF",
@@ -79,6 +80,7 @@ export function TeacherMaterialsPage() {
   const [message, setMessage] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [taskQuery, setTaskQuery] = useState("");
   const [assignMaterial, setAssignMaterial] =
     useState<DocumentWithId<Material> | null>(null);
   const [assignFolder, setAssignFolder] = useState("");
@@ -89,12 +91,13 @@ export function TeacherMaterialsPage() {
     input.programProfileIds[0] ?? programs.data[0]?.id ?? "";
   useEffect(() => {
     const profile = programs.data.find(({ id }) => id === selectedProgramId);
-    if (!profile?.data.examBlueprintId) {
+    const activeBlueprintId = profile ? programBlueprintId(profile.data) : null;
+    if (!activeBlueprintId) {
       queueMicrotask(() => setBlueprint(null));
       return;
     }
     void getDoc(
-      doc(getFirebaseDb(), "examBlueprints", profile.data.examBlueprintId),
+      doc(getFirebaseDb(), "examBlueprints", activeBlueprintId),
     ).then((snapshot) =>
       setBlueprint(
         snapshot.exists() ? (snapshot.data() as ExamBlueprint) : null,
@@ -605,7 +608,7 @@ export function TeacherMaterialsPage() {
                 >
                   {programs.data.map(({ id, data }) => (
                     <option key={id} value={id}>
-                      {data.title}
+                      {programDisplayName(data)}
                     </option>
                   ))}
                 </select>
@@ -613,6 +616,10 @@ export function TeacherMaterialsPage() {
             </div>
             <fieldset className="task-chip-selector">
               <legend>Задания экзамена</legend>
+              <label className="form-field task-selector-search">
+                <span>Найти задание</span>
+                <input onChange={(event) => setTaskQuery(event.target.value)} placeholder="Номер или раздел" type="search" value={taskQuery} />
+              </label>
               <button
                 aria-pressed={!input.examTaskNumbers.length}
                 className="task-chip task-chip--general"
@@ -621,8 +628,10 @@ export function TeacherMaterialsPage() {
               >
                 Общий материал
               </button>
-              {(blueprint?.tasks ?? []).map((task) => (
-                <button
+              {(blueprint?.sections ?? []).map((section) => {
+                const tasks = (blueprint?.tasks ?? []).filter((task) => task.sectionCode === section.code && (!taskQuery.trim() || `${task.number} ${task.title} ${section.title}`.toLocaleLowerCase("ru").includes(taskQuery.trim().toLocaleLowerCase("ru"))));
+                if (!tasks.length) return null;
+                return <div className="task-selector-group" key={section.code}><strong>{section.title}</strong><div>{tasks.map((task) => <button
                   aria-pressed={input.examTaskNumbers.includes(task.number)}
                   className="task-chip"
                   key={task.number}
@@ -643,8 +652,8 @@ export function TeacherMaterialsPage() {
                   type="button"
                 >
                   №{task.number}
-                </button>
-              ))}
+                </button>)}</div></div>;
+              })}
             </fieldset>
             <label className="form-field">
               <span>Теги через запятую</span>

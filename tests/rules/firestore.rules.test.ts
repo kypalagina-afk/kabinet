@@ -78,6 +78,7 @@ function baseTimestamps() {
 function studentDocument(teacherId: string, displayName: string) {
   return {
     teacherId,
+    activeProgramId: teacherId === teacherAuth.uid ? "student-1-program" : "student-2-program",
     displayName,
     classGrade: 9,
     status: "active",
@@ -219,6 +220,24 @@ async function seedFixture() {
       setDoc(doc(db, "programProfiles", "program-1"), {
         title: "Тестовая программа",
         status: "active",
+        examBlueprintId: "blueprint-1",
+        currentBlueprintId: "blueprint-1",
+        ...baseTimestamps(),
+      }),
+      setDoc(doc(db, "programProfiles", "program-other"), {
+        title: "Чужая программа",
+        status: "active",
+        examBlueprintId: "blueprint-other",
+        currentBlueprintId: "blueprint-other",
+        ...baseTimestamps(),
+      }),
+      setDoc(doc(db, "examBlueprints", "blueprint-1"), {
+        examKind: "ege", sourceStatus: "project", primaryMaxScore: 50,
+        writingCriteria: { byTask: [{ taskNumber: 27, criteria: [{ code: "К1", max: 1 }] }] },
+        ...baseTimestamps(),
+      }),
+      setDoc(doc(db, "examBlueprints", "blueprint-other"), {
+        examKind: "oge", sourceStatus: "project", primaryMaxScore: 38,
         ...baseTimestamps(),
       }),
       setDoc(doc(db, "studentPrograms", "student-1-program"), {
@@ -1309,5 +1328,18 @@ describe("idempotent domain operations", () => {
       collection(demoDb, "homeworks"),
       where("teacherId", "==", teacherAuth.uid),
     )));
+  });
+
+  test("lets a student read only the active program blueprint and never change criteria", async () => {
+    await seedFixture();
+    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
+    await assertSucceeds(getDoc(doc(studentDb, "programProfiles", "program-1")));
+    await assertSucceeds(getDoc(doc(studentDb, "examBlueprints", "blueprint-1")));
+    await assertFails(getDoc(doc(studentDb, "programProfiles", "program-other")));
+    await assertFails(getDoc(doc(studentDb, "examBlueprints", "blueprint-other")));
+    await assertFails(updateDoc(doc(studentDb, "examBlueprints", "blueprint-1"), {
+      primaryMaxScore: 1,
+      updatedAt: Timestamp.now(),
+    }));
   });
 });

@@ -25,12 +25,14 @@ const labels: Record<HomeworkItem["type"], string> = {
   interactive: "Интерактив",
   essay: "Сочинение",
   exposition: "Изложение",
+  exam_written_work: "Письменная работа по критериям экзамена",
   writtenOther: "Письменная работа",
   other: "Задание",
 };
 const writtenTypes = new Set<HomeworkItem["type"]>([
   "essay",
   "exposition",
+  "exam_written_work",
   "writtenOther",
 ]);
 

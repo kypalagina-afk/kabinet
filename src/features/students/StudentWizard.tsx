@@ -7,6 +7,7 @@ import {
 } from "../../lib/firebase/services/studentProvisioning";
 import type { DocumentWithId, ProgramProfile } from "../../lib/firebase/types";
 import { russianTimezoneOptions } from "../schedule/timezoneOptions";
+import { programDisplayName } from "../exams/blueprints";
 
 export function StudentWizard({
   user,
@@ -21,17 +22,27 @@ export function StudentWizard({
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState("");
   const [password, setPassword] = useState(generateStudentPassword);
+  const [programProfileId, setProgramProfileId] = useState(
+    () => programs[0]?.id ?? "",
+  );
+  const selectedProgram = programs.find(({ id }) => id === programProfileId)?.data;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setStatus("Создаём безопасный локальный аккаунт…");
     try {
+      const goal = String(form.get("goal"));
+      const numericGoal = Number(goal.match(/\d+/)?.[0] ?? 0) || null;
+      const goalType = (selectedProgram?.examKind ?? selectedProgram?.type) === "ege" ? "test_score" : "grade";
       const result = await getStudentProvisioningService().create(user, {
         displayName: String(form.get("displayName")),
         classGrade: Number(form.get("classGrade")),
-        programProfileId: String(form.get("programProfileId")),
-        goal: String(form.get("goal")),
+        programProfileId,
+        goal,
+        goalType,
+        targetGrade: goalType === "grade" ? numericGoal : null,
+        targetScore: goalType === "test_score" ? numericGoal : null,
         timezone: String(form.get("timezone")),
         username: String(form.get("username")),
         password,
@@ -99,17 +110,26 @@ export function StudentWizard({
           >
             <label className="form-field">
               <span>Программа</span>
-              <select name="programProfileId" required>
+              <select
+                name="programProfileId"
+                onChange={(event) => setProgramProfileId(event.target.value)}
+                required
+                value={programProfileId}
+              >
                 {programs.map(({ id, data }) => (
                   <option key={id} value={id}>
-                    {data.title}
+                    {programDisplayName(data)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="form-field">
               <span>Цель</span>
-              <input name="goal" placeholder="Например, ОГЭ на 4" required />
+              <input
+                name="goal"
+                placeholder={(selectedProgram?.examKind ?? selectedProgram?.type) === "ege" ? "Например, 80+ баллов" : "Например, ОГЭ на 4"}
+                required
+              />
             </label>
             <label className="form-field">
               <span>Часовой пояс</span>

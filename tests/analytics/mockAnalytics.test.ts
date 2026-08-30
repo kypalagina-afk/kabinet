@@ -95,6 +95,23 @@ describe("mock analytics", () => {
     expect(analytics.growthSections).toContain("Грамотность");
   });
 
+  test("weights EGE mastery by blueprint task importance", () => {
+    const source = exam("ege", "2026-08-30", 1, 25);
+    source.data.taskResults = [
+      { taskNumber: 1, earned: 1, max: 1 },
+      { taskNumber: 27, earned: 0, max: 22 },
+    ];
+    const analytics = calculateMockAnalytics([source], {
+      confidenceAttempts: 3,
+      weakThreshold: 45,
+      strongThreshold: 75,
+      totalExamTasks: 2,
+      readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
+      taskWeights: { 1: 1, 27: 22 },
+    });
+    expect(analytics.studiedMastery).toBe(1);
+  });
+
   test("uses configured thresholds and fallback OGE thresholds", () => {
     expect(gradeForScore(24, {})).toBe(4);
     expect(gradeForScore(18, { 2: 0, 3: 10, 4: 18, 5: 30 })).toBe(4);

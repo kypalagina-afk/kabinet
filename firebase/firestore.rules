@@ -43,6 +43,26 @@ service cloud.firestore {
       return isStudent() && data.studentId == myStudentId();
     }
 
+    function myActiveStudentProgram() {
+      return get(/databases/$(database)/documents/studentPrograms/$(get(/databases/$(database)/documents/students/$(myStudentId())).data.activeProgramId));
+    }
+
+    function studentUsesProgramProfile(profileId) {
+      return isStudent()
+        && exists(/databases/$(database)/documents/students/$(myStudentId()))
+        && myActiveStudentProgram().data.programProfileId == profileId;
+    }
+
+    function studentUsesBlueprint(blueprintId) {
+      return isStudent()
+        && exists(/databases/$(database)/documents/students/$(myStudentId()))
+        && exists(/databases/$(database)/documents/programProfiles/$(myActiveStudentProgram().data.programProfileId))
+        && (
+          get(/databases/$(database)/documents/programProfiles/$(myActiveStudentProgram().data.programProfileId)).data.examBlueprintId == blueprintId
+          || get(/databases/$(database)/documents/programProfiles/$(myActiveStudentProgram().data.programProfileId)).data.currentBlueprintId == blueprintId
+        );
+    }
+
     function ownershipUnchanged() {
       return request.resource.data.teacherId == resource.data.teacherId
         && request.resource.data.studentId == resource.data.studentId;
@@ -140,14 +160,18 @@ service cloud.firestore {
     }
 
     match /programProfiles/{id} {
-      allow read: if signedIn();
+      allow get: if isTeacher() || studentUsesProgramProfile(id);
+      allow list: if isTeacher();
       allow create, update: if isTeacher();
       allow delete: if false;
     }
 
     match /examBlueprints/{id} {
-      allow read: if signedIn();
-      allow create, update: if isTeacher();
+      allow get: if isTeacher() || studentUsesBlueprint(id);
+      allow list: if isTeacher();
+      allow create: if isTeacher();
+      allow update: if isTeacher()
+        && (!("sourceStatus" in resource.data) || resource.data.sourceStatus != "historical");
       allow delete: if false;
     }
 

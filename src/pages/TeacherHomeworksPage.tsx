@@ -16,7 +16,7 @@ import { formatCompactDate } from "../lib/formatters";
 import { formatHomeworkDueDate } from "../features/vertical-slice/selectors";
 
 type Tab = "active" | "review" | "overdue" | "completed";
-const typeLabels: Record<Homework["type"], string> = { theory: "Теория", practice: "Практика", written: "Письменная работа", interactive: "Интерактив", essay: "Сочинение", exposition: "Изложение", writtenOther: "Другая письменная работа", other: "Задание" };
+const typeLabels: Record<Homework["type"], string> = { theory: "Теория", practice: "Практика", written: "Письменная работа", interactive: "Интерактив", essay: "Сочинение", exposition: "Изложение", exam_written_work: "Письменная работа по критериям экзамена", writtenOther: "Другая письменная работа", other: "Задание" };
 
 export function TeacherHomeworksPage() {
   const { user } = useAuth(); const { data, loading, error, hasMore, loadMore } = useTeacherHomeworkBoard(user?.uid ?? ""); const [params, setParams] = useSearchParams(); const navigate = useNavigate();

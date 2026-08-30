@@ -7,6 +7,9 @@ export interface StudentProvisioningInput {
   classGrade: number;
   programProfileId: string;
   goal: string;
+  goalType?: "grade" | "test_score" | "custom";
+  targetGrade?: number | null;
+  targetScore?: number | null;
   timezone: string;
   username: string;
   password: string;

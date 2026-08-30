@@ -35,6 +35,12 @@ export function StudentHomePage() {
     strongThreshold: 75,
     totalExamTasks: data.examBlueprint?.data.tasks.length ?? 0,
     readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
+    taskWeights: Object.fromEntries(
+      data.examBlueprint?.data.tasks.map((item) => [
+        item.number,
+        item.readinessWeight ?? item.maxScore,
+      ]) ?? [],
+    ),
   });
   const game = calculateGamificationSummary({
     ...gamification.data,

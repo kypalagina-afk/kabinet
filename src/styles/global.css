@@ -32,6 +32,28 @@
   --shadow-soft: var(--shadow-card);
 }
 
+/* Phase 12 · shared blueprint-driven exam controls */
+.blueprint-mock-form{position:relative;padding-bottom:6rem}
+.exam-score-section,.criteria-score-section{border:1px solid var(--border-color);border-radius:1rem;padding:0;background:var(--surface)}
+.exam-score-section>summary,.criteria-score-section>summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.15rem;cursor:pointer;font-weight:800}
+.criteria-score-section>summary span{display:grid;gap:.2rem}
+.criteria-score-section>summary small{font-weight:500;color:var(--color-muted)}
+.task-score-grid--compact{grid-template-columns:repeat(auto-fit,minmax(4.75rem,1fr));padding:0 1rem 1rem}
+.task-score-grid--compact .task-score-input{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.3rem}
+.task-score-grid--compact input{min-width:0;text-align:center}
+.criteria-quick-table{display:grid;gap:.55rem;padding:0 1rem 1rem}
+.criteria-quick-table .criterion-row{grid-template-columns:minmax(14rem,1fr) minmax(7rem,10rem) minmax(8rem,12rem)}
+.sticky-score-total{position:sticky;bottom:.75rem;z-index:5;display:grid;grid-template-columns:1fr auto;align-items:center;gap:.15rem 1rem;margin-top:1rem;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--accent) 45%,var(--border-color));border-radius:1rem;background:color-mix(in srgb,var(--surface) 92%,var(--accent) 8%);box-shadow:0 10px 28px rgb(31 24 74 / 16%)}
+.sticky-score-total strong{font-size:1.55rem}.sticky-score-total small{grid-column:1/-1;color:var(--color-muted)}
+.task-selector-search{display:block;flex-basis:100%;margin:.5rem 0}
+.task-selector-group{display:grid;gap:.45rem;width:100%;padding:.5rem 0}
+.task-selector-group>strong{color:var(--color-muted);font-size:.82rem}
+.task-selector-group>div{display:flex;flex-wrap:wrap;gap:.4rem}
+@media(max-width:700px){
+  .criteria-quick-table .criterion-row{grid-template-columns:1fr 7rem}.criteria-quick-table .criterion-row>label:last-of-type{grid-column:1/-1}
+  .task-score-grid--compact{grid-template-columns:repeat(4,minmax(0,1fr));padding-inline:.65rem}
+}
+
 :root[data-theme="dark"] {
   --color-bg: #12132f;
   --color-surface: #1c1d42;

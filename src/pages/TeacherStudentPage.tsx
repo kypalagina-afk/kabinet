@@ -290,7 +290,7 @@ export function TeacherStudentPage() {
               <strong>{latestMock?.data.title ?? "Пока нет пробников"}</strong>
               <p>
                 {latestMock
-                  ? `${latestMock.data.total.earned}/${latestMock.data.total.max} · оценка ${latestMock.data.grade}`
+                  ? `${latestMock.data.total.earned}/${latestMock.data.total.max}${latestMock.data.grade ? ` · оценка ${latestMock.data.grade}` : ""}`
                   : "—"}
               </p>
             </article>
@@ -346,7 +346,7 @@ export function TeacherStudentPage() {
         />
       ) : null}
       {tab === "mocks" && data.studentProgram ? (
-        data.programProfile?.data.examBlueprintId && data.examBlueprint ? (
+        data.examBlueprint ? (
           <DetailedMockExamForm
             blueprint={data.examBlueprint.data}
             blueprintId={data.examBlueprint.id}

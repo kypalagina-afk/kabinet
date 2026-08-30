@@ -72,9 +72,12 @@ export function useTeacherStudentWorkspace(teacherId: string, studentId: string)
     error: null,
   });
 
-  useEffect(
-    () =>
-      subscribeTeacherStudentWorkspace(getFirebaseDb(), teacherId, studentId, {
+  useEffect(() => {
+    if (!teacherId || !studentId) {
+      return undefined;
+    }
+
+    return subscribeTeacherStudentWorkspace(getFirebaseDb(), teacherId, studentId, {
         next: (workspace) =>
           setState({ data: workspace, loading: false, error: null }),
         error: () =>
@@ -83,11 +86,12 @@ export function useTeacherStudentWorkspace(teacherId: string, studentId: string)
             loading: false,
             error: "Не удалось загрузить данные ученика.",
           })),
-      }),
-    [studentId, teacherId],
-  );
+      });
+  }, [studentId, teacherId]);
 
-  return state;
+  return teacherId && studentId
+    ? state
+    : { data: emptyWorkspace, loading: false, error: null };
 }
 
 export function useStudentWorkspace(studentId: string) {

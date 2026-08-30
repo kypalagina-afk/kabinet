@@ -371,7 +371,11 @@ export async function evaluateHomeworkItem(
       itemEvaluation,
     ];
     const requiredItemIds = (homework.items ?? [])
-      .filter((item) => item.type === "essay" || item.type === "exposition")
+      .filter((item) =>
+        item.type === "essay" ||
+        item.type === "exposition" ||
+        item.type === "exam_written_work",
+      )
       .map((item) => item.itemId);
     const packageStatus = deriveStructuredPackageStatus(
       requiredItemIds,

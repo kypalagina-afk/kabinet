@@ -62,7 +62,7 @@ export function TeacherMockExamsPage() {
         title: "Доработать сочинение по результатам пробника",
         description: null,
         requiredAmount: null,
-        examTaskNumbers: [13],
+        examTaskNumbers: [exam.data.criteriaResults?.some((item) => item.code === "К10") ? 27 : 13],
         attachments: [],
         materialIds: [],
         sortOrder: items.length,
@@ -157,16 +157,13 @@ export function TeacherMockExamsPage() {
                   {formatCompactDate(exam.data.takenAt ?? exam.data.createdAt)}
                 </small>
                 <h2>
-                  {exam.data.total.earned}/{exam.data.total.max} · оценка{" "}
-                  {exam.data.grade}
+                  {exam.data.total.earned}/{exam.data.total.max}
+                  {exam.data.grade ? ` · оценка ${exam.data.grade}` : ""}
                 </h2>
                 <p>
-                  Тест {exam.data.sections.test.earned}/
-                  {exam.data.sections.test.max} · Изложение{" "}
-                  {exam.data.sections.exposition.earned}/
-                  {exam.data.sections.exposition.max} · Сочинение{" "}
-                  {exam.data.sections.essay.earned}/
-                  {exam.data.sections.essay.max}
+                  {exam.data.sectionResults
+                    ? Object.values(exam.data.sectionResults).map((score) => `${score.earned}/${score.max}`).join(" · ")
+                    : `Тест ${exam.data.sections.test.earned}/${exam.data.sections.test.max} · Изложение ${exam.data.sections.exposition.earned}/${exam.data.sections.exposition.max} · Сочинение ${exam.data.sections.essay.earned}/${exam.data.sections.essay.max}`}
                 </p>
               </div>
               <button
@@ -309,25 +306,20 @@ function Comparison({
   second?: DocumentWithId<MockExam>;
 }) {
   if (!first || !second) return null;
-  const scores = [
+  if (first.data.examBlueprintId !== second.data.examBlueprintId)
+    return <section className="compare-card"><h2>Сравнение недоступно</h2><p>Выбраны разные экзаменационные программы или ревизии. Сырые баллы между ними не усредняются.</p></section>;
+  const dynamicKeys = Object.keys(first.data.sectionResults ?? {}).filter((key) => second.data.sectionResults?.[key]);
+  const scores: Array<[string, number, number]> = [
     ["Итог", first.data.total.earned, second.data.total.earned],
-    ["Тест", first.data.sections.test.earned, second.data.sections.test.earned],
-    [
-      "Изложение",
-      first.data.sections.exposition.earned,
-      second.data.sections.exposition.earned,
-    ],
-    [
-      "Сочинение",
-      first.data.sections.essay.earned,
-      second.data.sections.essay.earned,
-    ],
-    [
-      "Грамотность",
-      first.data.sections.literacy.earned,
-      second.data.sections.literacy.earned,
-    ],
-  ] as const;
+    ...(dynamicKeys.length
+      ? dynamicKeys.map((key): [string, number, number] => [key, first.data.sectionResults?.[key]?.earned ?? 0, second.data.sectionResults?.[key]?.earned ?? 0])
+      : [
+          ["Тест", first.data.sections.test.earned, second.data.sections.test.earned] as [string, number, number],
+          ["Изложение", first.data.sections.exposition.earned, second.data.sections.exposition.earned] as [string, number, number],
+          ["Сочинение", first.data.sections.essay.earned, second.data.sections.essay.earned] as [string, number, number],
+          ["Грамотность", first.data.sections.literacy.earned, second.data.sections.literacy.earned] as [string, number, number],
+        ]),
+  ];
   return (
     <section className="compare-card">
       <h2>Сравнение двух пробников</h2>

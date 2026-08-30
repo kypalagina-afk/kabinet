@@ -638,6 +638,78 @@ async function resetStudentPassword(event: FunctionEvent, context: FunctionConte
   return { status: "reset" };
 }
 
+async function updateStudentCredentials(event: FunctionEvent, context: FunctionContext, studentId: string) {
+  const identity = await authenticate(event);
+  if (identity.profile.role !== "teacher") throw new HttpError(403, "Teacher role required");
+  assertDemoSafeMutation(identity.profile);
+  await rateLimit(identity.uid, "credentials_update", 20);
+  const body = jsonBody(event, context);
+  const username = String(body.username ?? "").trim().toLowerCase();
+  const password = String(body.password ?? "");
+  let email: string;
+  try {
+    email = usernameToTechnicalEmail(username, aliasDomain);
+  } catch {
+    throw new HttpError(400, "Логин может содержать только латинские буквы, цифры, точку, дефис и подчёркивание");
+  }
+  if (password && password.length < 6) throw new HttpError(400, "Пароль должен содержать не менее 6 символов");
+
+  const [student, profile, currentAuthUser] = await Promise.all([
+    db.doc(`students/${studentId}`).get(),
+    db.doc(`users/${studentId}`).get(),
+    auth.getUser(studentId).catch(() => null),
+  ]);
+  if (!student.exists || student.data()?.teacherId !== identity.uid) throw new HttpError(403, "Student ownership mismatch");
+  if (!profile.exists || profile.data()?.role !== "student") throw new HttpError(404, "Student profile is missing");
+  if (!currentAuthUser) throw new HttpError(404, "Student account is missing");
+
+  const currentUsername = String(profile.data()?.usernameNormalized ?? profile.data()?.username ?? "").toLowerCase();
+  if (username !== currentUsername) {
+    const duplicate = await db.collection("users").where("usernameNormalized", "==", username).limit(1).get();
+    if (!duplicate.empty && duplicate.docs[0]?.id !== studentId) throw new HttpError(409, "Такой логин уже занят");
+    await auth.getUserByEmail(email).then(
+      (existing) => {
+        if (existing.uid !== studentId) throw new HttpError(409, "Такой логин уже занят");
+      },
+      (error: { code?: string }) => {
+        if (error.code !== "auth/user-not-found") throw error;
+      },
+    );
+  }
+
+  const previousEmail = currentAuthUser.email;
+  try {
+    await auth.updateUser(studentId, {
+      email,
+      ...(password ? { password } : {}),
+    });
+    await profile.ref.update({
+      username,
+      usernameNormalized: username,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    if (previousEmail && previousEmail !== email) {
+      await auth.updateUser(studentId, { email: previousEmail }).catch(() => undefined);
+    }
+    if ((error as { code?: string }).code === "auth/email-already-exists") {
+      throw new HttpError(409, "Такой логин уже занят");
+    }
+    throw error;
+  }
+  await db.collection("teacherAuditEvents").add({
+    teacherId: identity.uid,
+    studentId,
+    entityType: "student",
+    entityId: studentId,
+    action: "credentials_updated",
+    summary: password ? "Логин и пароль ученика изменены" : "Логин ученика изменён",
+    createdAt: FieldValue.serverTimestamp(),
+    schemaVersion: 1,
+  });
+  return { username };
+}
+
 function addIsoDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -754,6 +826,8 @@ export async function handler(event: FunctionEvent, context: FunctionContext) {
     if (method === "GET" && (path === "/v1/ai/usage" || path === "/ai/usage")) return response(200, await aiUsage(event), origin);
     const passwordMatch = path.match(/^\/v1\/students\/([^/]+)\/password$/);
     if (method === "POST" && passwordMatch) return response(200, await resetStudentPassword(event, context, decodeURIComponent(passwordMatch[1]!)), origin);
+    const credentialsMatch = path.match(/^\/v1\/students\/([^/]+)\/credentials$/);
+    if (method === "POST" && credentialsMatch) return response(200, await updateStudentCredentials(event, context, decodeURIComponent(credentialsMatch[1]!)), origin);
     if (method === "POST" && path === "/v1/files/upload-intent") return response(200, await createUploadIntent(event, context), origin);
     const finalizeMatch = path.match(/^\/v1\/files\/([^/]+)\/finalize$/);
     if (method === "POST" && finalizeMatch) return response(200, await finalizeUpload(event, context, decodeURIComponent(finalizeMatch[1]!)), origin);

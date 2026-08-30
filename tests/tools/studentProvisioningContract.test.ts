@@ -28,5 +28,12 @@ describe("production provisioning contract", () => {
         "Another-2026!",
       ),
     ).rejects.toThrow("защищённый backend");
+    await expect(
+      productionStudentProvisioningService.updateCredentials(
+        {} as User,
+        "student-id",
+        { username: "updated.student", password: "Another-2026!" },
+      ),
+    ).rejects.toThrow("защищённый backend");
   });
 });

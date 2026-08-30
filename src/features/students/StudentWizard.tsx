@@ -1,10 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "firebase/auth";
-import {
-  generateStudentPassword,
-  getStudentProvisioningService,
-} from "../../lib/firebase/services/studentProvisioning";
+import { getStudentProvisioningService } from "../../lib/firebase/services/studentProvisioning";
 import type { DocumentWithId, ProgramProfile } from "../../lib/firebase/types";
 import { russianTimezoneOptions } from "../schedule/timezoneOptions";
 import { programDisplayName } from "../exams/blueprints";
@@ -21,7 +18,7 @@ export function StudentWizard({
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState("");
-  const [password, setPassword] = useState(generateStudentPassword);
+  const [password, setPassword] = useState("");
   const [programProfileId, setProgramProfileId] = useState(
     () => programs[0]?.id ?? "",
   );
@@ -153,23 +150,16 @@ export function StudentWizard({
               <input name="username" pattern="[a-z0-9._-]+" required />
             </label>
             <label className="form-field">
-              <span>Одноразовый пароль</span>
-              <span className="inline-control">
-                <input
-                  minLength={6}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  type="text"
-                  value={password}
-                />
-                <button
-                  className="secondary-button"
-                  onClick={() => setPassword(generateStudentPassword())}
-                  type="button"
-                >
-                  Сгенерировать
-                </button>
-              </span>
+              <span>Пароль</span>
+              <input
+                autoComplete="new-password"
+                minLength={6}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Введите пароль для ученика"
+                required
+                type="text"
+                value={password}
+              />
             </label>
             <label className="form-field">
               <span>Ссылка на конференцию · необязательно</span>

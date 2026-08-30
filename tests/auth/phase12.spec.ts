@@ -81,3 +81,17 @@ test("teacher can schedule the EGE student", async ({ page }) => {
     page.locator(".calendar-student-filter").filter({ hasText: "Ученик" }).locator("option:checked"),
   ).toHaveText("Анна · ЕГЭ");
 });
+
+test("teacher can set a student login and password manually", async ({ page }) => {
+  await login(page);
+  await page.goto("/#/teacher/students");
+  await page.getByTestId("student-card").filter({ hasText: "Анна · ЕГЭ" }).click();
+
+  await page.getByLabel("Логин").fill("anna.ege.updated");
+  await page.getByLabel(/Новый пароль/).fill("Manual-Ege-2027!");
+  await page.getByRole("button", { name: "Сохранить данные входа" }).click();
+  await expect(page.getByText("Логин и новый пароль сохранены", { exact: false })).toBeVisible();
+
+  await page.getByRole("button", { name: "Выйти" }).click();
+  await login(page, "anna.ege.updated", "Manual-Ege-2027!", "student");
+});

@@ -96,6 +96,50 @@ function localProvisioningPlugin(): Plugin {
               reply(response, 200, { status: "reset" });
               return;
             }
+            if (action === "update-credentials") {
+              const studentId = String(body.studentId ?? "");
+              const username = String(body.username ?? "").trim().toLowerCase();
+              const password = String(body.password ?? "");
+              const student = await db.doc(`students/${studentId}`).get();
+              if (
+                student.data()?.teacherId !== decoded.uid ||
+                !usernamePattern.test(username) ||
+                (password && password.length < 6)
+              ) {
+                throw new Error("Invalid credentials update request");
+              }
+              const duplicate = await db
+                .collection("users")
+                .where("usernameNormalized", "==", username)
+                .limit(1)
+                .get();
+              if (!duplicate.empty && duplicate.docs[0]?.id !== studentId) {
+                throw new Error("Такой логин уже занят");
+              }
+              await getAuth(app).updateUser(studentId, {
+                email: `${username}@${aliasDomain}`,
+                ...(password ? { password } : {}),
+              });
+              await db.doc(`users/${studentId}`).update({
+                username,
+                usernameNormalized: username,
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+              await db.collection("teacherAuditEvents").add({
+                teacherId: decoded.uid,
+                studentId,
+                entityType: "student",
+                entityId: studentId,
+                action: "credentials_updated",
+                summary: password
+                  ? "Логин и пароль ученика изменены"
+                  : "Логин ученика изменён",
+                createdAt: FieldValue.serverTimestamp(),
+                schemaVersion: 1,
+              });
+              reply(response, 200, { username });
+              return;
+            }
             const username = String(body.username ?? "")
               .trim()
               .toLowerCase();

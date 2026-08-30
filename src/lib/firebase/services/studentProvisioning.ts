@@ -23,6 +23,11 @@ export interface StudentProvisioningInput {
 export interface StudentProvisioningService {
   create(user: User, input: StudentProvisioningInput): Promise<{ studentId: string; username: string }>;
   resetPassword(user: User, studentId: string, password: string): Promise<void>;
+  updateCredentials(
+    user: User,
+    studentId: string,
+    input: { username: string; password?: string },
+  ): Promise<{ username: string }>;
 }
 
 async function request(user: User, body: Record<string, unknown>) {
@@ -40,6 +45,15 @@ export const localStudentProvisioningService: StudentProvisioningService = {
     return { studentId: result.studentId, username: result.username };
   },
   async resetPassword(user, studentId, password) { await request(user, { action: "reset-password", studentId, password }); },
+  async updateCredentials(user, studentId, input) {
+    const result = await request(user, {
+      action: "update-credentials",
+      studentId,
+      ...input,
+    });
+    if (!result.username) throw new Error("Provisioning response is incomplete");
+    return { username: result.username };
+  },
 };
 
 export const productionStudentProvisioningService: StudentProvisioningService = {
@@ -58,6 +72,17 @@ export const productionStudentProvisioningService: StudentProvisioningService = 
       user,
       body: { password },
     });
+  },
+  async updateCredentials(user, studentId, input) {
+    if (!isProductionBackendAvailable()) throw new Error("Production provisioning недоступен: защищённый backend не настроен.");
+    return backendRequest<{ username: string }>(
+      `/v1/students/${encodeURIComponent(studentId)}/credentials`,
+      {
+        method: "POST",
+        user,
+        body: input,
+      },
+    );
   },
 };
 

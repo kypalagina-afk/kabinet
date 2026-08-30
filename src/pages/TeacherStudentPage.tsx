@@ -21,10 +21,7 @@ import {
   selectNearestLesson,
 } from "../features/vertical-slice/selectors";
 import { getFirebaseDb, isProductionBackendAvailable, isUsingFirebaseEmulators } from "../lib/firebase/client";
-import {
-  generateStudentPassword,
-  getStudentProvisioningService,
-} from "../lib/firebase/services/studentProvisioning";
+import { getStudentProvisioningService } from "../lib/firebase/services/studentProvisioning";
 import {
   setStudentArchived,
   updateStudentConferenceLinks,
@@ -128,24 +125,27 @@ export function TeacherStudentPage() {
     setEditing(false);
     setNotice("Карточка обновлена.");
   }
-  async function resetPassword() {
+  async function updateCredentials(username: string, password: string) {
     if (!user) return;
     if (!provisioningAvailable) {
       setNotice(
         demoMode
-          ? "В демо-режиме сброс пароля ученика отключён."
-          : "Сброс пароля временно недоступен в публичной версии: требуется защищённый серверный provisioning.",
+          ? "В демо-режиме изменение данных входа отключено."
+          : "Изменение данных входа временно недоступно: требуется защищённый серверный provisioning.",
       );
       return;
     }
-    const password = generateStudentPassword();
-    await getStudentProvisioningService().resetPassword(
+    await getStudentProvisioningService().updateCredentials(
       user,
       studentId,
-      password,
+      { username, ...(password ? { password } : {}) },
     );
     setCredentialPassword(password);
-    setNotice("Новый пароль установлен. Он показывается только сейчас.");
+    setNotice(
+      password
+        ? "Логин и новый пароль сохранены. Скопируйте пароль: после обновления страницы он больше не показывается."
+        : "Логин сохранён.",
+    );
   }
   return (
     <main className="shell-content" aria-labelledby="student-profile-title">
@@ -326,10 +326,11 @@ export function TeacherStudentPage() {
             teacherId={user?.uid ?? ""}
           />
           <Credentials
+            key={studentId}
             provisioningAvailable={provisioningAvailable}
             password={credentialPassword}
             username={data.studentUser?.data.username ?? ""}
-            onReset={() => void resetPassword()}
+            onSave={updateCredentials}
           />
           <section className="student-overview-actions" aria-label="Быстрые действия">
             <Link className="primary-button primary-button--fit" to={`/teacher/students/${studentId}?tab=homework`}>
@@ -401,17 +402,39 @@ export function TeacherStudentPage() {
 function Credentials({
   username,
   password,
-  onReset,
+  onSave,
   provisioningAvailable,
 }: {
   username: string;
   password: string;
-  onReset(): void;
+  onSave(username: string, password: string): Promise<void>;
   provisioningAvailable: boolean;
 }) {
+  const [draftUsername, setDraftUsername] = useState(username);
+  const [draftPassword, setDraftPassword] = useState(password);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(draftUsername.trim().toLowerCase(), draftPassword);
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Не удалось сохранить данные для входа.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function copy() {
     await navigator.clipboard.writeText(
-      `${username}${password ? `\n${password}` : ""}`,
+      `${draftUsername}${draftPassword ? `\n${draftPassword}` : ""}`,
     );
   }
   return (
@@ -419,52 +442,61 @@ function Credentials({
       <div>
         <span className="summary-card__label">Безопасный доступ</span>
         <h2>Данные для входа</h2>
-        <p>Пароль не хранится в Firestore.</p>
+        <p>Логин виден всегда. Новый пароль показывается только до обновления страницы и не хранится в Firestore.</p>
       </div>
-      <dl>
-        <div>
-          <dt>Логин</dt>
-          <dd>{username || "Не задан"}</dd>
-        </div>
-        {password ? (
-          <div>
-            <dt>Новый пароль</dt>
-            <dd className="credential-secret">{password}</dd>
-          </div>
-        ) : null}
-      </dl>
-      <div className="form-actions">
+      <form className="credentials-form" onSubmit={(event) => void submit(event)}>
+        <label className="form-field">
+          <span>Логин</span>
+          <input
+            autoComplete="username"
+            disabled={!provisioningAvailable || saving}
+            onChange={(event) => setDraftUsername(event.target.value)}
+            pattern="[a-z0-9._-]+"
+            required
+            value={draftUsername}
+          />
+        </label>
+        <label className="form-field">
+          <span>Новый пароль · оставьте пустым, если менять не нужно</span>
+          <input
+            autoComplete="new-password"
+            disabled={!provisioningAvailable || saving}
+            minLength={6}
+            onChange={(event) => setDraftPassword(event.target.value)}
+            placeholder="Введите новый пароль"
+            type="text"
+            value={draftPassword}
+          />
+        </label>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="form-actions">
+          <button
+            className="primary-button primary-button--fit"
+            disabled={!provisioningAvailable || saving}
+            type="submit"
+          >
+            {saving ? "Сохраняем…" : "Сохранить данные входа"}
+          </button>
         <button
           className="secondary-button"
-          onClick={() => void navigator.clipboard.writeText(username)}
+          onClick={() => void navigator.clipboard.writeText(draftUsername)}
           type="button"
         >
           Копировать логин
         </button>
         <button
           className="secondary-button"
-          disabled={!provisioningAvailable}
-          onClick={onReset}
-          title={
-            provisioningAvailable
-              ? undefined
-              : "Сброс пароля требует защищённого серверного provisioning"
-          }
-          type="button"
-        >
-          Сгенерировать новый пароль
-        </button>
-        <button
-          className="primary-button primary-button--fit"
+          disabled={!draftPassword}
           onClick={() => void copy()}
           type="button"
         >
           Скопировать данные для входа
         </button>
-      </div>
+        </div>
+      </form>
       {!provisioningAvailable ? (
         <p className="workflow-hint">
-          Создание аккаунтов и сброс паролей временно недоступны в публичной
+          Создание аккаунтов и изменение данных входа временно недоступны в публичной
           версии.
         </p>
       ) : null}

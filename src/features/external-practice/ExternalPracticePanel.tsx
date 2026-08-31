@@ -3,7 +3,10 @@ import { formatDateTimeForTimezone, resolveTimezone, zonedLocalDateTimeToDate } 
 import { russianTimezoneOptions } from "../schedule/timezoneOptions";
 import { getFirebaseDb } from "../../lib/firebase/client";
 import { subscribeExternalPracticeAttempts } from "../../lib/firebase/repositories/externalPracticeRepository";
-import { importExternalPracticeAttempts } from "../../lib/firebase/services/externalPracticeImport";
+import {
+  deleteExternalPracticeAttempt,
+  importExternalPracticeAttempts,
+} from "../../lib/firebase/services/externalPracticeImport";
 import type { DocumentWithId, ExamKind, ExternalPracticeAttempt } from "../../lib/firebase/types";
 import { parseRussian100ManualText, practiceDraftKey, type ManualPracticeDraft } from "./manualImport";
 
@@ -87,11 +90,25 @@ export function ExternalPracticePanel({
   importEnabled?: boolean;
 }) {
   const attempts = useExternalPracticeAttempts(teacherId, studentId);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const summary = useMemo(() => summarizeExternalPractice(attempts.data), [attempts.data]);
   const displayTimezone = resolveTimezone({
     iana: timezoneIana ?? "Europe/Moscow",
     moscowOffsetMinutes: null,
   });
+  async function removeAttempt(id: string, attempt: ExternalPracticeAttempt) {
+    if (!window.confirm(`Удалить попытку №${attempt.taskNumber} с результатом ${attempt.score}/${attempt.maxScore}?`)) return;
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      await deleteExternalPracticeAttempt(getFirebaseDb(), { attemptId: id, teacherId, studentId });
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Не удалось удалить попытку.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
   return (
     <section className="external-practice-panel" data-testid="external-practice-panel">
       <header className="panel-heading">
@@ -117,6 +134,7 @@ export function ExternalPracticePanel({
         )
       ) : null}
       {attempts.error ? <p className="form-error">{attempts.error}</p> : null}
+      {deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}
       {attempts.loading ? <p className="content-state">Загружаем практику…</p> : null}
       {!attempts.loading && !summary.length ? (
         <p className="content-state">Попыток пока нет.</p>
@@ -142,6 +160,17 @@ export function ExternalPracticePanel({
                 <strong>№{data.taskNumber} · {data.score}/{data.maxScore}</strong>
                 <span>{formatDateTimeForTimezone(data.practicedAt.toDate(), displayTimezone)}</span>
                 <span>{data.status === "completed" ? "Завершено" : "Не завершено"}</span>
+                {importEnabled ? (
+                  <button
+                    aria-label={`Удалить попытку №${data.taskNumber} ${data.score}/${data.maxScore}`}
+                    className="external-practice-history__delete"
+                    disabled={deletingId === id}
+                    onClick={() => void removeAttempt(id, data)}
+                    type="button"
+                  >
+                    {deletingId === id ? "Удаляем…" : "Удалить"}
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>
@@ -230,7 +259,7 @@ function ManualImportForm({
         <strong>Ручной импорт без API</strong>
         <p>Одна строка — одна попытка:</p>
         <code>11; 07.06.2026 13:57; 3/5; завершено</code>
-        <p>Можно также вставить блоки «Задание №11 / дата / 3/5».</p>
+        <p>Можно вставлять прямо из истории: «Задание №11: / 3/5 от 07.06.26 13:57».</p>
       </div>
       <label className="form-field">
         <span>Часовой пояс времени из Русского100</span>

@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -113,4 +114,34 @@ export async function importExternalPracticeAttempts(
   });
   await batch.commit();
   return { added: pending.length, skipped: prepared.length - pending.length };
+}
+
+export async function deleteExternalPracticeAttempt(
+  db: Firestore,
+  input: {
+    attemptId: string;
+    teacherId: string;
+    studentId: string;
+  },
+): Promise<void> {
+  const reference = doc(db, "externalPracticeAttempts", input.attemptId);
+  const snapshot = await getDoc(reference);
+  if (!snapshot.exists()) throw new Error("Попытка уже удалена или не найдена.");
+  const attempt = snapshot.data() as ExternalPracticeAttempt;
+  if (attempt.teacherId !== input.teacherId || attempt.studentId !== input.studentId) {
+    throw new Error("Недостаточно прав для удаления этой попытки.");
+  }
+  const batch = writeBatch(db);
+  batch.delete(reference);
+  batch.set(doc(collection(db, "teacherAuditEvents")), {
+    teacherId: input.teacherId,
+    studentId: input.studentId,
+    entityType: "externalPracticeAttempt",
+    entityId: input.attemptId,
+    action: "russian100_manual_delete",
+    summary: `Удалена попытка Русский100: №${attempt.taskNumber}, ${attempt.score}/${attempt.maxScore}`,
+    createdAt: serverTimestamp(),
+    schemaVersion: 1,
+  });
+  await batch.commit();
 }

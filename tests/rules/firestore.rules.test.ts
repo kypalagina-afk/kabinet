@@ -1421,5 +1421,8 @@ describe("idempotent domain operations", () => {
       score: 5,
       updatedAt: Timestamp.now(),
     }));
+    await assertFails(deleteDoc(doc(otherTeacherDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertFails(deleteDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertSucceeds(deleteDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")));
   });
 });

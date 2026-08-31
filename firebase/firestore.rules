@@ -431,7 +431,8 @@ service cloud.firestore {
         && request.resource.data.provider == "russian100"
         && request.resource.data.importMethod == "manual"
         && studentProgramMatches(request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if teacherOwns(resource.data);
     }
 
     match /studentPaymentAccounts/{id} {

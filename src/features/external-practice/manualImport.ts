@@ -15,6 +15,7 @@ export interface ManualPracticeParseResult {
 const taskPattern = /(?:задание\s*)?№?\s*(\d{1,3})/iu;
 const dateTimePattern = /(?:(\d{2})\.(\d{2})\.(\d{4})|(\d{4})-(\d{2})-(\d{2}))[\sT,;]+(\d{1,2}):(\d{2})/u;
 const scorePattern = /(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)/u;
+const russian100CopiedPattern = /задание\s*№\s*(\d{1,3})\s*:?\s*(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*от\s*(\d{2})\.(\d{2})\.(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})/giu;
 
 function numberValue(value: string): number {
   return Number(value.replace(",", "."));
@@ -86,6 +87,33 @@ export function parseRussian100ManualText(input: string): ManualPracticeParseRes
     }
     return true;
   };
+
+  for (const match of normalized.matchAll(russian100CopiedPattern)) {
+    const score = numberValue(match[2]!);
+    const maxScore = numberValue(match[3]!);
+    const yearText = match[6]!.length === 2 ? `20${match[6]}` : match[6]!;
+    const localDate = `${yearText}-${match[5]}-${match[4]}`;
+    const localTime = `${match[7]!.padStart(2, "0")}:${match[8]}`;
+    const parsedDate = new Date(`${localDate}T${localTime}:00.000Z`);
+    add(
+      score >= 0
+        && maxScore > 0
+        && score <= maxScore
+        && !Number.isNaN(parsedDate.getTime())
+        && parsedDate.getUTCFullYear() === Number(yearText)
+        && parsedDate.getUTCMonth() + 1 === Number(match[5])
+        && parsedDate.getUTCDate() === Number(match[4])
+        ? {
+            taskNumber: Number(match[1]),
+            localDate,
+            localTime,
+            score,
+            maxScore,
+            status: "completed",
+          }
+        : null,
+    );
+  }
 
   const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
   for (const line of lines) {

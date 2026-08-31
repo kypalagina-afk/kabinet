@@ -120,8 +120,12 @@ test("teacher can preview and import Russian100 attempts without an API", async 
     .click();
 
   const copiedResults = [
-    "11; 07.06.2026 13:57; 3/5; завершено",
-    "11; 08.06.2026 14:10; 5/5; завершено",
+    "Задания:",
+    "Задание №11:",
+    "3/5 от 07.06.26 13:57",
+    "Задания:",
+    "Задание №11:",
+    "5/5 от 07.06.26 14:10",
   ].join("\n");
   await page.getByLabel("Результаты").fill(copiedResults);
   await page.getByRole("button", { name: "Подготовить черновик" }).click();
@@ -132,9 +136,23 @@ test("teacher can preview and import Russian100 attempts without an API", async 
   await expect(page.getByLabel("Сводка Русский100").getByText("Попыток: 2", { exact: false })).toBeVisible();
   await expect(page.getByLabel("Сводка Русский100").getByText("Последняя: 5/5")).toBeVisible();
 
-  await page.getByLabel("Результаты").fill(copiedResults);
+  const mixedResults = [
+    "Задания:",
+    "Задание №11:",
+    "3/5 от 07.06.26 13:57",
+    "Задания:",
+    "Задание №12:",
+    "4/4 от 08.06.26 09:05",
+  ].join("\n");
+  await page.getByLabel("Результаты").fill(mixedResults);
   await page.getByRole("button", { name: "Подготовить черновик" }).click();
   await page.getByRole("button", { name: "Импортировать выбранное · 2" }).click();
-  await expect(page.getByText("Добавлено: 0. Уже было импортировано: 2.")).toBeVisible();
+  await expect(page.getByText("Добавлено: 1. Уже было импортировано: 1.")).toBeVisible();
   await expect(page.getByLabel("Сводка Русский100").getByText("Попыток: 2", { exact: false })).toBeVisible();
+
+  await page.getByText("История практики · 3", { exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Удалить попытку №12 4/4" }).click();
+  await expect(page.getByText("История практики · 2", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Сводка Русский100").getByText("№12", { exact: true })).toHaveCount(0);
 });

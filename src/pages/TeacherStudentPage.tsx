@@ -8,6 +8,8 @@ import {
 import { DetailedMockExamForm } from "../features/analytics/DetailedMockExamForm";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
+import { programDisplayName } from "../features/exams/blueprints";
+import { useProgramProfiles } from "../features/materials/hooks";
 import { LessonJournal } from "../features/schedule/LessonJournal";
 import { formatDateTimeForTimezone, resolveTimezone } from "../features/schedule/timezone";
 import { russianTimezoneOptions, timezoneOffsetMinutes } from "../features/schedule/timezoneOptions";
@@ -24,6 +26,7 @@ import { getFirebaseDb, isProductionBackendAvailable, isUsingFirebaseEmulators }
 import { getStudentProvisioningService } from "../lib/firebase/services/studentProvisioning";
 import {
   setStudentArchived,
+  switchStudentProgram,
   updateStudentConferenceLinks,
   updateStudentProfile,
   updateStudentProgramGoal,
@@ -65,6 +68,7 @@ export function TeacherStudentPage() {
     user?.uid ?? "",
     studentId,
   );
+  const programProfiles = useProgramProfiles();
   const lessonNotes = useLessonTeacherNotes(user?.uid ?? "", studentId);
   if (loading && !data.student)
     return (
@@ -114,12 +118,38 @@ export function TeacherStudentPage() {
       iana: timezoneIana,
       moscowOffsetMinutes: timezoneOffsetMinutes(timezoneIana),
     });
-    if (data.studentProgram) {
+    const programProfileId = String(
+      form.get("programProfileId") ?? data.studentProgram?.data.programProfileId ?? "",
+    );
+    const programGoal = String(
+      form.get("programGoal") ?? data.studentProgram?.data.goal.displayText ?? "",
+    ).trim();
+    if (
+      data.studentProgram &&
+      programProfileId &&
+      programProfileId !== data.studentProgram.data.programProfileId
+    ) {
+      const selectedProfile = programProfiles.data.find(({ id }) => id === programProfileId);
+      if (!selectedProfile) throw new Error("Выбранная программа не найдена");
+      const numericGoal = Number(programGoal.match(/\d+/)?.[0] ?? 0) || null;
+      const examKind = selectedProfile.data.examKind ?? selectedProfile.data.type;
+      await switchStudentProgram(getFirebaseDb(), {
+        teacherId: user.uid,
+        studentId,
+        programProfileId,
+        goal: {
+          type: examKind === "ege" ? "test_score" : "grade",
+          targetGrade: examKind === "ege" ? null : numericGoal,
+          targetScore: examKind === "ege" ? numericGoal : null,
+          displayText: programGoal,
+        },
+      });
+    } else if (data.studentProgram) {
       await updateStudentProgramGoal(getFirebaseDb(), {
         teacherId: user.uid,
         studentId,
         studentProgramId: data.studentProgram.id,
-        displayText: String(form.get("programGoal") ?? data.studentProgram.data.goal.displayText),
+        displayText: programGoal,
       });
     }
     setEditing(false);
@@ -257,14 +287,30 @@ export function TeacherStudentPage() {
             </select>
           </label>
           {data.studentProgram ? (
-            <label className="form-field">
-              <span>Цель занятий по программе</span>
-              <input
-                defaultValue={data.studentProgram.data.goal.displayText}
-                name="programGoal"
-                required
-              />
-            </label>
+            <>
+              <label className="form-field">
+                <span>Программа подготовки</span>
+                <select
+                  defaultValue={data.studentProgram.data.programProfileId}
+                  name="programProfileId"
+                  required
+                >
+                  {programProfiles.data
+                    .filter(({ data: item }) => item.status === "active")
+                    .map(({ id, data: item }) => (
+                      <option key={id} value={id}>{programDisplayName(item)}</option>
+                    ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Цель занятий по программе</span>
+                <input
+                  defaultValue={data.studentProgram.data.goal.displayText}
+                  name="programGoal"
+                  required
+                />
+              </label>
+            </>
           ) : null}
           <button className="primary-button primary-button--fit">
             Сохранить

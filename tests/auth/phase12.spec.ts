@@ -95,3 +95,17 @@ test("teacher can set a student login and password manually", async ({ page }) =
   await page.getByRole("button", { name: "Выйти" }).click();
   await login(page, "anna.ege.updated", "Manual-Ege-2027!", "student");
 });
+
+test("teacher can switch an existing student from OGE to EGE", async ({ page }) => {
+  await login(page);
+  await page.goto("/#/teacher/students");
+  await page.getByTestId("student-card").filter({ hasText: "Тестовая ученица" }).click();
+  await page.getByRole("button", { name: "Редактировать" }).click();
+
+  await page.getByLabel("Программа подготовки").selectOption("test-ege-program");
+  await page.getByLabel("Цель занятий по программе").fill("85+ баллов");
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+
+  await expect(page.getByTestId("teacher-program-title")).toContainText("ЕГЭ");
+  await expect(page.getByText("85+ баллов", { exact: true })).toBeVisible();
+});

@@ -9,7 +9,105 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { Student, StudentProgram } from "../types.js";
+import type { Lesson, LessonSeries, Student, StudentProgram } from "../types.js";
+
+export async function switchStudentProgram(
+  db: Firestore,
+  input: {
+    teacherId: string;
+    studentId: string;
+    programProfileId: string;
+    goal: StudentProgram["goal"];
+  },
+) {
+  const [programs, series, lessons] = await Promise.all([
+    getDocs(query(
+      collection(db, "studentPrograms"),
+      where("teacherId", "==", input.teacherId),
+      where("studentId", "==", input.studentId),
+    )),
+    getDocs(query(
+      collection(db, "lessonSeries"),
+      where("teacherId", "==", input.teacherId),
+      where("studentId", "==", input.studentId),
+    )),
+    getDocs(query(
+      collection(db, "lessons"),
+      where("teacherId", "==", input.teacherId),
+      where("studentId", "==", input.studentId),
+    )),
+  ]);
+  const reusable = programs.docs.find((item) => {
+    const program = item.data() as StudentProgram;
+    return program.programProfileId === input.programProfileId && program.status !== "completed";
+  });
+  const targetReference = reusable?.ref ?? doc(collection(db, "studentPrograms"));
+  const targetId = targetReference.id;
+  const batch = writeBatch(db);
+  for (const item of programs.docs) {
+    const program = item.data() as StudentProgram;
+    if (item.id !== targetId && program.status === "active") {
+      batch.update(item.ref, { status: "paused", updatedAt: serverTimestamp() });
+    }
+  }
+  if (reusable) {
+    batch.update(targetReference, {
+      status: "active",
+      goal: input.goal,
+      completedAt: null,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(targetReference, {
+      teacherId: input.teacherId,
+      studentId: input.studentId,
+      programProfileId: input.programProfileId,
+      status: "active",
+      goal: input.goal,
+      startedAt: serverTimestamp(),
+      completedAt: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      schemaVersion: 1,
+    });
+  }
+  batch.update(doc(db, "students", input.studentId), {
+    activeProgramId: targetId,
+    updatedAt: serverTimestamp(),
+  });
+  const today = new Date().toISOString().slice(0, 10);
+  for (const item of series.docs) {
+    const lessonSeries = item.data() as LessonSeries;
+    if (lessonSeries.active && (!lessonSeries.endsOn || lessonSeries.endsOn >= today)) {
+      batch.update(item.ref, {
+        studentProgramId: targetId,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
+  const now = Date.now();
+  for (const item of lessons.docs) {
+    const lesson = item.data() as Lesson;
+    if (lesson.status === "planned" && lesson.startAt.toMillis() >= now) {
+      batch.update(item.ref, {
+        studentProgramId: targetId,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
+  batch.set(doc(collection(db, "teacherAuditEvents")), {
+    teacherId: input.teacherId,
+    studentId: input.studentId,
+    entityType: "studentProgram",
+    entityId: targetId,
+    action: "program_switched",
+    summary: `Активная программа изменена на ${input.programProfileId}`,
+    createdAt: serverTimestamp(),
+    schemaVersion: 1,
+  });
+  await batch.commit();
+  return targetId;
+}
 
 export async function setActiveStudentProgram(
   db: Firestore,

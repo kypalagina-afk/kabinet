@@ -82,7 +82,9 @@ describe("Phase 12 exam blueprints", () => {
     expect(writing?.criteria.reduce((sum, item) => sum + item.max, 0)).toBe(22);
     expect(review?.content.find((item) => item.code === "К7")?.supportsErrorCount).toBe(true);
     expect(ege.wordCountRules?.[0]?.minimumWords).toBe(150);
-    expect(ege.secondaryScoreScale).toBeNull();
+    expect(ege.secondaryScoreScale).toHaveLength(51);
+    expect(ege.secondaryScoreScale?.find((item) => item.primary === 38)?.secondary).toBe(70);
+    expect(ege.secondaryScoreScale?.find((item) => item.primary === 50)?.secondary).toBe(100);
     expect(ege.tasks.find((task) => task.number === 8)?.readinessWeight).toBe(2);
     expect(ege.tasks.find((task) => task.number === 27)?.readinessWeight).toBe(22);
   });
@@ -92,5 +94,23 @@ describe("Phase 12 exam blueprints", () => {
     const input = emptyInput(ege);
     input.taskResults.pop();
     expect(() => calculateDetailedMockExam(input, ege)).toThrow(/task set/i);
+  });
+
+  it("converts an EGE primary score to the configured test score", () => {
+    const ege = blueprint(EGE_RUSSIAN_2027_PROJECT_ID);
+    const input = emptyInput(ege);
+    input.taskResults = input.taskResults.map((result) => ({
+      ...result,
+      earned: result.max,
+    }));
+    let essayPoints = 10;
+    input.criteriaResults = input.criteriaResults?.map((criterion) => {
+      const earned = Math.min(criterion.max, essayPoints);
+      essayPoints -= earned;
+      return { ...criterion, earned };
+    });
+    const calculated = calculateDetailedMockExam(input, ege);
+    expect(calculated.total.earned).toBe(38);
+    expect(calculated.secondaryScore).toBe(70);
   });
 });

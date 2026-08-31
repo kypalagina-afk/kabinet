@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { calculateMockAnalytics } from "../features/analytics/mockAnalytics";
 import { useAuth } from "../features/auth/AuthProvider";
+import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
+import { secondaryScoreForPrimary } from "../features/exams/blueprints";
 import { calculateGamificationSummary } from "../features/gamification/gamification";
 import { useStudentGamification } from "../features/gamification/hooks";
 import { useNextStudentLesson } from "../features/schedule/hooks";
@@ -25,10 +27,18 @@ export function StudentHomePage() {
   const { data, loading, error } = useStudentWorkspace(studentId);
   const nextLesson = useNextStudentLesson(studentId);
   const gamification = useStudentGamification(studentId);
+  const practice = useExternalPracticeAttempts(profile?.teacherId ?? "", studentId);
   const [xpOpen, setXpOpen] = useState(false);
 
   const currentHomework = selectCurrentHomework(data.homeworks);
   const latestMock = selectLatestMockExam(data.mockExams);
+  const latestSecondaryScore = latestMock
+    ? latestMock.data.secondaryScore
+      ?? secondaryScoreForPrimary(
+        latestMock.data.total.earned,
+        data.examBlueprint?.data.secondaryScoreScale,
+      )
+    : null;
   const analytics = calculateMockAnalytics(data.mockExams, {
     confidenceAttempts: 3,
     weakThreshold: 45,
@@ -41,7 +51,9 @@ export function StudentHomePage() {
         item.readinessWeight ?? item.maxScore,
       ]) ?? [],
     ),
-  });
+  }, practice.data.filter(
+    ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
+  ));
   const game = calculateGamificationSummary({
     ...gamification.data,
     submissions: data.homeworkSubmissions,
@@ -147,7 +159,14 @@ export function StudentHomePage() {
             <span className="summary-card__label">Последний результат</span>
             <strong data-testid="student-mock-title">{latestMock?.data.title ?? "Пока нет результата"}</strong>
             {latestMock ? (
-              <div className="mock-score"><span>{latestMock.data.total.earned}/{latestMock.data.total.max}</span><small>Оценка {latestMock.data.grade}</small></div>
+              <div className="mock-score">
+                <span>{latestMock.data.total.earned}/{latestMock.data.total.max}</span>
+                <small>
+                  {latestSecondaryScore !== null
+                    ? `Тестовый балл ${latestSecondaryScore}/100`
+                    : `Оценка ${latestMock.data.grade}`}
+                </small>
+              </div>
             ) : <p>Результат появится после пробника.</p>}
           </Link>
         </aside>

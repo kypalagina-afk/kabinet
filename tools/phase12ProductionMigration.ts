@@ -75,6 +75,24 @@ function stringField(document: RestDocument, name: string): string | undefined {
   return document.fields?.[name]?.stringValue as string | undefined;
 }
 
+function integerValue(value: FirestoreValue | undefined): number | null {
+  const raw = value?.integerValue;
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function secondaryScoreScaleField(document: RestDocument | null): Array<{ primary: number; secondary: number }> {
+  const field = document?.fields?.secondaryScoreScale as {
+    arrayValue?: { values?: Array<{ mapValue?: { fields?: Record<string, FirestoreValue> } }> };
+  } | undefined;
+  return (field?.arrayValue?.values ?? []).flatMap((item) => {
+    const primary = integerValue(item.mapValue?.fields?.primary);
+    const secondary = integerValue(item.mapValue?.fields?.secondary);
+    return primary === null || secondary === null ? [] : [{ primary, secondary }];
+  });
+}
+
 async function apiRequest<T>(
   token: string,
   path: string,
@@ -127,6 +145,8 @@ async function main(): Promise<void> {
   const egeProfile = egeProfileResult.body;
   const ogeBlueprint = ogeBlueprintResult.body;
   const egeBlueprint = egeBlueprintResult.body;
+  const expectedEgeScale = examBlueprintSeeds[EGE_RUSSIAN_2027_PROJECT_ID].secondaryScoreScale ?? [];
+  const egeScaleCurrent = JSON.stringify(secondaryScoreScaleField(egeBlueprint)) === JSON.stringify(expectedEgeScale);
   if (!ogeProfile) throw new Error("Stable OGE program profile is missing");
   if (stringField(ogeProfile, "subject") !== "russian"
     || !["exam", "oge"].includes(String(stringField(ogeProfile, "type")))) {
@@ -138,6 +158,7 @@ async function main(): Promise<void> {
     actions.push(`update programProfiles/oge-russian-2027.currentBlueprintId`);
   if (!ogeBlueprint) actions.push(`create examBlueprints/${OGE_RUSSIAN_2027_PROJECT_ID}`);
   if (!egeBlueprint) actions.push(`create examBlueprints/${EGE_RUSSIAN_2027_PROJECT_ID}`);
+  else if (!egeScaleCurrent) actions.push(`update examBlueprints/${EGE_RUSSIAN_2027_PROJECT_ID}.secondaryScoreScale`);
   if (!egeProfile) actions.push("create programProfiles/ege-russian-2027");
   console.log(`Verified project: ${PROJECT_ID}`);
   console.log(actions.length ? actions.join("\n") : "Phase 12 catalog is already current (noop).");
@@ -180,6 +201,18 @@ async function main(): Promise<void> {
       ...examBlueprintSeeds[EGE_RUSSIAN_2027_PROJECT_ID],
       schemaVersion: 1,
     }) }, currentDocument: { exists: false } });
+  } else if (!egeScaleCurrent) {
+    writes.push({
+      update: {
+        name: documentPaths.egeBlueprint,
+        fields: {
+          secondaryScoreScale: firestoreValue(expectedEgeScale),
+          updatedAt: { timestampValue: now },
+        },
+      },
+      updateMask: { fieldPaths: ["secondaryScoreScale", "updatedAt"] },
+      currentDocument: { updateTime: egeBlueprint.updateTime },
+    });
   }
   if (!egeProfile) {
     writes.push({ update: { name: documentPaths.egeProfile, fields: timestampAwareFields({
@@ -212,6 +245,9 @@ async function main(): Promise<void> {
   }
   if (stringField(verification[1].body!, "currentBlueprintId") !== EGE_RUSSIAN_2027_PROJECT_ID) {
     throw new Error("Post-migration EGE blueprint pointer verification failed");
+  }
+  if (JSON.stringify(secondaryScoreScaleField(verification[3].body)) !== JSON.stringify(expectedEgeScale)) {
+    throw new Error("Post-migration EGE secondary-score scale verification failed");
   }
   console.log(`Applied ${actions.length} catalog actions and verified all four documents.`);
   console.log("Existing students, assessments, homework and historical blueprint links were not modified.");

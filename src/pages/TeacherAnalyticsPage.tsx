@@ -21,7 +21,10 @@ import {
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb } from "../lib/firebase/client";
 import { programBlueprintId, programDisplayName } from "../features/exams/blueprints";
-import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
+import {
+  ExternalPracticePanel,
+} from "../features/external-practice/ExternalPracticePanel";
+import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
 
 export function TeacherAnalyticsPage() {
   const { user } = useAuth();
@@ -133,6 +136,7 @@ function TeacherAnalyticsWorkspace({
   const publicMastery = useTaskMasteryPublic(studentId, teacherId);
   const overrides = useTeacherMasteryOverrides(teacherId, studentId);
   const coverage = useStudentTaskCoverage(studentId, teacherId);
+  const practice = useExternalPracticeAttempts(teacherId, studentId);
   const [editing, setEditing] = useState<{
     taskNumber: number;
     autoMastery: number;
@@ -171,7 +175,11 @@ function TeacherAnalyticsWorkspace({
         coverage={coverage}
         exams={data.mockExams}
         masteryPublic={publicMastery}
+        practiceAttempts={practice.data.filter(
+          ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
+        )}
         programTitle={data.programProfile?.data.title}
+        secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}
         taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
         taskWeights={Object.fromEntries(
           data.examBlueprint?.data.tasks.map((item) => [

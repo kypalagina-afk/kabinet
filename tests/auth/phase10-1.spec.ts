@@ -31,7 +31,9 @@ test("planner day is a category board and goals open a dedicated workspace", asy
   const board = page.getByTestId("planner-day-category-board");
   await expect(board).toBeVisible();
   await expect(board.locator(".planner-category-column")).toHaveCount(2);
-  await expect(board.locator('[data-category="Работа"] .planner-entry--lesson').first()).toBeVisible();
+  const calendarLesson = board.locator('[data-category="Работа"] .planner-entry--lesson').first();
+  await expect(calendarLesson).toBeVisible();
+  await expect(calendarLesson).toContainText("Тестовая ученица");
   const backlog = page.locator(".planner-sidebar .planner-backlog-toggle");
   await backlog.click();
   await expect(page.locator(".planner-sidebar")).toContainText("Обновить подборку диктантов");

@@ -9,6 +9,7 @@ import { gradeForBlueprint } from "../../../features/analytics/mockAnalytics.js"
 import {
   blueprintPrimaryMax,
   criteriaScore,
+  secondaryScoreForPrimary,
   writingConfigForTask,
 } from "../../../features/exams/blueprints.js";
 import type {
@@ -161,7 +162,7 @@ export function calculateDetailedMockExam(
       taskResults: input.taskResults,
       criteriaResults: input.criteriaResults,
       sectionResults,
-      secondaryScore: null,
+      secondaryScore: secondaryScoreForPrimary(total.earned, blueprint.secondaryScoreScale),
       sections: {
         test,
         exposition: { ...criteriaScore(expositionCriteria), criteria: expositionCriteria },
@@ -218,6 +219,7 @@ export function calculateDetailedMockExam(
     },
     total,
     grade: gradeForBlueprint(total.earned, literacy.earned, blueprint).grade,
+    secondaryScore: secondaryScoreForPrimary(total.earned, blueprint.secondaryScoreScale),
   };
 }
 

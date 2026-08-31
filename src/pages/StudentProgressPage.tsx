@@ -10,6 +10,8 @@ import {
   useTaskMasteryPublic,
 } from "../features/analytics/mastery";
 import { useAuth } from "../features/auth/AuthProvider";
+import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
+import { secondaryScoreForPrimary } from "../features/exams/blueprints";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
 import { formatCompactDate } from "../lib/formatters";
 import type { DocumentWithId, MockExam } from "../lib/firebase/types";
@@ -20,6 +22,7 @@ export function StudentProgressPage() {
   const { data, loading, error } = useStudentWorkspace(studentId);
   const publicMastery = useTaskMasteryPublic(studentId);
   const coverage = useStudentTaskCoverage(studentId);
+  const practice = useExternalPracticeAttempts(profile?.teacherId ?? "", studentId);
   const [params, setParams] = useSearchParams();
   const [compareMode, setCompareMode] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
@@ -63,6 +66,9 @@ export function StudentProgressPage() {
             coverage={coverage}
             exams={data.mockExams}
             masteryPublic={publicMastery}
+            practiceAttempts={practice.data.filter(
+              ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
+            )}
             taskNumbers={data.examBlueprint?.data.tasks.map(
               (item) => item.number,
             )}
@@ -73,6 +79,7 @@ export function StudentProgressPage() {
               ]) ?? [],
             )}
             programTitle={data.programProfile?.data.title}
+            secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}
           />
         </>
       ) : null}
@@ -104,6 +111,11 @@ export function StudentProgressPage() {
             const delta = previous
               ? exam.data.total.earned - previous.data.total.earned
               : null;
+            const secondaryScore = exam.data.secondaryScore
+              ?? secondaryScoreForPrimary(
+                exam.data.total.earned,
+                data.examBlueprint?.data.secondaryScoreScale,
+              );
             return (
               <article className="mock-history-card" key={exam.id}>
                 {compareMode ? (
@@ -137,6 +149,7 @@ export function StudentProgressPage() {
                   </small>
                   <h3>
                     {exam.data.total.earned}/{exam.data.total.max}
+                    {secondaryScore !== null ? ` · ${secondaryScore}/100 тест.` : ""}
                     {exam.data.grade ? ` · оценка ${exam.data.grade}` : ""}
                   </h3>
                   <p>
@@ -159,7 +172,11 @@ export function StudentProgressPage() {
                 </button>
                 {selected === exam.id ? (
                   <div className="mock-history-detail">
-                    <MockExamReport audience="student" exam={exam.data} />
+                    <MockExamReport
+                      audience="student"
+                      exam={exam.data}
+                      secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}
+                    />
                   </div>
                 ) : null}
               </article>

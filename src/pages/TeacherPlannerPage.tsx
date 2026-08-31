@@ -403,6 +403,7 @@ export function TeacherPlannerPage() {
                 emoji="💼"
                 items={focusItems.filter(({ data }) => data.category === "work")}
                 lessons={focusLessons}
+                students={schedule.data.students}
                 onCreate={() => openCreate(focusDate)}
                 onEdit={openEdit}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
@@ -413,6 +414,7 @@ export function TeacherPlannerPage() {
                 emoji="🏠"
                 items={focusItems.filter(({ data }) => data.category === "home" || data.category === "personal")}
                 lessons={[]}
+                students={schedule.data.students}
                 onCreate={() => { openCreate(focusDate); setDraft({ ...emptyInput(focusDate), category: "home" }); }}
                 onEdit={openEdit}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
@@ -440,6 +442,7 @@ export function TeacherPlannerPage() {
               focusDate={focusDate}
               items={visibleItems}
               lessons={lessons}
+              students={schedule.data.students}
               timezone={teacherTimezone}
               onOpenDay={(date) => { setFocusDate(date); setView("day"); }}
             />
@@ -509,8 +512,8 @@ function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerI
   return <article aria-label={priorityLabel} className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)} title={priorityLabel}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button">{item.data.recurrenceSeriesId ? <span>↻ регулярно</span> : null}<strong>{time}{item.data.title}{item.data.durationMinutes && !item.data.endTime ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
 }
 
-function PlannerCategoryColumn({ emoji, title, items, lessons, timezone, onCreate, onEdit, onToggle }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {
-  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{[...lessons].sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis()).map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} timezone={timezone} />)}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
+function PlannerCategoryColumn({ emoji, title, items, lessons, students, timezone, onCreate, onEdit, onToggle }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; students: Array<DocumentWithId<Student>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {
+  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{[...lessons].sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis()).map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} timezone={timezone} />)}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
 }
 
 function BacklogItem({ item, today, onEdit, onMove }: { item: DocumentWithId<PlannerItem>; today: string; onEdit(): void; onMove(date: string, startTime: string | null, category: "work" | "home"): void }) {
@@ -629,13 +632,13 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
   </div>;
 }
 
-function PlannerMonth({ dates, focusDate, items, lessons, timezone, onOpenDay }: PlannerCalendarViewProps) {
+function PlannerMonth({ dates, focusDate, items, lessons, students, timezone, onOpenDay }: PlannerCalendarViewProps & { students: Array<DocumentWithId<Student>> }) {
   return <><div className="planner-month-weekdays">{weekdayLabels.map((day) => <span key={day}>{day}</span>)}</div><div className="planner-days">{dates.map((date) => {
     const dayItems = sortPlannerItems(items.filter(({ data }) => data.date === date));
     const dayLessons = lessons.filter(({ data }) => lessonDate(data, timezone) === date).sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis());
     const timedItems = dayItems.filter(({ data }) => data.startTime && data.status !== "done");
     const highlights = [
-      ...dayLessons.map((lesson) => ({ id: `lesson-${lesson.id}`, time: `${lessonTime(lesson.data, timezone)}–${lessonEndTime(lesson.data, timezone)}`, title: lesson.data.topic ?? "Урок" })),
+      ...dayLessons.map((lesson) => ({ id: `lesson-${lesson.id}`, time: `${lessonTime(lesson.data, timezone)}–${lessonEndTime(lesson.data, timezone)}`, title: `${students.find(({ id }) => id === lesson.data.studentId)?.data.displayName ?? "Ученик"} · ${lesson.data.topic ?? "Урок"}` })),
       ...timedItems.map((item) => ({ id: item.id, time: `${item.data.startTime ?? ""}${item.data.endTime ? `–${item.data.endTime}` : ""}`, title: item.data.title })),
     ].sort((left, right) => left.time.localeCompare(right.time));
     const counts = plannerCategoryCounts(dayItems);

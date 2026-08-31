@@ -99,6 +99,12 @@ export const OGE_RUSSIAN_2026_PILOT_ID = "oge-russian-2026-pilot-v1";
 export const OGE_RUSSIAN_2027_PROJECT_ID = "oge-russian-2027-project-v1";
 export const EGE_RUSSIAN_2027_PROJECT_ID = "ege-russian-2027-project-v1";
 
+export const EGE_RUSSIAN_2027_SECONDARY_SCORE_SCALE = [
+  0, 3, 5, 8, 10, 12, 15, 17, 20, 22, 24, 27, 29, 32, 34, 36, 37,
+  39, 40, 42, 43, 45, 46, 48, 49, 51, 52, 54, 55, 57, 58, 60, 61, 63,
+  64, 66, 67, 69, 70, 72, 73, 75, 78, 81, 83, 86, 89, 91, 94, 97, 100,
+].map((secondary, primary) => ({ primary, secondary }));
+
 export const examBlueprintSeeds: Record<string, ExamBlueprintSeed> = {
   [OGE_RUSSIAN_2026_PILOT_ID]: {
     programType: "oge", examKind: "oge", subject: "russian", year: 2026,
@@ -164,7 +170,8 @@ export const examBlueprintSeeds: Record<string, ExamBlueprintSeed> = {
     sourceStatus: "project", sourceLabel: "Проект КИМ ЕГЭ 2027 · ФИПИ (изменений нет)",
     sourceUrls: [FIPI_EGE_2027, FIPI_EGE_CHANGES_2027, FIPI_EGE_NAVIGATOR_2026, FIPI_EGE_METHOD_2026], publishedAt: null, taskCount: 27,
     primaryMaxScore: 50, maxScore: 50, durationMinutes: 210,
-    gradeThresholds: {}, gradeRules: null, secondaryScoreScale: null,
+    gradeThresholds: {}, gradeRules: null,
+    secondaryScoreScale: EGE_RUSSIAN_2027_SECONDARY_SCORE_SCALE,
     readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
     sections: [
       { code: "text-style", title: "Текст и стилистика", maxScore: 3, taskNumbers: [1, 2, 3] },
@@ -233,6 +240,14 @@ export function programDisplayName(program: ProgramProfile): string {
 
 export function blueprintPrimaryMax(blueprint: ExamBlueprint): number {
   return blueprint.primaryMaxScore ?? blueprint.maxScore;
+}
+
+export function secondaryScoreForPrimary(
+  primary: number,
+  scale: ExamBlueprint["secondaryScoreScale"],
+): number | null {
+  if (!scale?.length || !Number.isFinite(primary)) return null;
+  return scale.find((item) => item.primary === primary)?.secondary ?? null;
 }
 
 export function blueprintTaskCount(blueprint: ExamBlueprint): number {

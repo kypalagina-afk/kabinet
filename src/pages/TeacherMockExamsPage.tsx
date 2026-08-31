@@ -4,6 +4,8 @@ import { Modal } from "../components/Modal";
 import { DetailedMockExamForm } from "../features/analytics/DetailedMockExamForm";
 import { MockExamReport } from "../features/analytics/MockAnalyticsDashboard";
 import { useAuth } from "../features/auth/AuthProvider";
+import { secondaryScoreForPrimary } from "../features/exams/blueprints";
+import { useExamBlueprints } from "../features/materials/hooks";
 import {
   useTeacherMockExams,
   useTeacherStudents,
@@ -17,6 +19,7 @@ export function TeacherMockExamsPage() {
   const teacherId = user?.uid ?? "";
   const students = useTeacherStudents(teacherId);
   const exams = useTeacherMockExams(teacherId);
+  const blueprints = useExamBlueprints();
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -36,6 +39,9 @@ export function TeacherMockExamsPage() {
     [exams.data, studentId],
   );
   const detail = exams.data.find(({ id }) => id === detailId);
+  const scaleFor = (exam: MockExam) => blueprints.data.find(
+    ({ id }) => id === exam.examBlueprintId,
+  )?.data.secondaryScoreScale;
   const compared = compare
     .map((id) => exams.data.find((item) => item.id === id))
     .filter(Boolean) as Array<DocumentWithId<MockExam>>;
@@ -132,6 +138,8 @@ export function TeacherMockExamsPage() {
           const student = students.data.find(
             (item) => item.id === exam.data.studentId,
           );
+          const secondaryScore = exam.data.secondaryScore
+            ?? secondaryScoreForPrimary(exam.data.total.earned, scaleFor(exam.data));
           return (
             <article className="mock-history-card" key={exam.id}>
               {compareMode ? (
@@ -158,6 +166,7 @@ export function TeacherMockExamsPage() {
                 </small>
                 <h2>
                   {exam.data.total.earned}/{exam.data.total.max}
+                  {secondaryScore !== null ? ` · ${secondaryScore}/100 тест.` : ""}
                   {exam.data.grade ? ` · оценка ${exam.data.grade}` : ""}
                 </h2>
                 <p>
@@ -203,7 +212,11 @@ export function TeacherMockExamsPage() {
           onClose={() => setDetailId("")}
           title="Отчёт по пробнику"
         >
-          <MockExamReport audience="teacher" exam={detail.data} />
+          <MockExamReport
+            audience="teacher"
+            exam={detail.data}
+            secondaryScoreScale={scaleFor(detail.data)}
+          />
           <div className="form-actions">
             <button
               className="primary-button primary-button--fit"

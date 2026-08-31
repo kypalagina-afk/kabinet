@@ -5,7 +5,11 @@ import {
   gradeForBlueprint,
   gradeForScore,
 } from "../../src/features/analytics/mockAnalytics.js";
-import type { DocumentWithId, MockExam } from "../../src/lib/firebase/types.js";
+import type {
+  DocumentWithId,
+  ExternalPracticeAttempt,
+  MockExam,
+} from "../../src/lib/firebase/types.js";
 import { calculateDetailedMockExam } from "../../src/lib/firebase/services/mockExamWorkflow.js";
 
 function exam(id: string, date: string, taskEarned: number, total: number): DocumentWithId<MockExam> {
@@ -31,6 +35,34 @@ function exam(id: string, date: string, taskEarned: number, total: number): Docu
       total: { earned: total, max: 37 },
       grade: gradeForScore(total, {}),
       teacherComment: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+    },
+  };
+}
+
+function practice(id: string, score: number): DocumentWithId<ExternalPracticeAttempt> {
+  const timestamp = Timestamp.fromDate(new Date("2026-08-30T10:00:00.000Z"));
+  return {
+    id,
+    data: {
+      teacherId: "teacher-1",
+      studentId: "student-1",
+      studentProgramId: "program-1",
+      examBlueprintId: "blueprint-1",
+      provider: "russian100",
+      examKind: "ege",
+      taskNumber: 2,
+      score,
+      maxScore: 5,
+      accuracy: score * 20,
+      status: "completed",
+      practicedAt: timestamp,
+      importedAt: timestamp,
+      importMethod: "manual",
+      sourceRecordId: id,
+      sourceUrl: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       schemaVersion: 1,
@@ -85,6 +117,28 @@ describe("mock analytics", () => {
     const analytics = calculateMockAnalytics([exam("one", "2026-06-16", 1, 20)]);
     expect(analytics.masteryByTask[0]?.rawPercent).toBe(100);
     expect(analytics.masteryByTask[0]?.mastery).toBe(33);
+  });
+
+  test("combines mock and external practice evidence by task", () => {
+    const analytics = calculateMockAnalytics(
+      [exam("mock", "2026-06-16", 0, 20)],
+      {
+        confidenceAttempts: 3,
+        weakThreshold: 45,
+        strongThreshold: 75,
+        totalExamTasks: 1,
+        readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
+      },
+      [practice("practice-1", 5), practice("practice-2", 5)],
+    );
+    expect(analytics.masteryByTask[0]).toMatchObject({
+      taskNumber: 2,
+      attempts: 3,
+      earned: 10,
+      max: 11,
+      rawPercent: 91,
+      mastery: 91,
+    });
   });
 
   test("keeps source scores and calculates trend separately", () => {

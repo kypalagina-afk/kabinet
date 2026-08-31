@@ -1,4 +1,9 @@
-import type { DocumentWithId, ExamBlueprint, MockExam } from "../../lib/firebase/types.js";
+import type {
+  DocumentWithId,
+  ExamBlueprint,
+  ExternalPracticeAttempt,
+  MockExam,
+} from "../../lib/firebase/types.js";
 
 export interface AnalyticsConfig {
   confidenceAttempts: number;
@@ -56,6 +61,7 @@ function percent(earned: number, maximum: number): number {
 export function calculateMockAnalytics(
   exams: Array<DocumentWithId<MockExam>>,
   config = defaultAnalyticsConfig,
+  practiceAttempts: Array<DocumentWithId<ExternalPracticeAttempt>> = [],
 ): MockAnalytics {
   const taskMap = new Map<number, { attempts: number; earned: number; max: number; lastEvidenceAt: number | null }>();
   for (const { data: exam } of exams) {
@@ -73,6 +79,22 @@ export function calculateMockAnalytics(
       current.lastEvidenceAt = Math.max(current.lastEvidenceAt ?? 0, evidenceAt);
       taskMap.set(result.taskNumber, current);
     }
+  }
+  for (const { data: attempt } of practiceAttempts) {
+    const current = taskMap.get(attempt.taskNumber) ?? {
+      attempts: 0,
+      earned: 0,
+      max: 0,
+      lastEvidenceAt: null,
+    };
+    current.attempts += 1;
+    current.earned += attempt.score;
+    current.max += attempt.maxScore;
+    current.lastEvidenceAt = Math.max(
+      current.lastEvidenceAt ?? 0,
+      attempt.practicedAt.toMillis(),
+    );
+    taskMap.set(attempt.taskNumber, current);
   }
   const masteryByTask = [...taskMap.entries()]
     .map(([taskNumber, value]) => {
@@ -122,7 +144,10 @@ export function calculateMockAnalytics(
   });
   const latestPercent = mockTrend.at(-1)?.percent ?? 0;
   const totalExamTasks = config.totalExamTasks || new Set(
-    exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+    [
+      ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+      ...practiceAttempts.map(({ data }) => data.taskNumber),
+    ],
   ).size || 1;
   const allTaskWeight = config.taskWeights
     ? Object.values(config.taskWeights).reduce((sum, value) => sum + value, 0)

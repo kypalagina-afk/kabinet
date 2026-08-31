@@ -1,8 +1,11 @@
 import { calculateMockAnalytics } from "./mockAnalytics";
+import { secondaryScoreForPrimary } from "../exams/blueprints";
 import type {
   CoverageState,
   DocumentWithId,
+  ExamBlueprint,
   EvaluationCriterion,
+  ExternalPracticeAttempt,
   MockExam,
   StudentTaskCoverage,
   StudentTaskMasteryPublic,
@@ -13,9 +16,11 @@ export function MockAnalyticsDashboard({
   audience,
   masteryPublic = [],
   coverage = [],
+  practiceAttempts = [],
   taskNumbers,
   taskWeights,
   programTitle,
+  secondaryScoreScale,
   onEditMastery,
   onCoverageChange,
 }: {
@@ -23,9 +28,11 @@ export function MockAnalyticsDashboard({
   audience: "teacher" | "student";
   masteryPublic?: Array<DocumentWithId<StudentTaskMasteryPublic>>;
   coverage?: Array<DocumentWithId<StudentTaskCoverage>>;
+  practiceAttempts?: Array<DocumentWithId<ExternalPracticeAttempt>>;
   taskNumbers?: number[];
   taskWeights?: Record<number, number>;
   programTitle?: string;
+  secondaryScoreScale?: ExamBlueprint["secondaryScoreScale"];
   onEditMastery?(
     taskNumber: number,
     autoMastery: number,
@@ -37,6 +44,7 @@ export function MockAnalyticsDashboard({
     ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
     ...coverage.map(({ data }) => data.taskNumber),
     ...masteryPublic.map(({ data }) => data.taskNumber),
+    ...practiceAttempts.map(({ data }) => data.taskNumber),
   ])].sort((a, b) => a - b);
   const ordered = [...exams].sort(
     (a, b) =>
@@ -44,6 +52,10 @@ export function MockAnalyticsDashboard({
       (a.data.takenAt ?? a.data.createdAt).toMillis(),
   );
   const latest = ordered[0];
+  const latestSecondaryScore = latest
+    ? latest.data.secondaryScore
+      ?? secondaryScoreForPrimary(latest.data.total.earned, secondaryScoreScale)
+    : null;
   const tasks = taskNumbers?.length
     ? [...new Set(taskNumbers)].sort((a, b) => a - b)
     : evidenceTasks;
@@ -54,7 +66,7 @@ export function MockAnalyticsDashboard({
     totalExamTasks: tasks.length,
     readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
     taskWeights,
-  });
+  }, practiceAttempts);
   const studied = tasks.filter(
     (number) =>
       coverage.find(({ data }) => data.taskNumber === number)?.data.state ===
@@ -90,7 +102,7 @@ export function MockAnalyticsDashboard({
           masteryAverage * 0.4,
       )
     : masteryAverage;
-  if (!latest && !coverage.length)
+  if (!latest && !coverage.length && !practiceAttempts.length)
     return <p className="content-state">Данных пока нет.</p>;
   return (
     <div className="analytics-dashboard" data-testid="mock-analytics-dashboard">
@@ -116,13 +128,18 @@ export function MockAnalyticsDashboard({
           </strong>
           <small>
             {latest
-              ? latest.data.grade
+              ? latestSecondaryScore !== null
+                ? `Тестовый балл: ${latestSecondaryScore}/100 · первичный балл`
+                : latest.data.grade
                 ? `Оценка ${latest.data.grade}`
                 : "Первичный балл"
               : "Пробников пока нет"}
           </small>
         </article>
       </section>
+      <p className="workflow-hint" data-testid="analytics-evidence-summary">
+        В расчёте: пробников {exams.length} · попыток в практике {practiceAttempts.length}
+      </p>
       <section className="analytics-panel">
         <div className="panel-heading">
           <div>
@@ -247,7 +264,11 @@ export function MockAnalyticsDashboard({
               </p>
             </article>
           </section>
-          <MockExamReport exam={latest.data} audience={audience} />
+          <MockExamReport
+            exam={latest.data}
+            audience={audience}
+            secondaryScoreScale={secondaryScoreScale}
+          />
         </>
       ) : null}
     </div>
@@ -265,10 +286,14 @@ function criterionClass(criterion: EvaluationCriterion) {
 export function MockExamReport({
   exam,
   audience,
+  secondaryScoreScale,
 }: {
   exam: MockExam;
   audience: "teacher" | "student";
+  secondaryScoreScale?: ExamBlueprint["secondaryScoreScale"];
 }) {
+  const secondaryScore = exam.secondaryScore
+    ?? secondaryScoreForPrimary(exam.total.earned, secondaryScoreScale);
   const sections: Array<readonly [string, { earned: number; max: number }]> = exam.sectionResults
     ? Object.entries(exam.sectionResults)
     : [
@@ -303,7 +328,13 @@ export function MockExamReport({
           <strong>
             {exam.total.earned}/{exam.total.max}
           </strong>
-          <span>{exam.grade ? `Оценка ${exam.grade}` : "Первичный балл"}</span>
+          <span>
+            {secondaryScore !== null
+              ? `Первичный балл · тестовый ${secondaryScore}/100`
+              : exam.grade
+                ? `Оценка ${exam.grade}`
+                : "Первичный балл"}
+          </span>
         </div>
       </div>
       <div className="report-section-grid">

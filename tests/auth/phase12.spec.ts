@@ -29,6 +29,7 @@ test("teacher sees OGE and EGE in one cabinet and the mock form follows the blue
   await dialog.getByRole("button", { name: "Закрыть" }).click();
   await expect(page.getByText("29/38", { exact: true })).toBeVisible();
   await expect(page.getByText("20/37", { exact: false })).toBeVisible();
+  await expect(page.getByText("38/50 · 70/100 тест.", { exact: true })).toBeVisible();
 });
 
 test("EGE task 27 homework has a fast K1-K10 review and 150-word rule", async ({ page }) => {
@@ -64,8 +65,22 @@ test("EGE student sees the preserved result", async ({ page }) => {
   await login(page, "test.ege.student", "Ege-student-2027!", "student");
   await page.goto("/#/student/progress");
   await expect(page.getByRole("heading", { name: "38/50" })).toBeVisible();
+  await expect(page.getByText("Тестовый балл: 70/100", { exact: false })).toBeVisible();
   await page.goto("/#/student/homework");
   await expect(page.getByText("Проверить сочинение №27")).toBeVisible();
+});
+
+test("EGE analytics uses the same exam map and reports its evidence sources", async ({ page }) => {
+  await login(page);
+  await page.goto("/#/teacher/analytics");
+  await page.locator(".analytics-filters select").selectOption({ label: "Анна · ЕГЭ" });
+
+  await expect(page.getByTestId("mock-analytics-dashboard")).toBeVisible();
+  await expect(page.locator(".task-mastery-grid article")).toHaveCount(27);
+  await expect(page.getByTestId("analytics-evidence-summary")).toHaveText(
+    "В расчёте: пробников 1 · попыток в практике 0",
+  );
+  await expect(page.getByText("Тестовый балл: 70/100", { exact: false }).first()).toBeVisible();
 });
 
 test("teacher can schedule the EGE student", async ({ page }) => {

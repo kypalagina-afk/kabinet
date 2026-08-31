@@ -1,36 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { formatDateTimeForTimezone, resolveTimezone, zonedLocalDateTimeToDate } from "../schedule/timezone";
 import { russianTimezoneOptions } from "../schedule/timezoneOptions";
 import { getFirebaseDb } from "../../lib/firebase/client";
-import { subscribeExternalPracticeAttempts } from "../../lib/firebase/repositories/externalPracticeRepository";
 import {
   deleteExternalPracticeAttempt,
   importExternalPracticeAttempts,
 } from "../../lib/firebase/services/externalPracticeImport";
 import type { DocumentWithId, ExamKind, ExternalPracticeAttempt } from "../../lib/firebase/types";
 import { parseRussian100ManualText, practiceDraftKey, type ManualPracticeDraft } from "./manualImport";
-
-function useExternalPracticeAttempts(teacherId: string, studentId: string) {
-  const [state, setState] = useState({
-    data: [] as Array<DocumentWithId<ExternalPracticeAttempt>>,
-    loading: true,
-    error: null as string | null,
-  });
-  useEffect(() => subscribeExternalPracticeAttempts(
-    getFirebaseDb(),
-    teacherId,
-    studentId,
-    {
-      next: (data) => setState({ data, loading: false, error: null }),
-      error: () => setState((current) => ({
-        ...current,
-        loading: false,
-        error: "Не удалось загрузить практику Русский100.",
-      })),
-    },
-  ), [studentId, teacherId]);
-  return state;
-}
+import { useExternalPracticeAttempts } from "./hooks";
 
 interface ExternalPracticeTaskSummary {
   taskNumber: number;

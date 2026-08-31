@@ -423,6 +423,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /externalPracticeAttempts/{id} {
+      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow create: if teacherCreatesOwned(request.resource.data)
+        && request.resource.data.studentId is string
+        && request.resource.data.studentProgramId is string
+        && request.resource.data.provider == "russian100"
+        && request.resource.data.importMethod == "manual"
+        && studentProgramMatches(request.resource.data);
+      allow update, delete: if false;
+    }
+
     match /studentPaymentAccounts/{id} {
       allow get: if teacherOwns(resource.data)
         || (

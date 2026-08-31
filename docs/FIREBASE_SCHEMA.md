@@ -401,6 +401,19 @@ it is not persisted as a competing source of truth. Existing lessons stay in
 }
 ```
 
+## `externalPracticeAttempts/{attemptId}`
+
+Provider-agnostic external practice evidence. The current Russian100 fallback is
+manual and stores result metadata only: owner IDs, active student program and
+blueprint IDs, exam kind, task number, score/max score, accuracy, completion
+status, practice time, import time and deterministic `sourceRecordId`.
+
+- exact repeated imports are skipped by `sourceRecordId`;
+- full task wording, Russian100 credentials and cookies are never stored;
+- attempts do not update teacher mastery automatically;
+- task summaries are derived from attempts instead of stored as a second source
+  of truth.
+
 ## Derived analytics
 
 Не делать агрегат единственным источником правды.

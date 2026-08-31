@@ -21,6 +21,7 @@ import {
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb } from "../lib/firebase/client";
 import { programBlueprintId, programDisplayName } from "../features/exams/blueprints";
+import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
 
 export function TeacherAnalyticsPage() {
   const { user } = useAuth();
@@ -160,6 +161,10 @@ function TeacherAnalyticsWorkspace({
         homeworks={data.homeworks}
         submissions={data.homeworkSubmissions}
         teacherControls
+      />
+      <ExternalPracticePanel
+        studentId={studentId}
+        teacherId={teacherId}
       />
       <MockAnalyticsDashboard
         audience="teacher"

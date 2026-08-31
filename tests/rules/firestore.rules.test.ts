@@ -1386,4 +1386,40 @@ describe("idempotent domain operations", () => {
       updatedAt: Timestamp.now(),
     }));
   });
+
+  test("protects manually imported external practice by student ownership", async () => {
+    await seedFixture();
+    const teacherDb = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore();
+    const otherTeacherDb = testEnvironment.authenticatedContext(otherTeacherAuth.uid, otherTeacherAuth.token).firestore();
+    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
+    const otherStudentDb = testEnvironment.authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token).firestore();
+    const attempt = {
+      teacherId: teacherAuth.uid,
+      studentId: "student-1",
+      studentProgramId: "student-1-program",
+      examBlueprintId: "blueprint-1",
+      provider: "russian100",
+      examKind: "oge",
+      taskNumber: 11,
+      score: 3,
+      maxScore: 5,
+      accuracy: 60,
+      status: "completed",
+      practicedAt: Timestamp.now(),
+      importedAt: Timestamp.now(),
+      importMethod: "manual",
+      sourceRecordId: "manual-attempt-1",
+      sourceUrl: null,
+      ...baseTimestamps(),
+    };
+    await assertSucceeds(setDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"), attempt));
+    await assertSucceeds(getDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertSucceeds(getDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertFails(getDoc(doc(otherStudentDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertFails(setDoc(doc(otherTeacherDb, "externalPracticeAttempts", "forbidden"), attempt));
+    await assertFails(updateDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"), {
+      score: 5,
+      updatedAt: Timestamp.now(),
+    }));
+  });
 });

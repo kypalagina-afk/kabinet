@@ -27,6 +27,9 @@ CloudText-like highlighting, error category, criterion, comment, score, recurrin
 If API/export exists -> `practiceAttempts`.
 Otherwise self-report fallback.
 
+Manual fallback: teacher-confirmed paste/CSV import into `externalPracticeAttempts`.
+Official live sync remains blocked until Russian100 approves an API/export/data feed.
+
 ## v2 — Own question bank
 questionBank / tests / testItems / testAttempts.
 

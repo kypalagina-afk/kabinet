@@ -10,6 +10,7 @@ import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { programDisplayName } from "../features/exams/blueprints";
 import { useProgramProfiles } from "../features/materials/hooks";
+import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
 import { LessonJournal } from "../features/schedule/LessonJournal";
 import { formatDateTimeForTimezone, resolveTimezone } from "../features/schedule/timezone";
 import { russianTimezoneOptions, timezoneOffsetMinutes } from "../features/schedule/timezoneOptions";
@@ -35,12 +36,13 @@ import {
 import type { Student } from "../lib/firebase/types";
 import { isDemoProfile } from "../features/demo/demoMode";
 
-type Tab = "overview" | "lessons" | "homework" | "mocks" | "payment";
+type Tab = "overview" | "lessons" | "homework" | "mocks" | "practice" | "payment";
 const tabs: Array<[Tab, string]> = [
   ["overview", "Обзор"],
   ["lessons", "Занятия"],
   ["homework", "Домашние задания"],
   ["mocks", "Пробники"],
+  ["practice", "Практика"],
   ["payment", "Оплата"],
 ];
 type ConferenceLink = NonNullable<Student["conferenceLinks"]>[number];
@@ -425,6 +427,18 @@ export function TeacherStudentPage() {
             Для пробника нужен exam blueprint программы.
           </p>
         )
+      ) : null}
+      {tab === "practice" ? (
+        <ExternalPracticePanel
+          examBlueprintId={data.examBlueprint?.id}
+          examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}
+          importEnabled
+          studentId={studentId}
+          studentProgramId={data.studentProgram?.id}
+          taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
+          teacherId={user?.uid ?? ""}
+          timezoneIana={profile?.timezone.iana}
+        />
       ) : null}
       {tab === "payment" ? (
         <section

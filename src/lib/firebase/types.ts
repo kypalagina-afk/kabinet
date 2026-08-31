@@ -169,6 +169,27 @@ export interface StudentProgram extends AuditedDocument {
   completedAt: Timestamp | null;
 }
 
+export type ExternalPracticeProviderId = "russian100";
+
+export interface ExternalPracticeAttempt extends AuditedDocument {
+  teacherId: string;
+  studentId: string;
+  studentProgramId: string;
+  examBlueprintId: string;
+  provider: ExternalPracticeProviderId;
+  examKind: ExamKind;
+  taskNumber: number;
+  score: number;
+  maxScore: number;
+  accuracy: number;
+  status: "completed" | "incomplete";
+  practicedAt: Timestamp;
+  importedAt: Timestamp;
+  importMethod: "manual";
+  sourceRecordId: string;
+  sourceUrl: string | null;
+}
+
 export interface LessonSeries extends AuditedDocument {
   teacherId: string;
   studentId: string;
@@ -674,6 +695,7 @@ export interface CollectionSchema {
   programProfiles: ProgramProfile;
   examBlueprints: ExamBlueprint;
   studentPrograms: StudentProgram;
+  externalPracticeAttempts: ExternalPracticeAttempt;
   lessonSeries: LessonSeries;
   lessons: Lesson;
   lessonOccurrenceExclusions: LessonOccurrenceExclusion;

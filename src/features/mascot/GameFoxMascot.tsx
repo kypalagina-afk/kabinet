@@ -7,6 +7,11 @@ const spriteFrames = Array.from(
   (_, index) => `${import.meta.env.BASE_URL}assets/mascot/fox-idle-v2/frame-${String(index + 1).padStart(2, "0")}.png`,
 );
 
+const gazeFrames = Array.from(
+  { length: 9 },
+  (_, index) => `${import.meta.env.BASE_URL}assets/mascot/fox-gaze-v3/gaze-${String(index + 1).padStart(2, "0")}.png`,
+);
+
 const stageSequences: Record<Exclude<GameFoxStage, "complete">, number[]> = {
   rest: [3, 3, 3, 4, 3, 3, 0, 3],
   starting: [0, 1, 2, 3, 2, 1, 0],
@@ -30,13 +35,18 @@ export function GameFoxMascot({
   const rootRef = useRef<HTMLButtonElement>(null);
   const reactionTimerRef = useRef<number | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
+  const gazeIdleTimerRef = useRef<number | null>(null);
+  const lastGazeIndexRef = useRef<number | null>(null);
   const lastReactionRef = useRef(reactionKey);
   const [frameCursor, setFrameCursor] = useState(0);
+  const [gazeIndex, setGazeIndex] = useState<number | null>(null);
   const sequence = stage === "complete" ? null : stageSequences[stage];
   const spriteIndex = sequence?.[frameCursor % sequence.length] ?? 0;
   const imageSource = stage === "complete"
     ? completeImage
-    : spriteFrames[spriteIndex] ?? spriteFrames[0]!;
+    : gazeIndex !== null
+      ? gazeFrames[gazeIndex] ?? gazeFrames[4]!
+      : spriteFrames[spriteIndex] ?? spriteFrames[0]!;
 
   function react() {
     const root = rootRef.current;
@@ -65,17 +75,36 @@ export function GameFoxMascot({
         const lookY = Math.max(-1, Math.min(1, (event.clientY - centerY) / (window.innerHeight * 0.34)));
         root.style.setProperty("--fox-look-x", lookX.toFixed(3));
         root.style.setProperty("--fox-look-y", lookY.toFixed(3));
+
+        const column = lookX < -0.22 ? 0 : lookX > 0.22 ? 2 : 1;
+        const row = lookY < -0.2 ? 0 : lookY > 0.2 ? 2 : 1;
+        const nextGazeIndex = row * 3 + column;
+        if (lastGazeIndexRef.current !== nextGazeIndex) {
+          lastGazeIndexRef.current = nextGazeIndex;
+          setGazeIndex(nextGazeIndex);
+        }
+
+        if (gazeIdleTimerRef.current !== null) {
+          window.clearTimeout(gazeIdleTimerRef.current);
+        }
+        gazeIdleTimerRef.current = window.setTimeout(() => {
+          lastGazeIndexRef.current = null;
+          setGazeIndex(null);
+          root.style.setProperty("--fox-look-x", "0");
+          root.style.setProperty("--fox-look-y", "0");
+        }, 1400);
       });
     };
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       if (pointerFrameRef.current) window.cancelAnimationFrame(pointerFrameRef.current);
+      if (gazeIdleTimerRef.current !== null) window.clearTimeout(gazeIdleTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
-    spriteFrames.forEach((source) => {
+    [...spriteFrames, ...gazeFrames].forEach((source) => {
       const image = new Image();
       image.src = source;
     });

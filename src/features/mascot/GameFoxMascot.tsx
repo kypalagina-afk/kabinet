@@ -10,8 +10,6 @@ const stageImages: Record<GameFoxStage, string> = {
   complete: `${import.meta.env.BASE_URL}assets/mascot/fox-complete.png`,
 };
 
-const closedEyesImage = `${import.meta.env.BASE_URL}assets/mascot/fox-rig-base.png`;
-
 export function GameFoxMascot({
   badge,
   label,
@@ -24,7 +22,6 @@ export function GameFoxMascot({
   stage: GameFoxStage;
 }) {
   const rootRef = useRef<HTMLButtonElement>(null);
-  const blinkTimerRef = useRef<number | null>(null);
   const reactionTimerRef = useRef<number | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
   const lastReactionRef = useRef(reactionKey);
@@ -66,27 +63,6 @@ export function GameFoxMascot({
   }, []);
 
   useEffect(() => {
-    const root = rootRef.current;
-    if (!root || stage === "rest" || stage === "complete" || window.matchMedia("(prefers-reduced-motion: reduce)").matches)
-      return undefined;
-    let cancelled = false;
-    const scheduleBlink = () => {
-      blinkTimerRef.current = window.setTimeout(() => {
-        if (cancelled) return;
-        root.classList.add("game-fox--blinking");
-        window.setTimeout(() => root.classList.remove("game-fox--blinking"), 150);
-        scheduleBlink();
-      }, 2_600 + Math.round(Math.random() * 3_400));
-    };
-    scheduleBlink();
-    return () => {
-      cancelled = true;
-      if (blinkTimerRef.current) window.clearTimeout(blinkTimerRef.current);
-      root.classList.remove("game-fox--blinking");
-    };
-  }, [stage]);
-
-  useEffect(() => {
     if (lastReactionRef.current === reactionKey) return;
     lastReactionRef.current = reactionKey;
     react();
@@ -110,13 +86,6 @@ export function GameFoxMascot({
       <span aria-hidden="true" className="game-fox__shadow" />
       <span aria-hidden="true" className="game-fox__rig">
         <img alt="" className="game-fox__body" draggable={false} src={stageImages[stage]} />
-        <span className="game-fox__ear game-fox__ear--left">
-          <img alt="" draggable={false} src={stageImages[stage]} />
-        </span>
-        <span className="game-fox__ear game-fox__ear--right">
-          <img alt="" draggable={false} src={stageImages[stage]} />
-        </span>
-        <img alt="" className="game-fox__blink" draggable={false} src={closedEyesImage} />
       </span>
       <span aria-hidden="true" className="game-fox__sparkles"><i>✦</i><i>★</i><i>✦</i></span>
     </button>

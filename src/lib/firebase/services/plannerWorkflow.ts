@@ -6,6 +6,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import type {
+  Lesson,
   PlannerGoal,
   PlannerItem,
   PlannerRecurrencePattern,
@@ -344,6 +345,48 @@ export async function setPlannerItemCompleted(
       updatedAt: serverTimestamp(),
     });
   });
+}
+
+async function setLessonPlannerTimestamp(
+  db: Firestore,
+  teacherId: string,
+  lessonId: string,
+  field: "plannerCompletedAt" | "plannerPreparationCompletedAt",
+  completed: boolean,
+): Promise<void> {
+  const reference = doc(db, "lessons", lessonId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists() || snapshot.data().teacherId !== teacherId) {
+      throw new Error("Урок не найден");
+    }
+    const lesson = snapshot.data() as Lesson;
+    if (lesson.status !== "planned" && lesson.status !== "completed") {
+      throw new Error("Отменённый или перенесённый урок нельзя отметить в планере");
+    }
+    transaction.update(reference, {
+      [field]: completed ? serverTimestamp() : null,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export function setLessonPlannerCompleted(
+  db: Firestore,
+  teacherId: string,
+  lessonId: string,
+  completed: boolean,
+): Promise<void> {
+  return setLessonPlannerTimestamp(db, teacherId, lessonId, "plannerCompletedAt", completed);
+}
+
+export function setLessonPreparationCompleted(
+  db: Firestore,
+  teacherId: string,
+  lessonId: string,
+  completed: boolean,
+): Promise<void> {
+  return setLessonPlannerTimestamp(db, teacherId, lessonId, "plannerPreparationCompletedAt", completed);
 }
 
 export async function archivePlannerItem(

@@ -168,6 +168,8 @@ export async function rescheduleLesson(
       billingType: original.billingType ?? (original.paymentStatus === "free" ? "free" : "regular"),
       billingIdentityId: original.billingIdentityId ?? input.lessonId,
       paymentStatus: original.paymentStatus,
+      plannerCompletedAt: original.plannerCompletedAt ?? null,
+      plannerPreparationCompletedAt: original.plannerPreparationCompletedAt ?? null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       schemaVersion: 1,

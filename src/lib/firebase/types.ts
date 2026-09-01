@@ -248,6 +248,8 @@ export interface Lesson extends AuditedDocument {
   } | null;
   paymentStatus: "paid" | "unpaid" | "free" | "unknown";
   wasRescheduled?: boolean;
+  plannerCompletedAt?: Timestamp | null;
+  plannerPreparationCompletedAt?: Timestamp | null;
 }
 
 export interface LessonOccurrenceExclusion extends AuditedDocument {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { Timestamp } from "firebase/firestore";
+import { Link } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { AIShortcutButton } from "../features/ai/AIShortcutButton";
 import { useAuth } from "../features/auth/AuthProvider";
@@ -25,6 +26,8 @@ import {
   materializePlannerRecurrence,
   plannerGoalProgress,
   schedulePlannerItem,
+  setLessonPlannerCompleted,
+  setLessonPreparationCompleted,
   setPlannerItemCompleted,
   setPlannerSubgoalCompleted,
   updatePlannerItem,
@@ -34,7 +37,15 @@ import {
   type PlannerRecurrenceScope,
 } from "../lib/firebase/services/plannerWorkflow";
 import { isPlannerRecurrenceTemplate } from "../features/planner/recurrence";
+import {
+  calculatePlannerDayProgress,
+  isLessonWrapUpCompleted,
+  isPlannerVisibleLesson,
+  plannerProgressStage,
+  type PlannerDayProgress,
+} from "../features/planner/lessonProgress";
 import { plannerCategoryCounts, sortPlannerItems } from "../features/planner/sorting";
+import { avatarAssetUrl } from "../features/avatar/avatarCatalog";
 import {
   plannerIntervalEnd,
   plannerMinutesToTime,
@@ -187,10 +198,16 @@ export function TeacherPlannerPage() {
       ? data.category === "home" || data.category === "personal"
       : data.category === filter;
   });
-  const lessons = filter === "all" || filter === "work" ? schedule.data.lessons : [];
+  const plannerLessons = schedule.data.lessons.filter(({ data }) => isPlannerVisibleLesson(data));
+  const lessons = filter === "all" || filter === "work" ? plannerLessons : [];
   const selectedDates = view === "day" || view === "timeline" ? [focusDate] : view === "week" ? weekDates(focusDate) : monthDates(focusDate);
   const focusItems = visibleItems.filter(({ data }) => data.date === focusDate);
   const focusLessons = lessons.filter(({ data }) => lessonDate(data, teacherTimezone) === focusDate);
+  const progressItems = planner.data.items.filter(({ data }) =>
+    data.date === focusDate && data.active && !isPlannerRecurrenceTemplate(data)
+  );
+  const progressLessons = plannerLessons.filter(({ data }) => lessonDate(data, teacherTimezone) === focusDate);
+  const dayProgress = calculatePlannerDayProgress(progressItems, progressLessons);
   const backlogItems = planner.data.items.filter(
     ({ data }) => data.active && !isPlannerRecurrenceTemplate(data) && data.category === "someday" && !data.date,
   );
@@ -200,6 +217,32 @@ export function TeacherPlannerPage() {
     setViewState(value);
     localStorage.setItem("teacher-planner-view", value);
   };
+
+  async function toggleLessonPlannerCheck(lesson: DocumentWithId<Lesson>) {
+    try {
+      await setLessonPlannerCompleted(
+        getFirebaseDb(),
+        teacherId,
+        lesson.id,
+        !lesson.data.plannerCompletedAt,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось отметить урок в планере.");
+    }
+  }
+
+  async function toggleLessonPreparation(lesson: DocumentWithId<Lesson>) {
+    try {
+      await setLessonPreparationCompleted(
+        getFirebaseDb(),
+        teacherId,
+        lesson.id,
+        !lesson.data.plannerPreparationCompletedAt,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось отметить подготовку к уроку.");
+    }
+  }
 
   const recurrenceSignature = useMemo(() => planner.data.items
     .filter(({ data }) => data.active && isPlannerRecurrenceTemplate(data) && data.recurrence)
@@ -395,6 +438,8 @@ export function TeacherPlannerPage() {
         </div>
       </section>
 
+      <PlannerProgress progress={dayProgress} />
+
       <div className="planner-workspace">
         <section className={`planner-calendar planner-calendar--${view}`} data-testid={`planner-${view}`}>
           {view === "day" ? (
@@ -406,6 +451,8 @@ export function TeacherPlannerPage() {
                 students={schedule.data.students}
                 onCreate={() => openCreate(focusDate)}
                 onEdit={openEdit}
+                onToggleLesson={(lesson) => void toggleLessonPlannerCheck(lesson)}
+                onTogglePreparation={(lesson) => void toggleLessonPreparation(lesson)}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
                 title="Работа"
                 timezone={teacherTimezone}
@@ -417,6 +464,8 @@ export function TeacherPlannerPage() {
                 students={schedule.data.students}
                 onCreate={() => { openCreate(focusDate); setDraft({ ...emptyInput(focusDate), category: "home" }); }}
                 onEdit={openEdit}
+                onToggleLesson={(lesson) => void toggleLessonPlannerCheck(lesson)}
+                onTogglePreparation={(lesson) => void toggleLessonPreparation(lesson)}
                 onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
                 title="Дом"
                 timezone={teacherTimezone}
@@ -434,6 +483,8 @@ export function TeacherPlannerPage() {
               onDrop={dropOnDate}
               onEdit={openEdit}
               onOpenDay={(date) => { setFocusDate(date); setView("day"); }}
+              onToggleLesson={(lesson) => void toggleLessonPlannerCheck(lesson)}
+              onTogglePreparation={(lesson) => void toggleLessonPreparation(lesson)}
               onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
             />
           ) : view === "month" ? (
@@ -456,6 +507,8 @@ export function TeacherPlannerPage() {
               onCreate={openCreate}
               onDrop={dropOnDate}
               onEdit={openEdit}
+              onToggleLesson={(lesson) => void toggleLessonPlannerCheck(lesson)}
+              onTogglePreparation={(lesson) => void toggleLessonPreparation(lesson)}
               onToggle={(item) => void setPlannerItemCompleted(getFirebaseDb(), teacherId, item.id, item.data.status !== "done")}
             />
           )}
@@ -498,9 +551,96 @@ export function TeacherPlannerPage() {
   );
 }
 
-function PlannerLesson({ lesson, studentName, timezone }: { lesson: DocumentWithId<Lesson>; studentName?: string; timezone: ResolvedTimezone }) {
+const progressStageCopy = {
+  rest: { badge: "💤", label: "Лисёнок ждёт первого выполненного дела" },
+  starting: { badge: "☕", label: "Отличное начало — лисёнок проснулся" },
+  working: { badge: "📝", label: "Лисёнок в деле — половина уже близко" },
+  almost: { badge: "✨", label: "Почти готово — осталось совсем немного" },
+  complete: { badge: "🎉", label: "Все дела на день выполнены!" },
+} as const;
+
+function PlannerProgress({ progress }: { progress: PlannerDayProgress }) {
+  const stage = plannerProgressStage(progress);
+  const copy = progressStageCopy[stage];
+  return (
+    <section className={`planner-progress planner-progress--${stage}`} data-testid="planner-day-progress">
+      <div className="planner-progress__copy">
+        <div className="planner-progress__heading">
+          <div>
+            <p className="eyebrow">Прогресс дня</p>
+            <strong>{progress.completed} из {progress.total} выполнено</strong>
+          </div>
+          <b>{progress.percent}%</b>
+        </div>
+        <div
+          aria-label={`Прогресс дня: ${progress.percent}%`}
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={progress.percent}
+          className="planner-progress__track"
+          role="progressbar"
+        >
+          <i style={{ width: `${progress.percent}%` }} />
+        </div>
+        <small>{copy.label}</small>
+      </div>
+      <div aria-label={copy.label} className="planner-progress__mascot" role="img">
+        <span aria-hidden="true">{copy.badge}</span>
+        <img alt="" draggable={false} src={avatarAssetUrl("animal_03")} />
+      </div>
+    </section>
+  );
+}
+
+function PlannerLesson({ lesson, studentName, timezone, onToggle }: { lesson: DocumentWithId<Lesson>; studentName?: string; timezone: ResolvedTimezone; onToggle(): void }) {
   const duration = Math.round((lesson.data.endAt.toMillis() - lesson.data.startAt.toMillis()) / 60_000);
-  return <article className="planner-entry planner-entry--lesson" draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)}–{lessonEndTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></article>;
+  const done = Boolean(lesson.data.plannerCompletedAt);
+  return <article className={`planner-entry planner-entry--lesson${done ? " planner-entry--done" : ""}`} draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><button aria-label={done ? `Вернуть урок с ${studentName ?? "учеником"} в планер` : `Отметить урок с ${studentName ?? "учеником"} выполненным в планере`} className="planner-check" onClick={onToggle} type="button">{done ? "✓" : "○"}</button><div className="planner-entry-copy"><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)}–{lessonEndTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></div></article>;
+}
+
+function PlannerLessonWorkflowTask({
+  kind,
+  lesson,
+  studentName,
+  onTogglePreparation,
+}: {
+  kind: "preparation" | "wrap-up";
+  lesson: DocumentWithId<Lesson>;
+  studentName?: string;
+  onTogglePreparation(): void;
+}) {
+  const name = studentName ?? "Ученик";
+  const preparation = kind === "preparation";
+  const done = preparation
+    ? Boolean(lesson.data.plannerPreparationCompletedAt)
+    : isLessonWrapUpCompleted(lesson.data);
+  const title = preparation ? `Подготовить урок — ${name}` : `Завершить урок — ${name}`;
+  return (
+    <article className={`planner-entry planner-entry--work planner-entry--lesson-task planner-entry--priority-high${done ? " planner-entry--done" : ""}`}>
+      {preparation ? (
+        <button
+          aria-label={done ? `Вернуть задачу «${title}»` : `Выполнить задачу «${title}»`}
+          className="planner-check"
+          onClick={onTogglePreparation}
+          type="button"
+        >
+          {done ? "✓" : "○"}
+        </button>
+      ) : <span aria-hidden="true" className="planner-check">{done ? "✓" : "○"}</span>}
+      {preparation ? (
+        <div className="planner-entry-copy">
+          <span>✨ Автоматически из расписания</span>
+          <strong>{title}</strong>
+        </div>
+      ) : (
+        <Link className="planner-entry-copy" to={`/teacher/calendar?lesson=${lesson.id}`}>
+          <span>📝 Итоги урока и домашнее задание</span>
+          <strong>{title}</strong>
+          <small>{done ? "Отчёт заполнен, решение по ДЗ принято" : "Открыть урок и заполнить отчёт"}</small>
+        </Link>
+      )}
+    </article>
+  );
 }
 
 function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerItem>; onEdit(): void; onToggle(): void }) {
@@ -512,8 +652,9 @@ function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerI
   return <article aria-label={priorityLabel} className={`planner-entry planner-entry--${item.data.category} planner-entry--priority-${priority}${item.data.status === "done" ? " planner-entry--done" : ""}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/planner-item-id", item.id)} title={priorityLabel}><button aria-label={item.data.status === "done" ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={onToggle} type="button">{item.data.status === "done" ? "✓" : "○"}</button><button className="planner-entry-copy" onClick={onEdit} type="button">{item.data.recurrenceSeriesId ? <span>↻ регулярно</span> : null}<strong>{time}{item.data.title}{item.data.durationMinutes && !item.data.endTime ? ` · ≈ ${item.data.durationMinutes} мин` : ""}</strong>{item.data.notes ? <small>{item.data.notes}</small> : null}</button></article>;
 }
 
-function PlannerCategoryColumn({ emoji, title, items, lessons, students, timezone, onCreate, onEdit, onToggle }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; students: Array<DocumentWithId<Student>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {
-  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{[...lessons].sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis()).map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} timezone={timezone} />)}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
+function PlannerCategoryColumn({ emoji, title, items, lessons, students, timezone, onCreate, onEdit, onToggle, onToggleLesson, onTogglePreparation }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; students: Array<DocumentWithId<Student>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void; onToggleLesson(lesson: DocumentWithId<Lesson>): void; onTogglePreparation(lesson: DocumentWithId<Lesson>): void }) {
+  const orderedLessons = [...lessons].sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis());
+  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{orderedLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} timezone={timezone} />)}{orderedLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />]))}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
 }
 
 function BacklogItem({ item, today, onEdit, onMove }: { item: DocumentWithId<PlannerItem>; today: string; onEdit(): void; onMove(date: string, startTime: string | null, category: "work" | "home"): void }) {
@@ -531,18 +672,18 @@ interface PlannerCalendarViewProps {
   onOpenDay(date: string): void;
 }
 
-function PlannerWeek({ dates, focusDate, items, lessons, students, timezone, onCreate, onDrop, onEdit, onOpenDay, onToggle }: PlannerCalendarViewProps & { students: Array<DocumentWithId<Student>>; onCreate(date: string, startTime?: string | null, itemType?: "event" | "task"): void; onDrop(event: React.DragEvent, date: string, time?: string | null): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void }) {
+function PlannerWeek({ dates, focusDate, items, lessons, students, timezone, onCreate, onDrop, onEdit, onOpenDay, onToggle, onToggleLesson, onTogglePreparation }: PlannerCalendarViewProps & { students: Array<DocumentWithId<Student>>; onCreate(date: string, startTime?: string | null, itemType?: "event" | "task"): void; onDrop(event: React.DragEvent, date: string, time?: string | null): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void; onToggleLesson(lesson: DocumentWithId<Lesson>): void; onTogglePreparation(lesson: DocumentWithId<Lesson>): void }) {
   return <div className="planner-days">{dates.map((date) => {
     const dayItems = sortPlannerItems(items.filter(({ data }) => data.date === date));
     const dayLessons = lessons.filter(({ data }) => lessonDate(data, timezone) === date).sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis());
     const timed = dayItems.filter(({ data }) => data.startTime && data.status !== "done");
     const untimed = dayItems.filter(({ data }) => !data.startTime && data.status !== "done");
     const completed = dayItems.filter(({ data }) => data.status === "done");
-    return <article className={`planner-day planner-week-card${date === focusDate ? " planner-day--selected" : ""}`} key={date} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void onDrop(event, date)}><header><button onClick={() => onOpenDay(date)} type="button"><strong>{new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "long" }).format(dateFromKey(date))}</strong></button><button aria-label={`Добавить план ${date}`} onClick={() => onCreate(date)} type="button">+</button></header>{dayLessons.length || timed.length ? <section className="planner-week-group"><h3>По времени</h3>{dayLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} timezone={timezone} />)}{timed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{untimed.length ? <section className="planner-week-group"><h3>Задачи</h3>{(["work", "home"] as const).map((category) => { const grouped = untimed.filter(({ data }) => category === "work" ? data.category === "work" : data.category === "home" || data.category === "personal"); return grouped.length ? <div className="planner-week-category" key={category}><span>{category === "work" ? "Работа" : "Дом"}</span>{grouped.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</div> : null; })}</section> : null}{completed.length ? <section className="planner-week-group planner-week-group--completed"><h3>Выполнено</h3>{completed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{!dayLessons.length && !dayItems.length ? <p className="content-state">Свободный день</p> : null}<button className="planner-inline-add" onClick={() => onCreate(date, null, "task")} type="button">+ Добавить</button></article>;
+    return <article className={`planner-day planner-week-card${date === focusDate ? " planner-day--selected" : ""}`} key={date} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void onDrop(event, date)}><header><button onClick={() => onOpenDay(date)} type="button"><strong>{new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "long" }).format(dateFromKey(date))}</strong></button><button aria-label={`Добавить план ${date}`} onClick={() => onCreate(date)} type="button">+</button></header>{dayLessons.length || timed.length ? <section className="planner-week-group"><h3>По времени</h3>{dayLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} timezone={timezone} />)}{timed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{dayLessons.length || untimed.length ? <section className="planner-week-group"><h3>Задачи</h3>{dayLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />]))}{(["work", "home"] as const).map((category) => { const grouped = untimed.filter(({ data }) => category === "work" ? data.category === "work" : data.category === "home" || data.category === "personal"); return grouped.length ? <div className="planner-week-category" key={category}><span>{category === "work" ? "Работа" : "Дом"}</span>{grouped.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</div> : null; })}</section> : null}{completed.length ? <section className="planner-week-group planner-week-group--completed"><h3>Выполнено</h3>{completed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{!dayLessons.length && !dayItems.length ? <p className="content-state">Свободный день</p> : null}<button className="planner-inline-add" onClick={() => onCreate(date, null, "task")} type="button">+ Добавить</button></article>;
   })}</div>;
 }
 
-function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, onDrop, onEdit, onToggle }: {
+function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, onDrop, onEdit, onToggle, onToggleLesson, onTogglePreparation }: {
   date: string;
   items: Array<DocumentWithId<PlannerItem>>;
   lessons: Array<DocumentWithId<Lesson>>;
@@ -552,6 +693,8 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
   onDrop(event: React.DragEvent, date: string, time?: string | null): void;
   onEdit(item: DocumentWithId<PlannerItem>): void;
   onToggle(item: DocumentWithId<PlannerItem>): void;
+  onToggleLesson(lesson: DocumentWithId<Lesson>): void;
+  onTogglePreparation(lesson: DocumentWithId<Lesson>): void;
 }) {
   const timedItems = sortPlannerItems(items.filter(({ data }) => Boolean(data.startTime)));
   const intervals = [
@@ -592,7 +735,7 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
       start: plannerTimeToMinutes(lessonTime(lesson.data, timezone)),
       end: plannerTimeToMinutes(lessonEndTime(lesson.data, timezone)),
       lesson,
-      done: lesson.data.status === "completed",
+      done: Boolean(lesson.data.plannerCompletedAt),
     })),
   ].sort((left, right) => left.start - right.start || left.end - right.end);
   const laneEnds: number[] = [];
@@ -624,11 +767,11 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
           if (event.kind === "task") {
             return <article className={`planner-timeline__event planner-timeline__event--task${event.done ? " planner-timeline__event--done" : ""}`} draggable key={`task-${event.id}`} onDragStart={(drag) => drag.dataTransfer.setData("text/planner-item-id", event.id)} style={style}><button onClick={() => onEdit(event.item)} type="button"><time>{plannerMinutesToTime(event.start)}–{plannerMinutesToTime(event.end)}</time><strong>{event.title}</strong></button><button aria-label={event.done ? "Вернуть задачу" : "Выполнить задачу"} className="planner-check" onClick={() => onToggle(event.item)} type="button">{event.done ? "✓" : "○"}</button></article>;
           }
-          return <article className={`planner-timeline__event planner-timeline__event--lesson${event.done ? " planner-timeline__event--done" : ""}`} draggable={event.lesson.data.status === "planned"} key={`lesson-${event.id}`} onDragStart={(drag) => drag.dataTransfer.setData("text/planner-lesson-id", event.id)} style={style}><time>{plannerMinutesToTime(event.start)}–{plannerMinutesToTime(event.end)}</time><strong>{event.title}</strong></article>;
+          return <article className={`planner-timeline__event planner-timeline__event--lesson${event.done ? " planner-timeline__event--done" : ""}`} draggable={event.lesson.data.status === "planned"} key={`lesson-${event.id}`} onDragStart={(drag) => drag.dataTransfer.setData("text/planner-lesson-id", event.id)} style={style}><div><time>{plannerMinutesToTime(event.start)}–{plannerMinutesToTime(event.end)}</time><strong>{event.title}</strong></div><button aria-label={event.done ? "Вернуть урок в планер" : "Отметить урок выполненным в планере"} className="planner-check" onClick={() => onToggleLesson(event.lesson)} type="button">{event.done ? "✓" : "○"}</button></article>;
         })}
       </div>
     </div>
-    {untimed.length ? <section className="planner-timeline__untimed"><div className="section-heading"><h3>Без времени</h3><button onClick={() => onCreate(date)} type="button">+</button></div>{untimed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}
+    {lessons.length || untimed.length ? <section className="planner-timeline__untimed"><div className="section-heading"><h3>Задачи дня</h3><button onClick={() => onCreate(date)} type="button">+</button></div>{lessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={students.find(({ id }) => id === lesson.data.studentId)?.data.displayName} />]))}{untimed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}
   </div>;
 }
 

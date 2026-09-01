@@ -5,6 +5,7 @@ import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
 import { effectiveHomeworkStatus } from "../features/homework/selectors";
 import { useTeacherPlanner } from "../features/planner/hooks";
+import { FocusTimerWidget } from "../features/focus-timer/FocusTimerWidget";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { isCurrentDashboardLesson } from "../features/schedule/dashboardLessons";
 import {
@@ -84,6 +85,7 @@ export function TeacherHomePage() {
           Открыть расписание
         </Link>
       </header>
+      <FocusTimerWidget compact />
       <section className="teacher-stat-grid" aria-label="Сводка преподавателя">
         <Link to="/teacher/calendar">
           <span className="stat-icon stat-icon--violet">📅</span>

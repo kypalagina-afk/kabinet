@@ -7,6 +7,7 @@ import { moscowTimezoneLabel, resolveTimezone } from "../features/schedule/timez
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { teacherAIAssistantEnabled } from "../features/ai/featureFlag";
 import { DEMO_MUTATION_NOTICE, isDemoProfile } from "../features/demo/demoMode";
+import { FocusTimerProvider } from "../features/focus-timer/FocusTimerProvider";
 
 const TeacherAIAssistant = lazy(() => import("../features/ai/TeacherAIAssistant").then((module) => ({ default: module.TeacherAIAssistant })));
 
@@ -52,10 +53,11 @@ export function TeacherShell() {
     return () => window.removeEventListener("open-teacher-ai", openAssistant);
   }, []);
   return (
-    <div
-      className={`teacher-shell${collapsed ? " teacher-shell--collapsed" : ""}`}
-      data-testid="teacher-shell"
-    >
+    <FocusTimerProvider>
+      <div
+        className={`teacher-shell${collapsed ? " teacher-shell--collapsed" : ""}`}
+        data-testid="teacher-shell"
+      >
       <aside
         className="teacher-sidebar"
         onClick={(event) => {
@@ -204,6 +206,7 @@ export function TeacherShell() {
         <Outlet />
       </div>
       {assistantOpen ? <Suspense fallback={<div className="assistant-loading" role="status">Загружаем помощника…</div>}><TeacherAIAssistant initialCommand={assistantPrompt} onClose={() => setAssistantOpen(false)} /></Suspense> : null}
-    </div>
+      </div>
+    </FocusTimerProvider>
   );
 }

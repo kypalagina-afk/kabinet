@@ -559,6 +559,60 @@ const progressStageCopy = {
   complete: { badge: "🎉", label: "Все дела на день выполнены!" },
 } as const;
 
+const mascotFrames = {
+  rest: [avatarAssetUrl("animal_03")],
+  starting: [
+    `${import.meta.env.BASE_URL}assets/mascot/fox-starting.png`,
+    avatarAssetUrl("animal_03"),
+  ],
+  working: [
+    `${import.meta.env.BASE_URL}assets/mascot/fox-working.png`,
+    `${import.meta.env.BASE_URL}assets/mascot/fox-starting.png`,
+  ],
+  almost: [
+    `${import.meta.env.BASE_URL}assets/mascot/fox-almost.png`,
+    `${import.meta.env.BASE_URL}assets/mascot/fox-starting.png`,
+  ],
+  complete: [
+    `${import.meta.env.BASE_URL}assets/mascot/fox-complete.png`,
+    `${import.meta.env.BASE_URL}assets/mascot/fox-almost.png`,
+  ],
+} as const;
+
+function AnimatedPlannerMascot({
+  badge,
+  label,
+  stage,
+}: {
+  badge: string;
+  label: string;
+  stage: keyof typeof mascotFrames;
+}) {
+  const frames = mascotFrames[stage];
+  const [frameIndex, setFrameIndex] = useState(0);
+  useEffect(() => {
+    if (frames.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      return undefined;
+    const interval = window.setInterval(
+      () => setFrameIndex((current) => (current + 1) % frames.length),
+      stage === "complete" ? 1_500 : 2_350,
+    );
+    return () => window.clearInterval(interval);
+  }, [frames, stage]);
+  return (
+    <div aria-label={label} className="planner-progress__mascot" data-expression={stage} role="img">
+      <span aria-hidden="true">{badge}</span>
+      <img
+        alt=""
+        className="planner-progress__mascot-frame"
+        draggable={false}
+        key={`${stage}-${frameIndex}`}
+        src={frames[frameIndex]}
+      />
+    </div>
+  );
+}
+
 function PlannerProgress({ progress }: { progress: PlannerDayProgress }) {
   const stage = plannerProgressStage(progress);
   const copy = progressStageCopy[stage];
@@ -584,10 +638,7 @@ function PlannerProgress({ progress }: { progress: PlannerDayProgress }) {
         </div>
         <small>{copy.label}</small>
       </div>
-      <div aria-label={copy.label} className="planner-progress__mascot" role="img">
-        <span aria-hidden="true">{copy.badge}</span>
-        <img alt="" draggable={false} src={avatarAssetUrl("animal_03")} />
-      </div>
+      <AnimatedPlannerMascot badge={copy.badge} key={stage} label={copy.label} stage={stage} />
     </section>
   );
 }

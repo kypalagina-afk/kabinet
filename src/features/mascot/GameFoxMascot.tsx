@@ -116,8 +116,6 @@ export function GameFoxMascot({
         <span className="game-fox__ear game-fox__ear--right">
           <img alt="" draggable={false} src={stageImages[stage]} />
         </span>
-        <span className="game-fox__eye game-fox__eye--left" />
-        <span className="game-fox__eye game-fox__eye--right" />
         <img alt="" className="game-fox__blink" draggable={false} src={closedEyesImage} />
       </span>
       <span aria-hidden="true" className="game-fox__sparkles"><i>✦</i><i>★</i><i>✦</i></span>

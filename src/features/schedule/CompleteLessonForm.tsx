@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
@@ -45,6 +46,8 @@ export function CompleteLessonForm({
     "idle" | "saving" | "success" | "error"
   >("idle");
   const [completed, setCompleted] = useState(false);
+  const [editingErrorIndex, setEditingErrorIndex] = useState<number | null>(null);
+  const errorInputRef = useRef<HTMLInputElement>(null);
   const initial = useMemo(
     () => ({
       topic: lesson.data.topic ?? "",
@@ -94,9 +97,37 @@ export function CompleteLessonForm({
     if (!value) return;
     setValues((current) => ({
       ...current,
-      errors: [...new Set([...current.errors, value])],
+      errors: [
+        ...new Set(
+          editingErrorIndex === null
+            ? [...current.errors, value]
+            : current.errors.map((item, index) =>
+                index === editingErrorIndex ? value : item,
+              ),
+        ),
+      ],
       errorDraft: "",
     }));
+    setEditingErrorIndex(null);
+  }
+  function editError(index: number) {
+    setValues((current) => ({
+      ...current,
+      errorDraft: current.errors[index] ?? "",
+    }));
+    setEditingErrorIndex(index);
+    window.requestAnimationFrame(() => {
+      errorInputRef.current?.focus();
+      errorInputRef.current?.select();
+    });
+  }
+  function removeError(index: number) {
+    setValues((current) => ({
+      ...current,
+      errors: current.errors.filter((_, itemIndex) => itemIndex !== index),
+      errorDraft: editingErrorIndex === index ? "" : current.errorDraft,
+    }));
+    setEditingErrorIndex(null);
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -312,35 +343,58 @@ export function CompleteLessonForm({
                 </label>
                 <div className="tag-editor">
                   <div className="tag-row">
-                    {values.errors.map((value) => (
-                      <button
-                        aria-label={`Удалить ${value}`}
-                        className="status-chip"
+                    {values.errors.map((value, index) => (
+                      <span
+                        className={`status-chip error-chip${editingErrorIndex === index ? " error-chip--editing" : ""}`}
                         key={value}
-                        onClick={() =>
-                          setValues({
-                            ...values,
-                            errors: values.errors.filter(
-                              (item) => item !== value,
-                            ),
-                          })
-                        }
-                        type="button"
                       >
-                        {value} ×
-                      </button>
+                        <button
+                          aria-label={`Исправить ${value}`}
+                          className="error-chip__edit"
+                          onClick={() => editError(index)}
+                          type="button"
+                        >
+                          {value}
+                        </button>
+                        <button
+                          aria-label={`Удалить ${value}`}
+                          className="error-chip__remove"
+                          onClick={() => removeError(index)}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </span>
                     ))}
                   </div>
-                  <input
-                    id={`lesson-errors-${lesson.id}`}
-                    onBlur={() => addError()}
-                    onChange={(event) =>
-                      setValues({ ...values, errorDraft: event.target.value })
-                    }
-                    onKeyDown={addError}
-                    placeholder="Введите ошибку и нажмите Enter"
-                    value={values.errorDraft}
-                  />
+                  <div className="tag-editor__input-row">
+                    <input
+                      id={`lesson-errors-${lesson.id}`}
+                      onChange={(event) =>
+                        setValues({ ...values, errorDraft: event.target.value })
+                      }
+                      onKeyDown={addError}
+                      placeholder={editingErrorIndex === null
+                        ? "Введите ошибку и нажмите Enter"
+                        : "Исправьте ошибку и нажмите Enter"}
+                      ref={errorInputRef}
+                      value={values.errorDraft}
+                    />
+                    <button
+                      aria-label={editingErrorIndex === null
+                        ? "Добавить ошибку"
+                        : "Сохранить исправление"}
+                      className="tag-editor__submit"
+                      disabled={!values.errorDraft.trim()}
+                      onClick={() => addError()}
+                      title={editingErrorIndex === null
+                        ? "Добавить ошибку"
+                        : "Сохранить исправление"}
+                      type="button"
+                    >
+                      →
+                    </button>
+                  </div>
                 </div>
               </div>
               <button

@@ -417,7 +417,11 @@ service cloud.firestore {
     }
 
     match /studentTaskCoverage/{id} {
-      allow read: if teacherOwns(resource.data) || studentOwns(resource.data);
+      allow get: if (
+          isTeacher()
+          && !exists(/databases/$(database)/documents/studentTaskCoverage/$(id))
+        ) || teacherOwns(resource.data) || studentOwns(resource.data);
+      allow list: if teacherOwns(resource.data) || studentOwns(resource.data);
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data) && ownershipUnchanged();
       allow delete: if false;

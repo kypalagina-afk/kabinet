@@ -1232,6 +1232,39 @@ describe("idempotent domain operations", () => {
     });
   });
 
+  test("completes an EGE lesson when selected tasks have no coverage records yet", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "lessons", "ege-lesson-new-coverage"), {
+        ...scheduledLessonDocument(new Date("2026-09-01T15:00:00.000Z")),
+        lessonSeriesId: null,
+      });
+    });
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+
+    await expect(completeLesson(db, {
+      lessonId: "ege-lesson-new-coverage",
+      teacherId: teacherAuth.uid,
+      topic: "Подготовка к заданию 27 ЕГЭ",
+      lessonSummary: {
+        homeworkResultText: null,
+        teacherComment: "Разобрали структуру сочинения",
+        focusNotes: ["Паронимы"],
+        errors: ["Паронимы"],
+        studentComment: "Повторить словарь паронимов",
+      },
+      understanding: { score: 7, status: "in_progress" },
+      examTaskNumbers: [27],
+    })).resolves.toEqual({ status: "completed", homeworkId: null });
+
+    expect((await getDoc(doc(db, "lessons", "ege-lesson-new-coverage"))).data()?.status)
+      .toBe("completed");
+    expect((await getDoc(doc(db, "studentTaskCoverage", "student-1-program__task__27"))).data()?.taskNumber)
+      .toBe(27);
+  });
+
   test("links a post-lesson homework atomically and never creates a duplicate", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {

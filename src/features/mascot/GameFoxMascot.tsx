@@ -1,14 +1,20 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 export type GameFoxStage = "rest" | "starting" | "working" | "almost" | "complete";
 
-const stageImages: Record<GameFoxStage, string> = {
-  rest: `${import.meta.env.BASE_URL}assets/mascot/fox-rig-base.png`,
-  starting: `${import.meta.env.BASE_URL}assets/mascot/fox-starting.png`,
-  working: `${import.meta.env.BASE_URL}assets/mascot/fox-working.png`,
-  almost: `${import.meta.env.BASE_URL}assets/mascot/fox-almost.png`,
-  complete: `${import.meta.env.BASE_URL}assets/mascot/fox-complete.png`,
+const spriteFrames = Array.from(
+  { length: 8 },
+  (_, index) => `${import.meta.env.BASE_URL}assets/mascot/fox-idle-v2/frame-${String(index + 1).padStart(2, "0")}.png`,
+);
+
+const stageSequences: Record<Exclude<GameFoxStage, "complete">, number[]> = {
+  rest: [3, 3, 3, 4, 3, 3, 0, 3],
+  starting: [0, 1, 2, 3, 2, 1, 0],
+  working: [4, 5, 6, 7, 6, 5, 4, 3],
+  almost: [6, 7, 6, 5, 7, 6, 3],
 };
+
+const completeImage = `${import.meta.env.BASE_URL}assets/mascot/fox-complete.png`;
 
 export function GameFoxMascot({
   badge,
@@ -25,6 +31,12 @@ export function GameFoxMascot({
   const reactionTimerRef = useRef<number | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
   const lastReactionRef = useRef(reactionKey);
+  const [frameCursor, setFrameCursor] = useState(0);
+  const sequence = stage === "complete" ? null : stageSequences[stage];
+  const spriteIndex = sequence?.[frameCursor % sequence.length] ?? 0;
+  const imageSource = stage === "complete"
+    ? completeImage
+    : spriteFrames[spriteIndex] ?? spriteFrames[0]!;
 
   function react() {
     const root = rootRef.current;
@@ -63,6 +75,28 @@ export function GameFoxMascot({
   }, []);
 
   useEffect(() => {
+    spriteFrames.forEach((source) => {
+      const image = new Image();
+      image.src = source;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!sequence || window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      return undefined;
+    const currentFrame = sequence[frameCursor % sequence.length];
+    const delay = currentFrame === 3
+      ? 170
+      : stage === "rest"
+        ? 720
+        : stage === "almost"
+          ? 280
+          : 420;
+    const timer = window.setTimeout(() => setFrameCursor((current) => current + 1), delay);
+    return () => window.clearTimeout(timer);
+  }, [frameCursor, sequence, stage]);
+
+  useEffect(() => {
     if (lastReactionRef.current === reactionKey) return;
     lastReactionRef.current = reactionKey;
     react();
@@ -85,7 +119,7 @@ export function GameFoxMascot({
       {badge ? <span aria-hidden="true" className="game-fox__badge">{badge}</span> : null}
       <span aria-hidden="true" className="game-fox__shadow" />
       <span aria-hidden="true" className="game-fox__rig">
-        <img alt="" className="game-fox__body" draggable={false} src={stageImages[stage]} />
+        <img alt="" className="game-fox__body" draggable={false} src={imageSource} />
       </span>
       <span aria-hidden="true" className="game-fox__sparkles"><i>✦</i><i>★</i><i>✦</i></span>
     </button>

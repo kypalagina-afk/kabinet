@@ -1208,6 +1208,39 @@ input:focus-visible {
   background: var(--color-surface-soft);
 }
 
+.external-homework-submission,
+.practice-result-import {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
+}
+
+.external-homework-submission > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.external-homework-submission > div span {
+  color: var(--color-muted);
+}
+
+.external-homework-submission > button,
+.practice-result-import > button {
+  justify-self: start;
+}
+
+.homework-quality-field {
+  max-width: 22rem;
+}
+
+.homework-add-item {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 .mock-section-grid,
 .analytics-two-column {
   grid-template-columns: repeat(2, minmax(0, 1fr));

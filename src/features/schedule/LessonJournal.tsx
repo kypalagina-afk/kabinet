@@ -159,9 +159,22 @@ export function LessonJournal({
       <div className="lesson-history">
         {visibleCompleted.map((lesson) => {
     const expanded = open.has(lesson.id) || initialLessonId === lesson.id;
-          const homework = homeworks.find(
+          const linkedHomework = homeworks.find(
             ({ data }) => data.sourceLessonId === lesson.id,
           );
+          const separatelyAssignedHomework = linkedHomework
+            ? undefined
+            : homeworks
+                .filter(({ data }) =>
+                  !data.sourceLessonId
+                  && Math.abs(data.assignedAt.toMillis() - lesson.data.endAt.toMillis()) <= 24 * 60 * 60 * 1000,
+                )
+                .sort(
+                  (left, right) =>
+                    Math.abs(left.data.assignedAt.toMillis() - lesson.data.endAt.toMillis())
+                    - Math.abs(right.data.assignedAt.toMillis() - lesson.data.endAt.toMillis()),
+                )[0];
+          const homework = linkedHomework ?? separatelyAssignedHomework;
           const note = notes.find(({ data }) => data.lessonId === lesson.id);
           const target = initialLessonId === lesson.id;
           return (
@@ -223,7 +236,9 @@ export function LessonJournal({
                           : `/student/homework?homework=${homework.id}`
                       }
                     >
-                      Домашнее задание →
+                      {linkedHomework
+                        ? "Домашнее задание →"
+                        : "Домашнее задание выдано отдельно →"}
                     </Link>
                   ) : audience === "teacher" ? (
                     <p>

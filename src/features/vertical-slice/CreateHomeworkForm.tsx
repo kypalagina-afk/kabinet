@@ -516,15 +516,6 @@ export function CreateHomeworkForm(props: Props) {
       <section className="homework-item-editor">
         <div className="panel-heading">
           <h3>Пункты · {items.length}</h3>
-          <button
-            className="secondary-button"
-            onClick={() =>
-              setItems((current) => [...current, newItem(current.length)])
-            }
-            type="button"
-          >
-            + Добавить пункт
-          </button>
         </div>
         {items.map((item, index) => (
           <article
@@ -671,6 +662,15 @@ export function CreateHomeworkForm(props: Props) {
             </details>
           </article>
         ))}
+        <button
+          className="secondary-button homework-add-item"
+          onClick={() =>
+            setItems((current) => [...current, newItem(current.length)])
+          }
+          type="button"
+        >
+          + Добавить пункт
+        </button>
       </section>
       <div className="form-actions">
         <button

@@ -64,6 +64,7 @@ export async function submitHomework(
     studentId: string;
     submissionNumber: number;
     studentInput: StudentInput;
+    submissionSource?: "student" | "teacher_external";
   },
 ): Promise<HomeworkWorkflowResult> {
   const submissionId = homeworkSubmissionId(
@@ -140,6 +141,12 @@ export async function submitHomework(
       teacherEvaluation: null,
       status: "submitted",
       submittedAt: serverTimestamp(),
+      ...(input.submissionSource === "teacher_external"
+        ? {
+            submissionSource: "teacher_external",
+            previousHomeworkStatus: homework.status,
+          }
+        : {}),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       schemaVersion: 1,
@@ -149,6 +156,46 @@ export async function submitHomework(
       updatedAt: serverTimestamp(),
     });
     return { status: "applied" as const, submissionId };
+  });
+}
+
+export async function undoTeacherExternalHomeworkSubmission(
+  db: Firestore,
+  input: {
+    homeworkId: string;
+    submissionId: string;
+    teacherId: string;
+  },
+): Promise<void> {
+  const homeworkReference = doc(db, "homeworks", input.homeworkId);
+  const submissionReference = doc(db, "homeworkSubmissions", input.submissionId);
+  await runTransaction(db, async (transaction) => {
+    const [homeworkSnapshot, submissionSnapshot] = await Promise.all([
+      transaction.get(homeworkReference),
+      transaction.get(submissionReference),
+    ]);
+    if (!homeworkSnapshot.exists() || !submissionSnapshot.exists())
+      throw new Error("Homework submission does not exist");
+    const homework = homeworkSnapshot.data() as Homework;
+    const submission = submissionSnapshot.data() as HomeworkSubmission;
+    if (
+      homework.teacherId !== input.teacherId
+      || submission.teacherId !== input.teacherId
+      || submission.homeworkId !== input.homeworkId
+      || submission.submissionSource !== "teacher_external"
+      || submission.status !== "submitted"
+    ) throw new Error("Only an unchecked external submission can be undone");
+    const previousStatus = submission.previousHomeworkStatus;
+    const restoredStatus = previousStatus === "needs_revision"
+      || previousStatus === "overdue"
+      || previousStatus === "assigned"
+      ? previousStatus
+      : "assigned";
+    transaction.delete(submissionReference);
+    transaction.update(homeworkReference, {
+      status: restoredStatus,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -179,6 +226,7 @@ export async function evaluateHomeworkSubmission(
     decision: "checked" | "needs_revision";
     scoreEarned: number | null;
     scoreMax: number | null;
+    qualityScore?: number | null;
     criteria: EvaluationCriterion[];
     comment: string | null;
   },
@@ -192,6 +240,11 @@ export async function evaluateHomeworkSubmission(
   ) {
     throw new Error("Teacher score is invalid");
   }
+  if (
+    input.qualityScore !== undefined
+    && input.qualityScore !== null
+    && (!Number.isInteger(input.qualityScore) || input.qualityScore < 1 || input.qualityScore > 10)
+  ) throw new Error("Homework quality score is invalid");
   const criteria = normalizeCriteria(input.criteria);
   const homeworkReference = doc(db, "homeworks", input.homeworkId);
   const submissionReference = doc(
@@ -255,6 +308,7 @@ export async function evaluateHomeworkSubmission(
     } = {
       scoreEarned: input.scoreEarned,
       scoreMax: input.scoreMax,
+      qualityScore: input.qualityScore ?? null,
       criteria,
       issues: [],
       comment: input.comment?.trim() || null,
@@ -310,6 +364,7 @@ export async function evaluateHomeworkItem(
     decision: "checked" | "needs_revision";
     scoreEarned: number | null;
     scoreMax: number | null;
+    qualityScore?: number | null;
     criteria: EvaluationCriterion[];
     comment: string | null;
   },
@@ -322,6 +377,11 @@ export async function evaluateHomeworkItem(
       input.scoreEarned > input.scoreMax)
   )
     throw new Error("Teacher score is invalid");
+  if (
+    input.qualityScore !== undefined
+    && input.qualityScore !== null
+    && (!Number.isInteger(input.qualityScore) || input.qualityScore < 1 || input.qualityScore > 10)
+  ) throw new Error("Homework quality score is invalid");
   const criteria = normalizeCriteria(input.criteria);
   const homeworkReference = doc(db, "homeworks", input.homeworkId);
   const submissionReference = doc(
@@ -374,7 +434,8 @@ export async function evaluateHomeworkItem(
       .filter((item) =>
         item.type === "essay" ||
         item.type === "exposition" ||
-        item.type === "exam_written_work",
+        item.type === "exam_written_work" ||
+        item.type === "practice",
       )
       .map((item) => item.itemId);
     const packageStatus = deriveStructuredPackageStatus(
@@ -391,6 +452,8 @@ export async function evaluateHomeworkItem(
       scoreMax: numeric.length
         ? numeric.reduce((sum, item) => sum + (item.scoreMax ?? 0), 0)
         : null,
+      qualityScore:
+        input.qualityScore ?? submission.teacherEvaluation?.qualityScore ?? null,
       criteria: itemEvaluations.flatMap((item) => item.criteria),
       issues: [],
       comment: null,

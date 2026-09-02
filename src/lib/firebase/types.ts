@@ -389,6 +389,7 @@ export interface EvaluationCriterion {
 export interface TeacherEvaluation {
   scoreEarned: number | null;
   scoreMax: number | null;
+  qualityScore?: number | null;
   criteria: EvaluationCriterion[];
   issues: Array<{
     category: string;
@@ -419,6 +420,8 @@ export interface HomeworkSubmission extends AuditedDocument {
   teacherEvaluation: TeacherEvaluation | null;
   status: "submitted" | "checked" | "needs_revision";
   submittedAt: Timestamp | null;
+  submissionSource?: "student" | "teacher_external";
+  previousHomeworkStatus?: HomeworkStatus | null;
   reviewedUnread?: boolean;
   reviewedOpenedAt?: Timestamp | null;
 }

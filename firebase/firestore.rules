@@ -293,7 +293,9 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      allow delete: if teacherOwns(resource.data)
+        && resource.data.submissionSource == "teacher_external"
+        && resource.data.status == "submitted";
     }
 
     match /mockExams/{id} {

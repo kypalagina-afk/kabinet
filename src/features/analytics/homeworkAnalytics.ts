@@ -21,6 +21,8 @@ export function calculateHomeworkAnalytics(homeworks: Array<DocumentWithId<Homew
   const qualityScores = completed.flatMap(({ data }) => {
     const evaluation = data.teacherEvaluation;
     if (!evaluation) return [];
+    if (evaluation.qualityScore !== undefined && evaluation.qualityScore !== null)
+      return [evaluation.qualityScore * 10];
     const items = evaluation.itemEvaluations?.filter((item) => item.scoreEarned !== null && item.scoreMax !== null && item.scoreMax > 0) ?? [];
     if (items.length) return items.map((item) => (item.scoreEarned ?? 0) / (item.scoreMax ?? 1) * 100);
     return evaluation.scoreEarned !== null && evaluation.scoreMax !== null && evaluation.scoreMax > 0 ? [evaluation.scoreEarned / evaluation.scoreMax * 100] : [];

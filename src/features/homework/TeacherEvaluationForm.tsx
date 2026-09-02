@@ -3,15 +3,111 @@ import { getFirebaseDb } from "../../lib/firebase/client";
 import {
   evaluateHomeworkItem,
   evaluateHomeworkSubmission,
+  submitHomework,
+  undoTeacherExternalHomeworkSubmission,
 } from "../../lib/firebase/services/homeworkWorkflow";
 import type {
+  DocumentWithId,
   EvaluationCriterion,
   Homework,
   HomeworkItem,
   HomeworkSubmission,
 } from "../../lib/firebase/types";
+import { parsePracticeScore } from "./practiceScoreParser";
 
 type ReviewConfig = NonNullable<Homework["reviewCriteria"]>;
+
+export function TeacherExternalSubmissionControls({
+  homework,
+  homeworkId,
+  submissions,
+  teacherId,
+}: {
+  homework: Homework;
+  homeworkId: string;
+  submissions: Array<DocumentWithId<HomeworkSubmission>>;
+  teacherId: string;
+}) {
+  const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const latest = [...submissions]
+    .sort((left, right) => left.data.submissionNumber - right.data.submissionNumber)
+    .at(-1);
+  const canRecord = new Set<Homework["status"]>([
+    "assigned",
+    "overdue",
+    "needs_revision",
+  ]).has(homework.status);
+  const canUndo = latest?.data.submissionSource === "teacher_external"
+    && latest.data.status === "submitted";
+
+  async function record() {
+    setState("saving");
+    try {
+      await submitHomework(getFirebaseDb(), {
+        homeworkId,
+        teacherId,
+        studentId: homework.studentId,
+        submissionNumber: (latest?.data.submissionNumber ?? 0) + 1,
+        submissionSource: "teacher_external",
+        studentInput: {
+          completed: true,
+          selfReportedEarned: null,
+          selfReportedMax: null,
+          note: "Сдано вне платформы — через мессенджер или лично.",
+          externalAttachmentUrls: [],
+          attachments: [],
+          itemProgress: (homework.items ?? []).map((item) => ({
+            itemId: item.itemId,
+            completed: true,
+            selfReportedEarned: null,
+            selfReportedMax: null,
+            responseText: null,
+            attachments: [],
+          })),
+        },
+      });
+      setState("success");
+    } catch {
+      setState("error");
+    }
+  }
+
+  async function undo() {
+    if (!latest) return;
+    setState("saving");
+    try {
+      await undoTeacherExternalHomeworkSubmission(getFirebaseDb(), {
+        homeworkId,
+        submissionId: latest.id,
+        teacherId,
+      });
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (!canRecord && !canUndo) return null;
+  return (
+    <section className="external-homework-submission">
+      <div>
+        <strong>Сдача вне платформы</strong>
+        <span>Если ученик прислал работу в мессенджере, отметьте её сданной и выставьте баллы здесь.</span>
+      </div>
+      {canUndo ? (
+        <button className="secondary-button" disabled={state === "saving"} onClick={() => void undo()} type="button">
+          Отменить отметку о сдаче
+        </button>
+      ) : (
+        <button className="secondary-button" disabled={state === "saving"} onClick={() => void record()} type="button">
+          {state === "saving" ? "Отмечаем…" : "Отметить сданным вне платформы"}
+        </button>
+      )}
+      {state === "success" ? <span className="form-success">Работа отмечена сданной. Теперь можно выставить баллы.</span> : null}
+      {state === "error" ? <span className="form-error">Не удалось изменить отметку о сдаче.</span> : null}
+    </section>
+  );
+}
 
 export function TeacherEvaluationForm({
   homeworkId,
@@ -26,12 +122,18 @@ export function TeacherEvaluationForm({
   submissionId: string;
   teacherId: string;
 }) {
-  const structured = (homework.items ?? []).filter(
+  const reviewable = (homework.items ?? []).filter(
     (item) =>
-      (item.type === "essay" || item.type === "exposition" || item.type === "exam_written_work") &&
-      (item.reviewCriteria || homework.reviewCriteria),
+      item.type === "practice"
+      || (
+        (item.type === "essay" || item.type === "exposition" || item.type === "exam_written_work")
+        && (item.reviewCriteria || homework.reviewCriteria)
+      ),
   );
-  if (structured.length)
+  const [qualityScore, setQualityScore] = useState(
+    submission.teacherEvaluation?.qualityScore?.toString() ?? "",
+  );
+  if (reviewable.length)
     return (
       <div className="multi-item-review" data-testid="multi-item-review">
         <div className="review-context">
@@ -42,12 +144,15 @@ export function TeacherEvaluationForm({
               : "Работа отправлена"}
           </span>
         </div>
-        {structured.map((item, index) => (
+        <QualityScoreField onChange={setQualityScore} value={qualityScore} />
+        {reviewable.map((item, index) => (
           <ItemEvaluationForm
             homeworkId={homeworkId}
             index={index}
             item={item}
             key={item.itemId}
+            onQualityScoreChange={setQualityScore}
+            qualityScore={qualityScore}
             submission={submission}
             submissionId={submissionId}
             teacherId={teacherId}
@@ -73,6 +178,8 @@ function ItemEvaluationForm({
   submission,
   submissionId,
   teacherId,
+  qualityScore,
+  onQualityScoreChange,
 }: {
   homeworkId: string;
   index: number;
@@ -80,6 +187,8 @@ function ItemEvaluationForm({
   submission: HomeworkSubmission;
   submissionId: string;
   teacherId: string;
+  qualityScore: string;
+  onQualityScoreChange(value: string): void;
 }) {
   const existing = submission.teacherEvaluation?.itemEvaluations?.find(
     (evaluation) => evaluation.itemId === item.itemId,
@@ -107,10 +216,14 @@ function ItemEvaluationForm({
       <EvaluationEditor
         config={(item.reviewCriteria ?? null) as ReviewConfig | null}
         existing={existing}
+        practiceTaskNumbers={item.type === "practice" ? item.examTaskNumbers : undefined}
+        qualityScore={qualityScore}
+        onQualityScoreChange={onQualityScoreChange}
+        showQualityScore={false}
         itemId={item.itemId}
         minimumWords={item.minimumWordCountSnapshot ?? null}
         responseText={submission.studentInput.itemProgress?.find((progress) => progress.itemId === item.itemId)?.responseText ?? null}
-        onEvaluate={(decision, scoreEarned, scoreMax, criteria, comment) =>
+        onEvaluate={(decision, scoreEarned, scoreMax, quality, criteria, comment) =>
           evaluateHomeworkItem(getFirebaseDb(), {
             homeworkId,
             submissionId,
@@ -119,6 +232,7 @@ function ItemEvaluationForm({
             decision,
             scoreEarned,
             scoreMax,
+            qualityScore: quality,
             criteria,
             comment,
           })
@@ -141,6 +255,9 @@ function SingleEvaluationForm({
   submissionId: string;
   teacherId: string;
 }) {
+  const [qualityScore, setQualityScore] = useState(
+    submission.teacherEvaluation?.qualityScore?.toString() ?? "",
+  );
   return (
     <div className="inline-workflow-form structured-review">
       <div className="review-context">
@@ -155,7 +272,10 @@ function SingleEvaluationForm({
         config={homework.reviewCriteria ?? null}
         existing={submission.teacherEvaluation ?? undefined}
         fallbackMax={homework.requiredAmount ?? submission.studentInput.selfReportedMax}
-        onEvaluate={(decision, scoreEarned, scoreMax, criteria, comment) =>
+        qualityScore={qualityScore}
+        onQualityScoreChange={setQualityScore}
+        showQualityScore
+        onEvaluate={(decision, scoreEarned, scoreMax, quality, criteria, comment) =>
           evaluateHomeworkSubmission(getFirebaseDb(), {
             homeworkId,
             submissionId,
@@ -163,6 +283,7 @@ function SingleEvaluationForm({
             decision,
             scoreEarned,
             scoreMax,
+            qualityScore: quality,
             criteria,
             comment,
           })
@@ -177,6 +298,10 @@ function EvaluationEditor({
   existing,
   itemId,
   fallbackMax,
+  practiceTaskNumbers,
+  qualityScore,
+  onQualityScoreChange,
+  showQualityScore,
   minimumWords,
   responseText,
   onEvaluate,
@@ -190,12 +315,17 @@ function EvaluationEditor({
   };
   itemId?: string;
   fallbackMax?: number | null;
+  practiceTaskNumbers?: number[];
+  qualityScore: string;
+  onQualityScoreChange(value: string): void;
+  showQualityScore: boolean;
   minimumWords?: number | null;
   responseText?: string | null;
   onEvaluate(
     decision: "checked" | "needs_revision",
     scoreEarned: number | null,
     scoreMax: number | null,
+    qualityScore: number | null,
     criteria: EvaluationCriterion[],
     comment: string | null,
   ): Promise<unknown>;
@@ -247,6 +377,11 @@ function EvaluationEditor({
   );
   const [criteria, setCriteria] = useState(initialCriteria);
   const [earned, setEarned] = useState(existing?.scoreEarned?.toString() ?? "");
+  const [maximum, setMaximum] = useState(
+    existing?.scoreMax?.toString() ?? fallbackMax?.toString() ?? "",
+  );
+  const [practiceText, setPracticeText] = useState("");
+  const [practiceError, setPracticeError] = useState("");
   const [comment, setComment] = useState(existing?.comment ?? "");
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
@@ -260,7 +395,9 @@ function EvaluationEditor({
     : criteria;
   const calculatedMax = config
     ? initialCriteria.reduce((sum, item) => sum + item.max, 0)
-    : (existing?.scoreMax ?? fallbackMax ?? null);
+    : maximum === ""
+      ? null
+      : Number(maximum);
   const calculatedEarned = config
     ? effectiveCriteria.reduce((sum, item) => sum + item.earned, 0)
     : earned === ""
@@ -281,6 +418,7 @@ function EvaluationEditor({
         decision,
         calculatedEarned,
         calculatedMax,
+        qualityScore === "" ? null : Number(qualityScore),
         effectiveCriteria,
         comment || null,
       );
@@ -348,17 +486,67 @@ function EvaluationEditor({
           </div>
         </>
       ) : (
-        <label className="form-field">
-          <span>Результат{calculatedMax ? ` / ${calculatedMax}` : ""}</span>
-          <input
-            max={calculatedMax ?? undefined}
-            min="0"
-            onChange={(event) => setEarned(event.target.value)}
-            type="number"
-            value={earned}
-          />
-        </label>
+        <>
+          {practiceTaskNumbers ? (
+            <div className="practice-result-import">
+              <label className="form-field">
+                <span>Результат практики · можно вставить из Русского100</span>
+                <textarea
+                  onChange={(event) => {
+                    setPracticeText(event.target.value);
+                    setPracticeError("");
+                  }}
+                  placeholder="Например: 8/10 или Задание №15: 8/10 от 01.09.26 18:30"
+                  rows={3}
+                  value={practiceText}
+                />
+              </label>
+              <button
+                className="secondary-button"
+                disabled={!practiceText.trim()}
+                onClick={() => {
+                  const parsed = parsePracticeScore(practiceText, practiceTaskNumbers);
+                  if (!parsed) {
+                    setPracticeError("Не удалось распознать результат. Используйте формат 8/10 или вставьте строку из Русского100.");
+                    return;
+                  }
+                  setEarned(String(parsed.earned));
+                  setMaximum(String(parsed.maximum));
+                  setPracticeError("");
+                }}
+                type="button"
+              >
+                Распознать результат
+              </button>
+              {practiceError ? <span className="form-error">{practiceError}</span> : null}
+            </div>
+          ) : null}
+          <div className="score-inputs">
+            <label className="form-field">
+              <span>Набрано баллов</span>
+              <input
+                max={calculatedMax ?? undefined}
+                min="0"
+                onChange={(event) => setEarned(event.target.value)}
+                type="number"
+                value={earned}
+              />
+            </label>
+            <label className="form-field">
+              <span>Из скольких</span>
+              <input
+                min="1"
+                onChange={(event) => setMaximum(event.target.value)}
+                type="number"
+                value={maximum}
+              />
+            </label>
+          </div>
+        </>
       )}
+      {showQualityScore ? (
+        <QualityScoreField onChange={onQualityScoreChange} value={qualityScore} />
+      ) : null}
       <label className="form-field">
         <span>Комментарий ученику</span>
         <textarea
@@ -392,6 +580,26 @@ function EvaluationEditor({
         </span>
       ) : null}
     </form>
+  );
+}
+
+function QualityScoreField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="form-field homework-quality-field">
+      <span>Качество выполнения ДЗ · необязательно</span>
+      <select onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">Не выставлять</option>
+        {Array.from({ length: 10 }, (_, index) => index + 1).map((score) => (
+          <option key={score} value={score}>{score} из 10</option>
+        ))}
+      </select>
+    </label>
   );
 }
 

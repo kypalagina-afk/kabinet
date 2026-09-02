@@ -177,6 +177,9 @@ export function StudentHomeworkPage() {
                         Результат: {latest.teacherEvaluation.scoreEarned ?? "—"}
                         /{latest.teacherEvaluation.scoreMax ?? "—"}
                       </strong>
+                      {latest.teacherEvaluation.qualityScore ? (
+                        <strong>Качество выполнения: {latest.teacherEvaluation.qualityScore}/10</strong>
+                      ) : null}
                       <Criteria criteria={latest.teacherEvaluation.criteria} />
                       <p>
                         {latest.teacherEvaluation.comment ||
@@ -185,7 +188,7 @@ export function StudentHomeworkPage() {
                     </div>
                   ) : null}
                   {latest?.teacherEvaluation?.itemEvaluations?.length ? (
-                    <p className="evaluation-package-status">
+                    <div className="evaluation-package-status">
                       <strong>
                         {latest.status === "checked"
                           ? "Все пункты проверены"
@@ -193,7 +196,10 @@ export function StudentHomeworkPage() {
                             ? "Один или несколько пунктов нужно доработать"
                             : "Проверка отдельных пунктов продолжается"}
                       </strong>
-                    </p>
+                      {latest.teacherEvaluation.qualityScore ? (
+                        <span>Качество выполнения: {latest.teacherEvaluation.qualityScore}/10</span>
+                      ) : null}
+                    </div>
                   ) : null}
                   {canSubmit ? (
                     <StudentSubmissionForm

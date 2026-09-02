@@ -35,6 +35,7 @@ import {
 import {
   evaluateHomeworkSubmission,
   submitHomework,
+  undoTeacherExternalHomeworkSubmission,
 } from "../../src/lib/firebase/services/homeworkWorkflow.js";
 import {
   archiveMaterial,
@@ -1263,6 +1264,42 @@ describe("idempotent domain operations", () => {
       .toBe("completed");
     expect((await getDoc(doc(db, "studentTaskCoverage", "student-1-program__task__27"))).data()?.taskNumber)
       .toBe(27);
+  });
+
+  test("teacher can record and undo an unchecked homework submission received externally", async () => {
+    await seedFixture();
+    const db = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore() as unknown as Firestore;
+    const result = await submitHomework(db, {
+      homeworkId: "homework-1",
+      teacherId: teacherAuth.uid,
+      studentId: "student-1",
+      submissionNumber: 1,
+      submissionSource: "teacher_external",
+      studentInput: {
+        completed: true,
+        selfReportedEarned: null,
+        selfReportedMax: null,
+        note: "Сдано через мессенджер",
+        externalAttachmentUrls: [],
+        attachments: [],
+        itemProgress: [],
+      },
+    });
+    expect(result.status).toBe("applied");
+    expect((await getDoc(doc(db, "homeworkSubmissions", result.submissionId))).data()?.submissionSource)
+      .toBe("teacher_external");
+
+    await undoTeacherExternalHomeworkSubmission(db, {
+      homeworkId: "homework-1",
+      submissionId: result.submissionId,
+      teacherId: teacherAuth.uid,
+    });
+    expect((await getDoc(doc(db, "homeworkSubmissions", result.submissionId))).exists())
+      .toBe(false);
+    expect((await getDoc(doc(db, "homeworks", "homework-1"))).data()?.status)
+      .toBe("assigned");
   });
 
   test("links a post-lesson homework atomically and never creates a duplicate", async () => {

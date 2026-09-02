@@ -1241,6 +1241,90 @@ input:focus-visible {
   margin-top: 0.25rem;
 }
 
+.homework-resource-adder {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+}
+
+.homework-resource-adder > summary {
+  color: var(--color-accent);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.homework-resource-adder__body {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.homework-resource-kind {
+  justify-self: start;
+}
+
+.homework-resource-adder__body > .secondary-button {
+  justify-self: start;
+}
+
+.homework-resource-counter {
+  justify-self: end;
+  color: var(--color-muted);
+}
+
+.attachment-preview li > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.attachment-preview li > span:nth-child(2) small {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homework-attachment-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.attachment-button--unavailable {
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
+
+.homework-text-attachment {
+  width: min(100%, 40rem);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface-soft);
+}
+
+.homework-text-attachment > summary {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  cursor: pointer;
+}
+
+.homework-text-attachment > summary > span {
+  text-align: center;
+}
+
+.homework-text-attachment > div {
+  max-height: 28rem;
+  padding: 0.85rem;
+  overflow: auto;
+  border-top: 1px solid var(--color-border);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .mock-section-grid,
 .analytics-two-column {
   grid-template-columns: repeat(2, minmax(0, 1fr));

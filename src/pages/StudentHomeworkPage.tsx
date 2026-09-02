@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../features/auth/AuthProvider";
 import { HomeworkStatus } from "../features/homework/HomeworkStatus";
+import { HomeworkAttachmentList } from "../features/homework/HomeworkAttachmentList";
 import { effectiveHomeworkStatus } from "../features/homework/selectors";
 import { StudentSubmissionForm } from "../features/homework/StudentSubmissionForm";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
@@ -291,23 +292,12 @@ function StudentAttachments({ attachments }: { attachments: Attachment[] }) {
     window.open(url, "_blank", "noopener,noreferrer");
   }
   return attachments.length ? (
-    <div className="attachment-buttons">
-      {attachments.map((attachment) => (
-        <button
-          className="attachment-button"
-          key={attachment.id}
-          onClick={() => void open(attachment).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Не удалось открыть файл."))}
-          type="button"
-        >
-          {attachment.contentType?.startsWith("image/") && attachment.url ? (
-            <img alt="" src={attachment.url} />
-          ) : (
-            <span>📎</span>
-          )}
-          <strong>{attachment.title}</strong>
-        </button>
-      ))}
-      {error ? <span role="alert">{error}</span> : null}
+    <div className="homework-attachment-list">
+      <HomeworkAttachmentList
+        attachments={attachments}
+        onOpenFile={(attachment) => void open(attachment).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Не удалось открыть файл."))}
+      />
+      {error ? <span className="form-error" role="alert">{error}</span> : null}
     </div>
   ) : null;
 }

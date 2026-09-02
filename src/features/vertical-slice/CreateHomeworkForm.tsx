@@ -27,6 +27,11 @@ import type {
 import { useAuth } from "../auth/AuthProvider";
 import { isDemoProfile } from "../demo/demoMode";
 import {
+  createHomeworkLink,
+  createHomeworkText,
+  MAX_HOMEWORK_TEXT_LENGTH,
+} from "../homework/homeworkResources";
+import {
   programBlueprintId,
   reviewCriteriaForTask,
   writingConfigForTask,
@@ -251,6 +256,13 @@ export function CreateHomeworkForm(props: Props) {
         ? { ...item, attachments: item.attachments.filter(({ id }) => id !== attachment.id) }
         : item));
     else setAttachments((current) => current.filter(({ id }) => id !== attachment.id));
+  }
+  function addAttachment(attachment: Attachment, itemId?: string) {
+    if (itemId)
+      setItems((current) => current.map((item) => item.itemId === itemId
+        ? { ...item, attachments: [...item.attachments, attachment] }
+        : item));
+    else setAttachments((current) => [...current, attachment]);
   }
   async function upload(files: FileList | null, itemId?: string) {
     if (!files?.length) return;
@@ -504,6 +516,7 @@ export function CreateHomeworkForm(props: Props) {
           type="file"
         />
       </label>
+      <HomeworkResourceAdder onAdd={(attachment) => addAttachment(attachment)} />
       {attachments.length ? (
         <AttachmentList
           attachments={attachments}
@@ -629,6 +642,10 @@ export function CreateHomeworkForm(props: Props) {
                   type="file"
                 />
               </label>
+              <HomeworkResourceAdder
+                compact
+                onAdd={(attachment) => addAttachment(attachment, item.itemId)}
+              />
               {item.attachments.length ? (
                 <AttachmentList
                   attachments={item.attachments}
@@ -711,9 +728,16 @@ function AttachmentList({
           {attachment.contentType?.startsWith("image/") && attachment.url ? (
             <img alt="" src={attachment.url} />
           ) : (
-            <span>📎</span>
+            <span>{attachment.kind === "text" ? "📝" : attachment.kind === "external" ? "🔗" : "📎"}</span>
           )}
-          <strong>{attachment.title}</strong>
+          <span>
+            <strong>{attachment.title}</strong>
+            {attachment.kind === "text" && attachment.textContent ? (
+              <small>{attachment.textContent.slice(0, 100)}{attachment.textContent.length > 100 ? "…" : ""}</small>
+            ) : attachment.kind === "external" && attachment.url ? (
+              <small>{attachment.url}</small>
+            ) : null}
+          </span>
           <button
             aria-label={`Удалить ${attachment.title}`}
             onClick={() => onRemove(attachment.id)}
@@ -724,5 +748,81 @@ function AttachmentList({
         </li>
       ))}
     </ul>
+  );
+}
+
+function HomeworkResourceAdder({
+  compact = false,
+  onAdd,
+}: {
+  compact?: boolean;
+  onAdd(attachment: Attachment): void;
+}) {
+  const [mode, setMode] = useState<"link" | "text">("link");
+  const [title, setTitle] = useState("");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+
+  function add() {
+    try {
+      onAdd(mode === "link"
+        ? createHomeworkLink(title, value)
+        : createHomeworkText(title, value));
+      setTitle("");
+      setValue("");
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось добавить материал.");
+    }
+  }
+
+  return (
+    <details className={`homework-resource-adder${compact ? " homework-resource-adder--compact" : ""}`}>
+      <summary>+ Добавить ссылку или текст</summary>
+      <div className="homework-resource-adder__body">
+        <div className="segmented-control homework-resource-kind" aria-label="Тип материала">
+          <button aria-pressed={mode === "link"} onClick={() => { setMode("link"); setError(""); }} type="button">
+            Ссылка
+          </button>
+          <button aria-pressed={mode === "text"} onClick={() => { setMode("text"); setError(""); }} type="button">
+            Длинный текст
+          </button>
+        </div>
+        <label className="form-field">
+          <span>Название · необязательно</span>
+          <input
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder={mode === "link" ? "Например, тренажёр" : "Например, текст для анализа"}
+            value={title}
+          />
+        </label>
+        <label className="form-field">
+          <span>{mode === "link" ? "Адрес ссылки" : "Текст"}</span>
+          {mode === "link" ? (
+            <input
+              onChange={(event) => { setValue(event.target.value); setError(""); }}
+              placeholder="example.com или https://example.com"
+              type="text"
+              value={value}
+            />
+          ) : (
+            <textarea
+              maxLength={MAX_HOMEWORK_TEXT_LENGTH}
+              onChange={(event) => { setValue(event.target.value); setError(""); }}
+              placeholder="Вставьте сюда правило, условие, фрагмент произведения или другой текст"
+              rows={compact ? 5 : 7}
+              value={value}
+            />
+          )}
+        </label>
+        {mode === "text" ? (
+          <small className="homework-resource-counter">{value.length.toLocaleString("ru-RU")} / {MAX_HOMEWORK_TEXT_LENGTH.toLocaleString("ru-RU")}</small>
+        ) : null}
+        <button className="secondary-button" disabled={!value.trim()} onClick={add} type="button">
+          {mode === "link" ? "Добавить ссылку" : "Прикрепить текст"}
+        </button>
+        {error ? <span className="form-error" role="alert">{error}</span> : null}
+      </div>
+    </details>
   );
 }

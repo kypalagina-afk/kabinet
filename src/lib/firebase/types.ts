@@ -328,12 +328,13 @@ export interface Homework extends AuditedDocument {
 
 export type Attachment = {
   id: string;
-  kind: "external" | "storage";
+  kind: "external" | "storage" | "text";
   title: string;
   url: string | null;
   storagePath: string | null;
   contentType: string | null;
   storageProvider?: "firebase" | "yandex" | null;
+  textContent?: string | null;
 };
 
 export interface HomeworkItem {

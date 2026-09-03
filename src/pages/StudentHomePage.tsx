@@ -9,6 +9,7 @@ import { calculateGamificationSummary } from "../features/gamification/gamificat
 import { useStudentGamification } from "../features/gamification/hooks";
 import { useNextStudentLesson } from "../features/schedule/hooks";
 import { NextLessonCard } from "../features/schedule/NextLessonCard";
+import { ImportantLinksCard } from "../features/students/ImportantLinksCard";
 import { useStudentWorkspace } from "../features/vertical-slice/hooks";
 import {
   formatHomeworkDueDate,
@@ -145,6 +146,7 @@ export function StudentHomePage() {
           </Link>
         </section>
         <aside className="student-home-aside">
+          <ImportantLinksCard links={data.student?.data.importantLinks ?? []} />
           <Link className="readiness-card" to="/student/progress">
             <span className="progress-ring" style={{ "--progress": `${analytics.examReadiness * 3.6}deg` } as React.CSSProperties}>
               <strong>{analytics.examReadiness}%</strong>

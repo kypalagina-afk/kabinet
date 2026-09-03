@@ -10,6 +10,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import type { Lesson, LessonSeries, Student, StudentProgram } from "../types.js";
+import { normalizeImportantLinks } from "../../../features/students/importantLinks.js";
 
 export async function switchStudentProgram(
   db: Firestore,
@@ -339,6 +340,33 @@ export async function updateStudentConferenceLinks(
     entityId: input.studentId,
     action: "conference_links_updated",
     summary: "Постоянные ссылки ученика обновлены",
+    createdAt: serverTimestamp(),
+    schemaVersion: 1,
+  });
+  await batch.commit();
+}
+
+export async function updateStudentImportantLinks(
+  db: Firestore,
+  input: {
+    teacherId: string;
+    studentId: string;
+    links: NonNullable<Student["importantLinks"]>;
+  },
+) {
+  const links = normalizeImportantLinks(input.links);
+  const batch = writeBatch(db);
+  batch.update(doc(db, "students", input.studentId), {
+    importantLinks: links,
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(collection(db, "teacherAuditEvents")), {
+    teacherId: input.teacherId,
+    studentId: input.studentId,
+    entityType: "student",
+    entityId: input.studentId,
+    action: "important_links_updated",
+    summary: "Важные ссылки ученика обновлены",
     createdAt: serverTimestamp(),
     schemaVersion: 1,
   });

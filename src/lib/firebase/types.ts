@@ -52,8 +52,16 @@ export interface Student extends AuditedDocument {
     joinUrl: string;
     isDefault: boolean;
   }>;
+  importantLinks?: StudentImportantLink[];
   archivedAt: Timestamp | null;
   avatarKey?: string;
+}
+
+export interface StudentImportantLink {
+  id: string;
+  title: string;
+  url: string;
+  note: string | null;
 }
 
 export interface ProgramProfile extends AuditedDocument {

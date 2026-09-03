@@ -13,6 +13,7 @@ import { programDisplayName } from "../features/exams/blueprints";
 import { useProgramProfiles } from "../features/materials/hooks";
 import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
 import { LessonJournal } from "../features/schedule/LessonJournal";
+import { ImportantLinksCard } from "../features/students/ImportantLinksCard";
 import {
   formatDateTimeForTimezone,
   resolveTimezone,
@@ -40,6 +41,7 @@ import {
   setStudentArchived,
   switchStudentProgram,
   updateStudentConferenceLinks,
+  updateStudentImportantLinks,
   updateStudentProfile,
   updateStudentProgramGoal,
   updateStudentTimezone,
@@ -413,6 +415,18 @@ export function TeacherStudentPage() {
             onNotice={setNotice}
             studentId={studentId}
             teacherId={user?.uid ?? ""}
+          />
+          <ImportantLinksCard
+            links={student.importantLinks ?? []}
+            onSave={async (links) => {
+              if (!user) return;
+              await updateStudentImportantLinks(getFirebaseDb(), {
+                teacherId: user.uid,
+                studentId,
+                links,
+              });
+              setNotice("Важные ссылки сохранены.");
+            }}
           />
           <Credentials
             key={studentId}

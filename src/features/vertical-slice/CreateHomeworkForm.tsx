@@ -155,7 +155,6 @@ export function CreateHomeworkForm(props: Props) {
   >([]);
   const [templateId, setTemplateId] = useState("");
   const [templateSaving, setTemplateSaving] = useState(false);
-  const [taskQuery, setTaskQuery] = useState("");
   const materials = useTeacherMaterials(props.teacherId);
   useEffect(
     () =>
@@ -689,15 +688,6 @@ export function CreateHomeworkForm(props: Props) {
             ) : null}
             <fieldset className="task-chip-selector homework-item-tasks">
               <legend>Задания экзамена</legend>
-              <label className="form-field task-selector-search">
-                <span>Найти задание</span>
-                <input
-                  onChange={(event) => setTaskQuery(event.target.value)}
-                  placeholder="Номер или раздел"
-                  type="search"
-                  value={taskQuery}
-                />
-              </label>
               <button
                 aria-pressed={!item.examTaskNumbers.length}
                 className="task-chip task-chip--general"
@@ -715,16 +705,7 @@ export function CreateHomeworkForm(props: Props) {
                   const task = blueprint?.tasks.find(
                     (item) => item.number === taskNumber,
                   );
-                  if (blueprint && task?.sectionCode !== section.code)
-                    return false;
-                  const haystack =
-                    `${taskNumber} ${task?.title ?? ""} ${section.title}`.toLocaleLowerCase(
-                      "ru",
-                    );
-                  return (
-                    !taskQuery.trim() ||
-                    haystack.includes(taskQuery.trim().toLocaleLowerCase("ru"))
-                  );
+                  return !blueprint || task?.sectionCode === section.code;
                 });
                 if (!visibleTasks.length) return null;
                 return (

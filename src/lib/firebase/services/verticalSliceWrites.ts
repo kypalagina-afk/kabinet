@@ -1,12 +1,25 @@
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
+  query,
   runTransaction,
   serverTimestamp,
   Timestamp,
+  where,
+  writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import type { Attachment, Homework, HomeworkItem, Lesson, MockExam, StudentProgram } from "../types.js";
+import type {
+  Attachment,
+  Homework,
+  HomeworkItem,
+  HomeworkSubmission,
+  Lesson,
+  MockExam,
+  StudentProgram,
+} from "../types.js";
 import { zonedLocalDateTimeToDate } from "../../../features/schedule/timezone.js";
 import { homeworkIdForCompletedLesson } from "./completeLesson.js";
 
@@ -35,6 +48,13 @@ export interface CreateHomeworkInput extends OwnedStudentProgramInput {
   criteriaVersion?: string | null;
   maxScoreSnapshot?: number | null;
   minimumWordCountSnapshot?: number | null;
+}
+
+export interface UpdateHomeworkInput extends Omit<
+  CreateHomeworkInput,
+  "sourceLessonId" | "draft"
+> {
+  homeworkId: string;
 }
 
 export interface CreateMockExamInput extends OwnedStudentProgramInput {
@@ -84,25 +104,32 @@ export async function createHomework(
       : null);
 
   await runTransaction(db, async (transaction) => {
-    const [programSnapshot, lessonSnapshot, homeworkSnapshot] = await Promise.all([
-      transaction.get(programReference),
-      lessonReference ? transaction.get(lessonReference) : Promise.resolve(null),
-      input.sourceLessonId ? transaction.get(homeworkReference) : Promise.resolve(null),
-    ]);
+    const [programSnapshot, lessonSnapshot, homeworkSnapshot] =
+      await Promise.all([
+        transaction.get(programReference),
+        lessonReference
+          ? transaction.get(lessonReference)
+          : Promise.resolve(null),
+        input.sourceLessonId
+          ? transaction.get(homeworkReference)
+          : Promise.resolve(null),
+      ]);
     if (!programSnapshot.exists()) {
       throw new Error("Student program does not exist");
     }
     assertValidOwnership(programSnapshot.data() as StudentProgram, input);
 
     if (lessonReference) {
-      if (!lessonSnapshot?.exists()) throw new Error("Source lesson does not exist");
+      if (!lessonSnapshot?.exists())
+        throw new Error("Source lesson does not exist");
       const lesson = lessonSnapshot.data() as Lesson;
       if (
         lesson.teacherId !== input.teacherId ||
         lesson.studentId !== input.studentId ||
         lesson.studentProgramId !== input.studentProgramId ||
         lesson.status !== "completed"
-      ) throw new Error("Completed lesson ownership check failed");
+      )
+        throw new Error("Completed lesson ownership check failed");
 
       if (homeworkSnapshot?.exists()) {
         const existing = homeworkSnapshot.data() as Homework;
@@ -111,7 +138,10 @@ export async function createHomework(
           existing.teacherId !== input.teacherId ||
           existing.studentId !== input.studentId ||
           existing.studentProgramId !== input.studentProgramId
-        ) throw new Error(`Deterministic homework ID collision: ${homeworkReference.id}`);
+        )
+          throw new Error(
+            `Deterministic homework ID collision: ${homeworkReference.id}`,
+          );
         if (lesson.homeworkResolution !== "assigned") {
           transaction.update(lessonReference, {
             homeworkResolution: "assigned",
@@ -160,6 +190,102 @@ export async function createHomework(
   });
 
   return homeworkReference.id;
+}
+
+export async function updateHomework(
+  db: Firestore,
+  input: UpdateHomeworkInput,
+): Promise<void> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Homework title is required");
+  const dueTimezone = input.dueTimezone ?? "Europe/Moscow";
+  const dueAt =
+    input.dueAt ??
+    (input.dueDate && input.dueTime
+      ? zonedLocalDateTimeToDate(input.dueDate, input.dueTime, dueTimezone)
+      : null);
+  const homeworkReference = doc(db, "homeworks", input.homeworkId);
+  const programReference = doc(db, "studentPrograms", input.studentProgramId);
+  await runTransaction(db, async (transaction) => {
+    const [homeworkSnapshot, programSnapshot] = await Promise.all([
+      transaction.get(homeworkReference),
+      transaction.get(programReference),
+    ]);
+    if (!homeworkSnapshot.exists() || !programSnapshot.exists())
+      throw new Error("Homework or student program does not exist");
+    const homework = homeworkSnapshot.data() as Homework;
+    const program = programSnapshot.data() as StudentProgram;
+    if (
+      homework.teacherId !== input.teacherId ||
+      homework.studentId !== input.studentId ||
+      homework.studentProgramId !== input.studentProgramId ||
+      program.teacherId !== input.teacherId ||
+      program.studentId !== input.studentId
+    )
+      throw new Error("Homework ownership check failed");
+    transaction.update(homeworkReference, {
+      type: input.type,
+      title,
+      description: input.description?.trim() || null,
+      dueAt: dueAt ? Timestamp.fromDate(dueAt) : null,
+      dueDate: input.dueDate ?? null,
+      dueTime: input.dueTime ?? null,
+      dueTimezone,
+      examTaskNumbers: input.examTaskNumbers ?? [],
+      requiredAmount: input.requiredAmount ?? null,
+      items: input.items ?? [],
+      attachments: input.attachments ?? [],
+      reviewCriteria: input.reviewCriteria ?? null,
+      examBlueprintId: input.examBlueprintId ?? null,
+      criteriaVersion: input.criteriaVersion ?? null,
+      maxScoreSnapshot: input.maxScoreSnapshot ?? null,
+      minimumWordCountSnapshot: null,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function deleteHomework(
+  db: Firestore,
+  input: { homeworkId: string; teacherId: string },
+): Promise<void> {
+  const homeworkReference = doc(db, "homeworks", input.homeworkId);
+  const [homeworkSnapshot, submissionSnapshots] = await Promise.all([
+    getDoc(homeworkReference),
+    getDocs(
+      query(
+        collection(db, "homeworkSubmissions"),
+        where("teacherId", "==", input.teacherId),
+        where("homeworkId", "==", input.homeworkId),
+      ),
+    ),
+  ]);
+  if (!homeworkSnapshot.exists()) return;
+  const homework = homeworkSnapshot.data() as Homework;
+  if (
+    homework.teacherId !== input.teacherId ||
+    submissionSnapshots.docs.some(
+      (snapshot) =>
+        (snapshot.data() as HomeworkSubmission).teacherId !== input.teacherId,
+    )
+  )
+    throw new Error("Homework deletion ownership check failed");
+  const batch = writeBatch(db);
+  submissionSnapshots.docs.forEach((snapshot) => batch.delete(snapshot.ref));
+  batch.delete(homeworkReference);
+  if (homework.sourceLessonId) {
+    const lessonReference = doc(db, "lessons", homework.sourceLessonId);
+    const lessonSnapshot = await getDoc(lessonReference);
+    if (
+      lessonSnapshot.exists() &&
+      (lessonSnapshot.data() as Lesson).teacherId === input.teacherId
+    )
+      batch.update(lessonReference, {
+        homeworkResolution: "pending",
+        updatedAt: serverTimestamp(),
+      });
+  }
+  await batch.commit();
 }
 
 export async function createMockExam(

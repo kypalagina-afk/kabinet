@@ -138,7 +138,7 @@ export function MockAnalyticsDashboard({
         </article>
       </section>
       <p className="workflow-hint" data-testid="analytics-evidence-summary">
-        В расчёте: пробников {exams.length} · попыток в практике {practiceAttempts.length}
+        В расчёте: пробников {exams.length} · результатов практики и ДЗ {practiceAttempts.length}
       </p>
       <section className="analytics-panel">
         <div className="panel-heading">
@@ -202,7 +202,11 @@ export function MockAnalyticsDashboard({
                     {mastery}%{onEditMastery ? " ✎" : ""}
                   </strong>
                   <small>
-                    {status} · {attempts} подтвержд.
+                    {status}
+                    {automatic && attempts
+                      ? ` · результат ${automatic.rawPercent}%`
+                      : ""}{" "}
+                    · {attempts} подтвержд.
                   </small>
                   {audience === "teacher" &&
                   (automatic?.freshnessDays ?? 0) > 60 ? (

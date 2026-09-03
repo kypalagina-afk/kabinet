@@ -280,8 +280,8 @@ export async function evaluateHomeworkSubmission(
     ) {
       throw new Error("Homework evaluation ownership check failed");
     }
-    if (submission.status !== "submitted") {
-      throw new Error("Only a submitted attempt can be evaluated");
+    if (!new Set(["submitted", "checked", "needs_revision"]).has(submission.status)) {
+      throw new Error("Only an existing submitted attempt can be evaluated");
     }
 
     const achievementCodes =
@@ -414,7 +414,7 @@ export async function evaluateHomeworkItem(
       throw new Error("Homework evaluation ownership check failed");
     if (!homework.items?.some((item) => item.itemId === input.itemId))
       throw new Error("Homework item does not exist");
-    if (!new Set(["submitted", "needs_revision"]).has(submission.status))
+    if (!new Set(["submitted", "checked", "needs_revision"]).has(submission.status))
       throw new Error("Only an active submitted attempt can be evaluated");
     const itemEvaluation: HomeworkItemEvaluation = {
       itemId: input.itemId,
@@ -430,14 +430,7 @@ export async function evaluateHomeworkItem(
       ...previous.filter((item) => item.itemId !== input.itemId),
       itemEvaluation,
     ];
-    const requiredItemIds = (homework.items ?? [])
-      .filter((item) =>
-        item.type === "essay" ||
-        item.type === "exposition" ||
-        item.type === "exam_written_work" ||
-        item.type === "practice",
-      )
-      .map((item) => item.itemId);
+    const requiredItemIds = (homework.items ?? []).map((item) => item.itemId);
     const packageStatus = deriveStructuredPackageStatus(
       requiredItemIds,
       itemEvaluations,

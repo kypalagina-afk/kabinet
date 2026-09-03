@@ -241,7 +241,7 @@ service cloud.firestore {
           && request.resource.data.status == "submitted"
           && resource.data.status in ["assigned", "overdue", "needs_revision"]
         );
-      allow delete: if false;
+      allow delete: if teacherOwns(resource.data);
     }
 
     match /homeworkSubmissions/{id} {
@@ -294,8 +294,17 @@ service cloud.firestore {
         );
 
       allow delete: if teacherOwns(resource.data)
-        && resource.data.submissionSource == "teacher_external"
-        && resource.data.status == "submitted";
+        && (
+          (
+            resource.data.submissionSource == "teacher_external"
+            && resource.data.status == "submitted"
+          ) || (
+            resource.data.homeworkId is string
+            && !existsAfter(
+              /databases/$(database)/documents/homeworks/$(resource.data.homeworkId)
+            )
+          )
+        );
     }
 
     match /mockExams/{id} {

@@ -11,8 +11,14 @@ import {
   saveHomeworkTemplate,
   subscribeHomeworkTemplates,
 } from "../../lib/firebase/services/homeworkTemplates";
-import { createHomework } from "../../lib/firebase/services/verticalSliceWrites";
-import { deleteFileAsset, uploadFileAsset } from "../../lib/firebase/services/fileAssetService";
+import {
+  createHomework,
+  updateHomework,
+} from "../../lib/firebase/services/verticalSliceWrites";
+import {
+  deleteFileAsset,
+  uploadFileAsset,
+} from "../../lib/firebase/services/fileAssetService";
 import type {
   Attachment,
   ExamBlueprint,
@@ -42,6 +48,8 @@ interface Props {
   studentId: string;
   studentProgramId: string;
   sourceLesson?: DocumentWithId<Lesson> | null;
+  homework?: DocumentWithId<Homework> | null;
+  onSaved?(): void;
 }
 const labels: Record<HomeworkItem["type"], string> = {
   theory: "Теория",
@@ -82,42 +90,63 @@ function criteriaForItem(
 ): Homework["reviewCriteria"] {
   const config = blueprint?.writingCriteria;
   const taskNumber = item.examTaskNumbers[0];
-  if (!config || !taskNumber)
-    return null;
+  if (!config || !taskNumber) return null;
   return reviewCriteriaForTask(blueprint, taskNumber);
 }
 
 export function CreateHomeworkForm(props: Props) {
   const { profile } = useAuth();
+  const editing = Boolean(props.homework);
+  const existingHomework = props.homework?.data;
   const draftKey = `homework-draft:${props.teacherId}:${props.studentId}${props.sourceLesson ? `:${props.sourceLesson.id}` : ""}`;
-  const uploadsAvailable = !isDemoProfile(profile) && isFirebaseStorageUploadAvailable();
-  const [title, setTitle] = useState(() =>
-    props.sourceLesson?.data.topic
-      ? `Закрепить тему: ${props.sourceLesson.data.topic}`
-      : "",
+  const uploadsAvailable =
+    !isDemoProfile(profile) && isFirebaseStorageUploadAvailable();
+  const [title, setTitle] = useState(
+    () =>
+      existingHomework?.title ??
+      (props.sourceLesson?.data.topic
+        ? `Закрепить тему: ${props.sourceLesson.data.topic}`
+        : ""),
   );
   const [description, setDescription] = useState(() => {
-    const errors = props.sourceLesson?.data.lessonSummary.errors ??
-      props.sourceLesson?.data.lessonSummary.focusNotes ?? [];
+    if (existingHomework) return existingHomework.description ?? "";
+    const errors =
+      props.sourceLesson?.data.lessonSummary.errors ??
+      props.sourceLesson?.data.lessonSummary.focusNotes ??
+      [];
     return errors.length ? `Фокус отработки: ${errors.join("; ")}.` : "";
   });
-  const [dueDate, setDueDate] = useState("");
-  const [dueTime, setDueTime] = useState("");
-  const [items, setItems] = useState<HomeworkItem[]>(() => [{
-    ...newItem(0),
-    title: props.sourceLesson?.data.topic
-      ? `Отработать: ${props.sourceLesson.data.topic}`
-      : "",
-    examTaskNumbers: [...(props.sourceLesson?.data.examTaskNumbers ?? [])],
-  }]);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [dueDate, setDueDate] = useState(existingHomework?.dueDate ?? "");
+  const [dueTime, setDueTime] = useState(existingHomework?.dueTime ?? "");
+  const [items, setItems] = useState<HomeworkItem[]>(() =>
+    existingHomework?.items?.length
+      ? existingHomework.items.map((item) => ({
+          ...item,
+          attachments: [...item.attachments],
+          materialIds: [...item.materialIds],
+        }))
+      : [
+          {
+            ...newItem(0),
+            title: props.sourceLesson?.data.topic
+              ? `Отработать: ${props.sourceLesson.data.topic}`
+              : "",
+            examTaskNumbers: [
+              ...(props.sourceLesson?.data.examTaskNumbers ?? []),
+            ],
+          },
+        ],
+  );
+  const [attachments, setAttachments] = useState<Attachment[]>(() => [
+    ...(existingHomework?.attachments ?? []),
+  ]);
   const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
   const [createdId, setCreatedId] = useState("");
   const [message, setMessage] = useState("");
-  const [draftFound, setDraftFound] = useState(() =>
-    Boolean(localStorage.getItem(draftKey)),
+  const [draftFound, setDraftFound] = useState(
+    () => !editing && Boolean(localStorage.getItem(draftKey)),
   );
   const [blueprint, setBlueprint] = useState<ExamBlueprint | null>(null);
   const [blueprintId, setBlueprintId] = useState<string | null>(null);
@@ -155,20 +184,18 @@ export function CreateHomeworkForm(props: Props) {
         !programBlueprintId(profile.data() as ProgramProfile)
       )
         return;
-      const activeBlueprintId = programBlueprintId(profile.data() as ProgramProfile)!;
+      const activeBlueprintId = programBlueprintId(
+        profile.data() as ProgramProfile,
+      )!;
       const result = await getDoc(
-        doc(
-          getFirebaseDb(),
-          "examBlueprints",
-          activeBlueprintId,
-        ),
+        doc(getFirebaseDb(), "examBlueprints", activeBlueprintId),
       );
       setBlueprint(result.exists() ? (result.data() as ExamBlueprint) : null);
       setBlueprintId(result.exists() ? activeBlueprintId : null);
     })();
   }, [props.studentProgramId]);
   useEffect(() => {
-    if (status === "success") return;
+    if (editing || status === "success") return;
     const handle = window.setTimeout(
       () =>
         localStorage.setItem(
@@ -192,19 +219,23 @@ export function CreateHomeworkForm(props: Props) {
     dueDate,
     dueTime,
     items,
+    editing,
     status,
     title,
   ]);
   const taskNumbers = useMemo(
-    () =>
-      blueprint?.tasks.map((task) => task.number) ?? [],
+    () => blueprint?.tasks.map((task) => task.number) ?? [],
     [blueprint],
   );
   const reviewCriteria = useMemo<Homework["reviewCriteria"]>(() => {
     const structured = items.find((item) =>
-      item.examTaskNumbers.some((task) => blueprint && writingConfigForTask(blueprint, task)),
+      item.examTaskNumbers.some(
+        (task) => blueprint && writingConfigForTask(blueprint, task),
+      ),
     );
-    return structured && blueprint ? criteriaForItem(structured, blueprint) : null;
+    return structured && blueprint
+      ? criteriaForItem(structured, blueprint)
+      : null;
   }, [blueprint, items]);
   function restore() {
     const raw = localStorage.getItem(draftKey);
@@ -248,28 +279,44 @@ export function CreateHomeworkForm(props: Props) {
   }
   function removeAttachment(attachment: Attachment, itemId?: string) {
     if (attachment.kind === "storage")
-      void deleteFileAsset(getFirebaseDb(), getFirebaseStorage(), attachment.id).catch(() =>
-        setMessage("Не удалось удалить файл. Попробуйте ещё раз."),
-      );
+      void deleteFileAsset(
+        getFirebaseDb(),
+        getFirebaseStorage(),
+        attachment.id,
+      ).catch(() => setMessage("Не удалось удалить файл. Попробуйте ещё раз."));
     if (itemId)
-      setItems((current) => current.map((item) => item.itemId === itemId
-        ? { ...item, attachments: item.attachments.filter(({ id }) => id !== attachment.id) }
-        : item));
-    else setAttachments((current) => current.filter(({ id }) => id !== attachment.id));
+      setItems((current) =>
+        current.map((item) =>
+          item.itemId === itemId
+            ? {
+                ...item,
+                attachments: item.attachments.filter(
+                  ({ id }) => id !== attachment.id,
+                ),
+              }
+            : item,
+        ),
+      );
+    else
+      setAttachments((current) =>
+        current.filter(({ id }) => id !== attachment.id),
+      );
   }
   function addAttachment(attachment: Attachment, itemId?: string) {
     if (itemId)
-      setItems((current) => current.map((item) => item.itemId === itemId
-        ? { ...item, attachments: [...item.attachments, attachment] }
-        : item));
+      setItems((current) =>
+        current.map((item) =>
+          item.itemId === itemId
+            ? { ...item, attachments: [...item.attachments, attachment] }
+            : item,
+        ),
+      );
     else setAttachments((current) => [...current, attachment]);
   }
   async function upload(files: FileList | null, itemId?: string) {
     if (!files?.length) return;
     if (!uploadsAvailable) {
-      setMessage(
-        "Прикрепление файлов временно недоступно в публичной версии.",
-      );
+      setMessage("Прикрепление файлов временно недоступно в публичной версии.");
       return;
     }
     setMessage("Загружаем файлы…");
@@ -344,20 +391,24 @@ export function CreateHomeworkForm(props: Props) {
         sortOrder,
         reviewCriteria: criteriaForItem(item, blueprint),
         examBlueprintId: blueprintId,
-        criteriaVersion: item.examTaskNumbers[0] && blueprint
-          ? writingConfigForTask(blueprint, item.examTaskNumbers[0])?.criteriaVersion ?? null
-          : null,
-        minimumWordCountSnapshot: item.examTaskNumbers[0] && blueprint
-          ? writingConfigForTask(blueprint, item.examTaskNumbers[0])?.minWords ?? null
-          : null,
-        maxScoreSnapshot: item.examTaskNumbers[0] && blueprint
-          ? blueprint.tasks.find((task) => task.number === item.examTaskNumbers[0])?.maxScore ?? null
-          : null,
+        criteriaVersion:
+          item.examTaskNumbers[0] && blueprint
+            ? (writingConfigForTask(blueprint, item.examTaskNumbers[0])
+                ?.criteriaVersion ?? null)
+            : null,
+        minimumWordCountSnapshot: null,
+        maxScoreSnapshot:
+          item.examTaskNumbers[0] && blueprint
+            ? (blueprint.tasks.find(
+                (task) => task.number === item.examTaskNumbers[0],
+              )?.maxScore ?? null)
+            : null,
       }));
       const finalTitle = smartTitle(title, cleanItems);
-      const id = await createHomework(getFirebaseDb(), {
-        ...props,
-        sourceLessonId: props.sourceLesson?.id ?? null,
+      const writeInput = {
+        teacherId: props.teacherId,
+        studentId: props.studentId,
+        studentProgramId: props.studentProgramId,
         title: finalTitle,
         description: description || null,
         type: cleanItems[0]?.type ?? "other",
@@ -365,23 +416,51 @@ export function CreateHomeworkForm(props: Props) {
         dueDate: dueDate || null,
         dueTime: dueTime || null,
         dueTimezone: "Europe/Moscow",
+        examTaskNumbers: [
+          ...new Set(cleanItems.flatMap((item) => item.examTaskNumbers)),
+        ].sort((left, right) => left - right),
         items: cleanItems,
         attachments,
         reviewCriteria,
         examBlueprintId: blueprintId,
-        criteriaVersion: cleanItems.find((item) => item.criteriaVersion)?.criteriaVersion ?? null,
-        maxScoreSnapshot: cleanItems.reduce((sum, item) => sum + (item.maxScoreSnapshot ?? 0), 0) || null,
-        minimumWordCountSnapshot: cleanItems.find((item) => item.minimumWordCountSnapshot)?.minimumWordCountSnapshot ?? null,
-      });
-      localStorage.removeItem(draftKey);
-      setCreatedId(id);
-      setMessage(`Домашнее задание назначено ✓`);
+        criteriaVersion:
+          cleanItems.find((item) => item.criteriaVersion)?.criteriaVersion ??
+          null,
+        maxScoreSnapshot:
+          cleanItems.reduce(
+            (sum, item) => sum + (item.maxScoreSnapshot ?? 0),
+            0,
+          ) || null,
+        minimumWordCountSnapshot: null,
+      };
+      const id = props.homework?.id;
+      if (id) {
+        await updateHomework(getFirebaseDb(), {
+          ...writeInput,
+          homeworkId: id,
+        });
+      } else {
+        const created = await createHomework(getFirebaseDb(), {
+          ...writeInput,
+          sourceLessonId: props.sourceLesson?.id ?? null,
+        });
+        setCreatedId(created);
+        localStorage.removeItem(draftKey);
+      }
+      setMessage(
+        editing
+          ? "Домашнее задание обновлено ✓"
+          : "Домашнее задание назначено ✓",
+      );
       setStatus("success");
+      props.onSaved?.();
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : "Не удалось назначить ДЗ. Черновик сохранён.",
+          : editing
+            ? "Не удалось обновить ДЗ. Изменения остались в форме."
+            : "Не удалось назначить ДЗ. Черновик сохранён.",
       );
       setStatus("error");
     }
@@ -401,7 +480,11 @@ export function CreateHomeworkForm(props: Props) {
     return (
       <section className="action-form homework-success" role="status">
         <span className="success-mark">✓</span>
-        <h2>Домашнее задание назначено</h2>
+        <h2>
+          {editing
+            ? "Домашнее задание обновлено"
+            : "Домашнее задание назначено"}
+        </h2>
         <p>
           {smartTitle(title, items)} · срок{" "}
           {dueDate
@@ -412,15 +495,31 @@ export function CreateHomeworkForm(props: Props) {
           · {items.length} пунктов
         </p>
         <div className="form-actions">
-          <Link
-            className="primary-button primary-button--fit"
-            to={`/teacher/homeworks?homework=${createdId}`}
-          >
-            Открыть ДЗ
-          </Link>
-          <button className="secondary-button" onClick={reset} type="button">
-            Создать ещё одно
-          </button>
+          {editing ? (
+            <button
+              className="primary-button primary-button--fit"
+              onClick={props.onSaved}
+              type="button"
+            >
+              Готово
+            </button>
+          ) : (
+            <>
+              <Link
+                className="primary-button primary-button--fit"
+                to={`/teacher/homeworks?homework=${createdId}`}
+              >
+                Открыть ДЗ
+              </Link>
+              <button
+                className="secondary-button"
+                onClick={reset}
+                type="button"
+              >
+                Создать ещё одно
+              </button>
+            </>
+          )}
         </div>
       </section>
     );
@@ -431,17 +530,26 @@ export function CreateHomeworkForm(props: Props) {
       onSubmit={(event) => void submit(event)}
     >
       <div className="action-form__heading">
-        <p className="eyebrow">Пакет заданий</p>
-        <h2>Новое домашнее задание</h2>
+        <p className="eyebrow">
+          {editing ? "Управление заданием" : "Пакет заданий"}
+        </p>
+        <h2>
+          {editing
+            ? "Редактировать домашнее задание"
+            : "Новое домашнее задание"}
+        </h2>
         <p>Один срок, несколько пунктов и материалы рядом с каждым заданием.</p>
       </div>
-      {props.sourceLesson ? (
+      {!editing && props.sourceLesson ? (
         <p className="workflow-hint" data-testid="homework-source-lesson">
           ДЗ будет атомарно связано с завершённым занятием
-          {props.sourceLesson.data.topic ? ` «${props.sourceLesson.data.topic}»` : ""}.
+          {props.sourceLesson.data.topic
+            ? ` «${props.sourceLesson.data.topic}»`
+            : ""}
+          .
         </p>
       ) : null}
-      {draftFound ? (
+      {!editing && draftFound ? (
         <div className="draft-banner">
           <span>Найден незавершённый черновик.</span>
           <button className="secondary-button" onClick={restore} type="button">
@@ -449,7 +557,7 @@ export function CreateHomeworkForm(props: Props) {
           </button>
         </div>
       ) : null}
-      {templates.length ? (
+      {!editing && templates.length ? (
         <label className="form-field">
           <span>Создать из шаблона</span>
           <select
@@ -516,7 +624,9 @@ export function CreateHomeworkForm(props: Props) {
           type="file"
         />
       </label>
-      <HomeworkResourceAdder onAdd={(attachment) => addAttachment(attachment)} />
+      <HomeworkResourceAdder
+        onAdd={(attachment) => addAttachment(attachment)}
+      />
       {attachments.length ? (
         <AttachmentList
           attachments={attachments}
@@ -581,7 +691,12 @@ export function CreateHomeworkForm(props: Props) {
               <legend>Задания экзамена</legend>
               <label className="form-field task-selector-search">
                 <span>Найти задание</span>
-                <input onChange={(event) => setTaskQuery(event.target.value)} placeholder="Номер или раздел" type="search" value={taskQuery} />
+                <input
+                  onChange={(event) => setTaskQuery(event.target.value)}
+                  placeholder="Номер или раздел"
+                  type="search"
+                  value={taskQuery}
+                />
               </label>
               <button
                 aria-pressed={!item.examTaskNumbers.length}
@@ -591,36 +706,67 @@ export function CreateHomeworkForm(props: Props) {
               >
                 Без номера
               </button>
-              {(blueprint?.sections ?? [{ code: "all", title: "Задания", maxScore: 0 }]).map((section) => {
+              {(
+                blueprint?.sections ?? [
+                  { code: "all", title: "Задания", maxScore: 0 },
+                ]
+              ).map((section) => {
                 const visibleTasks = taskNumbers.filter((taskNumber) => {
-                  const task = blueprint?.tasks.find((item) => item.number === taskNumber);
-                  if (blueprint && task?.sectionCode !== section.code) return false;
-                  const haystack = `${taskNumber} ${task?.title ?? ""} ${section.title}`.toLocaleLowerCase("ru");
-                  return !taskQuery.trim() || haystack.includes(taskQuery.trim().toLocaleLowerCase("ru"));
+                  const task = blueprint?.tasks.find(
+                    (item) => item.number === taskNumber,
+                  );
+                  if (blueprint && task?.sectionCode !== section.code)
+                    return false;
+                  const haystack =
+                    `${taskNumber} ${task?.title ?? ""} ${section.title}`.toLocaleLowerCase(
+                      "ru",
+                    );
+                  return (
+                    !taskQuery.trim() ||
+                    haystack.includes(taskQuery.trim().toLocaleLowerCase("ru"))
+                  );
                 });
                 if (!visibleTasks.length) return null;
-                return <div className="task-selector-group" key={section.code}><strong>{section.title}</strong><div>{visibleTasks.map((task) => <button
-                  aria-pressed={item.examTaskNumbers.includes(task)}
-                  className="task-chip"
-                  key={task}
-                  onClick={() => toggleTask(item, task)}
-                  type="button"
-                >
-                  №{task}
-                </button>)}</div></div>;
+                return (
+                  <div className="task-selector-group" key={section.code}>
+                    <strong>{section.title}</strong>
+                    <div>
+                      {visibleTasks.map((task) => (
+                        <button
+                          aria-pressed={item.examTaskNumbers.includes(task)}
+                          className="task-chip"
+                          key={task}
+                          onClick={() => toggleTask(item, task)}
+                          type="button"
+                        >
+                          №{task}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
               })}
             </fieldset>
-            {blueprint?.tasks.find((task) => task.number === 13)?.variants?.length && item.examTaskNumbers.includes(13) ? (
+            {blueprint?.tasks.find((task) => task.number === 13)?.variants
+              ?.length && item.examTaskNumbers.includes(13) ? (
               <label className="form-field">
                 <span>Вариант сочинения</span>
                 <select
-                  onChange={(event) => patchItem(item.itemId, { writingVariant: event.target.value || null })}
+                  onChange={(event) =>
+                    patchItem(item.itemId, {
+                      writingVariant: event.target.value || null,
+                    })
+                  }
                   value={item.writingVariant ?? ""}
                 >
                   <option value="">Выберите вариант</option>
-                  {blueprint.tasks.find((task) => task.number === 13)?.variants?.map((variant) => (
-                    <option key={variant} value={variant}>{variant}</option>
-                  ))}
+                  {blueprint.tasks
+                    .find((task) => task.number === 13)
+                    ?.variants?.map((variant) => (
+                      <option key={variant} value={variant}>
+                        {variant}
+                      </option>
+                    ))}
                 </select>
               </label>
             ) : null}
@@ -650,7 +796,9 @@ export function CreateHomeworkForm(props: Props) {
                 <AttachmentList
                   attachments={item.attachments}
                   onRemove={(id) => {
-                    const attachment = item.attachments.find((value) => value.id === id);
+                    const attachment = item.attachments.find(
+                      (value) => value.id === id,
+                    );
                     if (attachment) removeAttachment(attachment, item.itemId);
                   }}
                 />
@@ -694,7 +842,13 @@ export function CreateHomeworkForm(props: Props) {
           className="primary-button primary-button--fit"
           disabled={status === "saving"}
         >
-          {status === "saving" ? "Назначаем…" : "Назначить ДЗ"}
+          {status === "saving"
+            ? editing
+              ? "Сохраняем…"
+              : "Назначаем…"
+            : editing
+              ? "Сохранить изменения"
+              : "Назначить ДЗ"}
         </button>
         <button
           className="secondary-button"
@@ -728,12 +882,21 @@ function AttachmentList({
           {attachment.contentType?.startsWith("image/") && attachment.url ? (
             <img alt="" src={attachment.url} />
           ) : (
-            <span>{attachment.kind === "text" ? "📝" : attachment.kind === "external" ? "🔗" : "📎"}</span>
+            <span>
+              {attachment.kind === "text"
+                ? "📝"
+                : attachment.kind === "external"
+                  ? "🔗"
+                  : "📎"}
+            </span>
           )}
           <span>
             <strong>{attachment.title}</strong>
             {attachment.kind === "text" && attachment.textContent ? (
-              <small>{attachment.textContent.slice(0, 100)}{attachment.textContent.length > 100 ? "…" : ""}</small>
+              <small>
+                {attachment.textContent.slice(0, 100)}
+                {attachment.textContent.length > 100 ? "…" : ""}
+              </small>
             ) : attachment.kind === "external" && attachment.url ? (
               <small>{attachment.url}</small>
             ) : null}
@@ -765,26 +928,51 @@ function HomeworkResourceAdder({
 
   function add() {
     try {
-      onAdd(mode === "link"
-        ? createHomeworkLink(title, value)
-        : createHomeworkText(title, value));
+      onAdd(
+        mode === "link"
+          ? createHomeworkLink(title, value)
+          : createHomeworkText(title, value),
+      );
       setTitle("");
       setValue("");
       setError("");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось добавить материал.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Не удалось добавить материал.",
+      );
     }
   }
 
   return (
-    <details className={`homework-resource-adder${compact ? " homework-resource-adder--compact" : ""}`}>
+    <details
+      className={`homework-resource-adder${compact ? " homework-resource-adder--compact" : ""}`}
+    >
       <summary>+ Добавить ссылку или текст</summary>
       <div className="homework-resource-adder__body">
-        <div className="segmented-control homework-resource-kind" aria-label="Тип материала">
-          <button aria-pressed={mode === "link"} onClick={() => { setMode("link"); setError(""); }} type="button">
+        <div
+          className="segmented-control homework-resource-kind"
+          aria-label="Тип материала"
+        >
+          <button
+            aria-pressed={mode === "link"}
+            onClick={() => {
+              setMode("link");
+              setError("");
+            }}
+            type="button"
+          >
             Ссылка
           </button>
-          <button aria-pressed={mode === "text"} onClick={() => { setMode("text"); setError(""); }} type="button">
+          <button
+            aria-pressed={mode === "text"}
+            onClick={() => {
+              setMode("text");
+              setError("");
+            }}
+            type="button"
+          >
             Длинный текст
           </button>
         </div>
@@ -792,7 +980,11 @@ function HomeworkResourceAdder({
           <span>Название · необязательно</span>
           <input
             onChange={(event) => setTitle(event.target.value)}
-            placeholder={mode === "link" ? "Например, тренажёр" : "Например, текст для анализа"}
+            placeholder={
+              mode === "link"
+                ? "Например, тренажёр"
+                : "Например, текст для анализа"
+            }
             value={title}
           />
         </label>
@@ -800,7 +992,10 @@ function HomeworkResourceAdder({
           <span>{mode === "link" ? "Адрес ссылки" : "Текст"}</span>
           {mode === "link" ? (
             <input
-              onChange={(event) => { setValue(event.target.value); setError(""); }}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setError("");
+              }}
               placeholder="example.com или https://example.com"
               type="text"
               value={value}
@@ -808,7 +1003,10 @@ function HomeworkResourceAdder({
           ) : (
             <textarea
               maxLength={MAX_HOMEWORK_TEXT_LENGTH}
-              onChange={(event) => { setValue(event.target.value); setError(""); }}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setError("");
+              }}
               placeholder="Вставьте сюда правило, условие, фрагмент произведения или другой текст"
               rows={compact ? 5 : 7}
               value={value}
@@ -816,12 +1014,24 @@ function HomeworkResourceAdder({
           )}
         </label>
         {mode === "text" ? (
-          <small className="homework-resource-counter">{value.length.toLocaleString("ru-RU")} / {MAX_HOMEWORK_TEXT_LENGTH.toLocaleString("ru-RU")}</small>
+          <small className="homework-resource-counter">
+            {value.length.toLocaleString("ru-RU")} /{" "}
+            {MAX_HOMEWORK_TEXT_LENGTH.toLocaleString("ru-RU")}
+          </small>
         ) : null}
-        <button className="secondary-button" disabled={!value.trim()} onClick={add} type="button">
+        <button
+          className="secondary-button"
+          disabled={!value.trim()}
+          onClick={add}
+          type="button"
+        >
           {mode === "link" ? "Добавить ссылку" : "Прикрепить текст"}
         </button>
-        {error ? <span className="form-error" role="alert">{error}</span> : null}
+        {error ? (
+          <span className="form-error" role="alert">
+            {error}
+          </span>
+        ) : null}
       </div>
     </details>
   );

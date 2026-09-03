@@ -14,50 +14,676 @@ import { useTeacherHomeworkBoard } from "../features/homework/hooks";
 import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
 import { useTeacherStudentPrograms } from "../features/vertical-slice/hooks";
 import { homeworkDraftFromExisting } from "../lib/firebase/services/homeworkTemplates";
+import { deleteHomework } from "../lib/firebase/services/verticalSliceWrites";
+import { getFirebaseDb } from "../lib/firebase/client";
 import { getAttachmentDownloadUrl } from "../lib/firebase/services/fileAssetService";
-import type { Attachment, DocumentWithId, Homework, HomeworkSubmission } from "../lib/firebase/types";
+import type {
+  Attachment,
+  DocumentWithId,
+  Homework,
+  HomeworkSubmission,
+} from "../lib/firebase/types";
 import { formatCompactDate } from "../lib/formatters";
 import { formatHomeworkDueDate } from "../features/vertical-slice/selectors";
 
 type Tab = "active" | "review" | "overdue" | "completed";
-const typeLabels: Record<Homework["type"], string> = { theory: "Теория", practice: "Практика", written: "Письменная работа", interactive: "Интерактив", essay: "Сочинение", exposition: "Изложение", exam_written_work: "Письменная работа по критериям экзамена", writtenOther: "Другая письменная работа", other: "Задание" };
+const typeLabels: Record<Homework["type"], string> = {
+  theory: "Теория",
+  practice: "Практика",
+  written: "Письменная работа",
+  interactive: "Интерактив",
+  essay: "Сочинение",
+  exposition: "Изложение",
+  exam_written_work: "Письменная работа по критериям экзамена",
+  writtenOther: "Другая письменная работа",
+  other: "Задание",
+};
 
 export function TeacherHomeworksPage() {
-  const { user } = useAuth(); const { data, loading, error, hasMore, loadMore } = useTeacherHomeworkBoard(user?.uid ?? ""); const [params, setParams] = useSearchParams(); const navigate = useNavigate();
+  const { user } = useAuth();
+  const { data, loading, error, hasMore, loadMore } = useTeacherHomeworkBoard(
+    user?.uid ?? "",
+  );
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const programs = useTeacherStudentPrograms(user?.uid ?? "");
-  const requested = params.get("filter"); const [tab, setTabState] = useState<Tab>(requested === "pending" ? "review" : requested === "overdue" ? "overdue" : (requested as Tab | null) ?? (localStorage.getItem("teacher-homework-tab") as Tab | null) ?? "active"); const [studentId, setStudentId] = useState(""); const selectedId = params.get("homework"); const [preview, setPreview] = useState<Attachment | null>(null); const [copyStudent, setCopyStudent] = useState("");
+  const requested = params.get("filter");
+  const [tab, setTabState] = useState<Tab>(
+    requested === "pending"
+      ? "review"
+      : requested === "overdue"
+        ? "overdue"
+        : ((requested as Tab | null) ??
+          (localStorage.getItem("teacher-homework-tab") as Tab | null) ??
+          "active"),
+  );
+  const [studentId, setStudentId] = useState("");
+  const selectedId = params.get("homework");
+  const [preview, setPreview] = useState<Attachment | null>(null);
+  const [copyStudent, setCopyStudent] = useState("");
   const [previewError, setPreviewError] = useState("");
   const [currentTime] = useState(() => Date.now());
-  const [createOpen, setCreateOpen] = useState(params.get("create") === "homework");
+  const [createOpen, setCreateOpen] = useState(
+    params.get("create") === "homework",
+  );
   const [createStudentId, setCreateStudentId] = useState("");
-  const setTab = (value: Tab) => { setTabState(value); localStorage.setItem("teacher-homework-tab", value); setParams({ filter: value }); };
-  const homeworks = useMemo(() => [...data.homeworks].filter(({ data: homework }) => { if (studentId && homework.studentId !== studentId) return false; const status = effectiveHomeworkStatus(homework, currentTime); if (tab === "review") return status === "submitted"; if (tab === "overdue") return status === "overdue"; if (tab === "completed") return status === "checked" || status === "completed"; return !["overdue", "submitted", "checked", "completed"].includes(status); }).sort((a, b) => b.data.assignedAt.toMillis() - a.data.assignedAt.toMillis()), [currentTime, data.homeworks, studentId, tab]);
-  const selected = selectedId ? data.homeworks.find((item) => item.id === selectedId) ?? null : null;
-  function open(id: string) { const next = new URLSearchParams(params); next.set("homework", id); setParams(next); }
-  function close() { const next = new URLSearchParams(params); next.delete("homework"); setParams(next); }
-  function duplicateToStudent(homework: Homework) { if (!copyStudent || !user) return; localStorage.setItem(`homework-draft:${user.uid}:${copyStudent}`, JSON.stringify(homeworkDraftFromExisting(homework))); navigate(`/teacher/students/${copyStudent}?tab=homework`); }
-  function createRevisionDraft(homework: Homework, submission: HomeworkSubmission) { if (!user) return; const weak = submission.teacherEvaluation?.criteria.filter((item) => item.earned < item.max).map((item) => item.code) ?? []; const draft = homeworkDraftFromExisting(homework); localStorage.setItem(`homework-draft:${user.uid}:${homework.studentId}`, JSON.stringify({ ...draft, title: `Доработка · ${homework.title}`, description: [draft.description, weak.length ? `Фокус проверки: ${weak.join(", ")}.` : "Исправить работу по комментарию преподавателя."].filter(Boolean).join("\n") })); navigate(`/teacher/students/${homework.studentId}?tab=homework`); }
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const setTab = (value: Tab) => {
+    setTabState(value);
+    localStorage.setItem("teacher-homework-tab", value);
+    setParams({ filter: value });
+  };
+  const homeworks = useMemo(
+    () =>
+      [...data.homeworks]
+        .filter(({ data: homework }) => {
+          if (studentId && homework.studentId !== studentId) return false;
+          const status = effectiveHomeworkStatus(homework, currentTime);
+          if (tab === "review") return status === "submitted";
+          if (tab === "overdue") return status === "overdue";
+          if (tab === "completed")
+            return status === "checked" || status === "completed";
+          return !["overdue", "submitted", "checked", "completed"].includes(
+            status,
+          );
+        })
+        .sort(
+          (a, b) => b.data.assignedAt.toMillis() - a.data.assignedAt.toMillis(),
+        ),
+    [currentTime, data.homeworks, studentId, tab],
+  );
+  const selected = selectedId
+    ? (data.homeworks.find((item) => item.id === selectedId) ?? null)
+    : null;
+  function open(id: string) {
+    const next = new URLSearchParams(params);
+    next.set("homework", id);
+    setParams(next);
+  }
+  function close() {
+    const next = new URLSearchParams(params);
+    next.delete("homework");
+    setParams(next);
+  }
+  function duplicateToStudent(homework: Homework) {
+    if (!copyStudent || !user) return;
+    localStorage.setItem(
+      `homework-draft:${user.uid}:${copyStudent}`,
+      JSON.stringify(homeworkDraftFromExisting(homework)),
+    );
+    navigate(`/teacher/students/${copyStudent}?tab=homework`);
+  }
+  function createRevisionDraft(
+    homework: Homework,
+    submission: HomeworkSubmission,
+  ) {
+    if (!user) return;
+    const weak =
+      submission.teacherEvaluation?.criteria
+        .filter((item) => item.earned < item.max)
+        .map((item) => item.code) ?? [];
+    const draft = homeworkDraftFromExisting(homework);
+    localStorage.setItem(
+      `homework-draft:${user.uid}:${homework.studentId}`,
+      JSON.stringify({
+        ...draft,
+        title: `Доработка · ${homework.title}`,
+        description: [
+          draft.description,
+          weak.length
+            ? `Фокус проверки: ${weak.join(", ")}.`
+            : "Исправить работу по комментарию преподавателя.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }),
+    );
+    navigate(`/teacher/students/${homework.studentId}?tab=homework`);
+  }
   async function openPreview(attachment: Attachment) {
     setPreviewError("");
     try {
-      setPreview({ ...attachment, url: await getAttachmentDownloadUrl(attachment) });
+      setPreview({
+        ...attachment,
+        url: await getAttachmentDownloadUrl(attachment),
+      });
     } catch (error) {
-      setPreviewError(error instanceof Error ? error.message : "Не удалось открыть файл.");
+      setPreviewError(
+        error instanceof Error ? error.message : "Не удалось открыть файл.",
+      );
     }
   }
-  return <main className="shell-content homework-page" aria-labelledby="teacher-homework-title">
-    <header className="page-heading page-heading--split"><div><p className="eyebrow">Рабочее пространство</p><h1 id="teacher-homework-title">Домашние задания</h1><p>{data.submissions.filter(({ data: item }) => item.status === "submitted").length} работ ожидают проверки.</p></div><div className="homework-heading-actions"><label className="form-field compact-filter"><span>Ученик</span><select onChange={(event) => setStudentId(event.target.value)} value={studentId}><option value="">Все ученики</option>{data.students.map(({ id, data: student }) => <option key={id} value={id}>{student.displayName}</option>)}</select></label><AIShortcutButton prompt={`Сделай ДЗ${studentId ? ` для ${data.students.find(({ id }) => id === studentId)?.data.displayName ?? "ученика"}` : ""}`}>Черновик ДЗ</AIShortcutButton><button className="primary-button primary-button--fit" onClick={() => { setCreateStudentId(studentId || data.students.find(({ data: item }) => item.status === "active")?.id || ""); setCreateOpen(true); }} type="button">+ Создать ДЗ</button></div></header>
-    <div className="segmented-control homework-tabs" aria-label="Статус домашних заданий">{([['active','Активные'],['review','На проверке'],['overdue','Просроченные'],['completed','Завершённые']] as const).map(([value, label]) => <button aria-pressed={tab === value} key={value} onClick={() => setTab(value)} type="button">{label}</button>)}</div>
-    {loading ? <p className="content-state">Загружаем работы…</p> : null}{error ? <p className="shell-notice">{error}</p> : null}{previewError ? <p className="shell-notice" role="alert">{previewError}</p> : null}
-    <div className="homework-list" data-testid="teacher-homework-list">{homeworks.map((homework) => <HomeworkCard board={data} homework={homework} key={homework.id} onOpen={() => open(homework.id)} />)}{!loading && !homeworks.length ? <p className="content-state">В этой вкладке пока нет заданий.</p> : null}</div>
-    {hasMore ? <button className="secondary-button history-load-more" onClick={loadMore} type="button">Показать ещё</button> : null}
-    {selected ? <Modal className="homework-detail-modal" onClose={close} title={selected.data.title}><HomeworkDetail homework={selected} submissions={data.submissions.filter(({ data: item }) => item.homeworkId === selected.id)} teacherId={user?.uid ?? ""} onPreview={(attachment) => void openPreview(attachment)} onRevisionDraft={(submission) => createRevisionDraft(selected.data, submission)} /><section className="duplicate-homework"><h3>Назначить похожее</h3><p>Копируются только пункты и материалы. Старые ответы и проверки не копируются.</p><div className="inline-control"><select aria-label="Новый ученик" onChange={(event) => setCopyStudent(event.target.value)} value={copyStudent}><option value="">Выберите ученика</option>{data.students.map(({ id, data: student }) => <option key={id} value={id}>{student.displayName}</option>)}</select><button className="secondary-button" disabled={!copyStudent} onClick={() => duplicateToStudent(selected.data)} type="button">Создать черновик</button></div></section><Link className="back-link" to={`/teacher/students/${selected.data.studentId}`}>Открыть ученика →</Link></Modal> : null}
-    {preview ? <Modal className="attachment-modal" onClose={() => setPreview(null)} title={preview.title}>{preview.contentType?.startsWith("image/") ? <img alt={preview.title} className="attachment-large-preview" src={preview.url ?? ""} /> : <iframe className="attachment-pdf-preview" src={preview.url ?? ""} title={preview.title} />}<a className="primary-button primary-button--fit" href={preview.url ?? "#"} rel="noreferrer" target="_blank">Открыть в новой вкладке</a></Modal> : null}
-    {createOpen ? <Modal className="homework-create-modal" onClose={() => setCreateOpen(false)} title="Создать домашнее задание"><div className="modal-form"><label className="form-field"><span>Ученик</span><select onChange={(event) => setCreateStudentId(event.target.value)} value={createStudentId}><option value="">Выберите ученика</option>{data.students.filter(({ data: item }) => item.status === "active").map(({ id, data: student }) => <option key={id} value={id}>{student.displayName}</option>)}</select></label>{createStudentId && programs.data.find(({ data: program }) => program.studentId === createStudentId && program.status === "active") ? <CreateHomeworkForm teacherId={user?.uid ?? ""} studentId={createStudentId} studentProgramId={programs.data.find(({ data: program }) => program.studentId === createStudentId && program.status === "active")!.id} /> : <p className="content-state">Выберите ученика с активной программой.</p>}</div></Modal> : null}
-  </main>;
+  async function removeSelectedHomework() {
+    if (!selected || !user || deleting) return;
+    if (
+      !window.confirm(
+        `Удалить ДЗ «${selected.data.title}» вместе со всеми попытками сдачи? Это действие нельзя отменить.`,
+      )
+    )
+      return;
+    setDeleting(true);
+    setPreviewError("");
+    try {
+      await deleteHomework(getFirebaseDb(), {
+        homeworkId: selected.id,
+        teacherId: user.uid,
+      });
+      setEditOpen(false);
+      close();
+    } catch (error) {
+      setPreviewError(
+        error instanceof Error ? error.message : "Не удалось удалить ДЗ.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+  return (
+    <main
+      className="shell-content homework-page"
+      aria-labelledby="teacher-homework-title"
+    >
+      <header className="page-heading page-heading--split">
+        <div>
+          <p className="eyebrow">Рабочее пространство</p>
+          <h1 id="teacher-homework-title">Домашние задания</h1>
+          <p>
+            {
+              data.submissions.filter(
+                ({ data: item }) => item.status === "submitted",
+              ).length
+            }{" "}
+            работ ожидают проверки.
+          </p>
+        </div>
+        <div className="homework-heading-actions">
+          <label className="form-field compact-filter">
+            <span>Ученик</span>
+            <select
+              onChange={(event) => setStudentId(event.target.value)}
+              value={studentId}
+            >
+              <option value="">Все ученики</option>
+              {data.students.map(({ id, data: student }) => (
+                <option key={id} value={id}>
+                  {student.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <AIShortcutButton
+            prompt={`Сделай ДЗ${studentId ? ` для ${data.students.find(({ id }) => id === studentId)?.data.displayName ?? "ученика"}` : ""}`}
+          >
+            Черновик ДЗ
+          </AIShortcutButton>
+          <button
+            className="primary-button primary-button--fit"
+            onClick={() => {
+              setCreateStudentId(
+                studentId ||
+                  data.students.find(
+                    ({ data: item }) => item.status === "active",
+                  )?.id ||
+                  "",
+              );
+              setCreateOpen(true);
+            }}
+            type="button"
+          >
+            + Создать ДЗ
+          </button>
+        </div>
+      </header>
+      <div
+        className="segmented-control homework-tabs"
+        aria-label="Статус домашних заданий"
+      >
+        {(
+          [
+            ["active", "Активные"],
+            ["review", "На проверке"],
+            ["overdue", "Просроченные"],
+            ["completed", "Завершённые"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            aria-pressed={tab === value}
+            key={value}
+            onClick={() => setTab(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {loading ? <p className="content-state">Загружаем работы…</p> : null}
+      {error ? <p className="shell-notice">{error}</p> : null}
+      {previewError ? (
+        <p className="shell-notice" role="alert">
+          {previewError}
+        </p>
+      ) : null}
+      <div className="homework-list" data-testid="teacher-homework-list">
+        {homeworks.map((homework) => (
+          <HomeworkCard
+            board={data}
+            homework={homework}
+            key={homework.id}
+            onOpen={() => open(homework.id)}
+          />
+        ))}
+        {!loading && !homeworks.length ? (
+          <p className="content-state">В этой вкладке пока нет заданий.</p>
+        ) : null}
+      </div>
+      {hasMore ? (
+        <button
+          className="secondary-button history-load-more"
+          onClick={loadMore}
+          type="button"
+        >
+          Показать ещё
+        </button>
+      ) : null}
+      {selected ? (
+        <Modal
+          className="homework-detail-modal"
+          onClose={close}
+          title={selected.data.title}
+        >
+          <HomeworkDetail
+            deleting={deleting}
+            homework={selected}
+            onDelete={() => void removeSelectedHomework()}
+            onEdit={() => setEditOpen(true)}
+            submissions={data.submissions.filter(
+              ({ data: item }) => item.homeworkId === selected.id,
+            )}
+            teacherId={user?.uid ?? ""}
+            onPreview={(attachment) => void openPreview(attachment)}
+            onRevisionDraft={(submission) =>
+              createRevisionDraft(selected.data, submission)
+            }
+          />
+          <section className="duplicate-homework">
+            <h3>Назначить похожее</h3>
+            <p>
+              Копируются только пункты и материалы. Старые ответы и проверки не
+              копируются.
+            </p>
+            <div className="inline-control">
+              <select
+                aria-label="Новый ученик"
+                onChange={(event) => setCopyStudent(event.target.value)}
+                value={copyStudent}
+              >
+                <option value="">Выберите ученика</option>
+                {data.students.map(({ id, data: student }) => (
+                  <option key={id} value={id}>
+                    {student.displayName}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary-button"
+                disabled={!copyStudent}
+                onClick={() => duplicateToStudent(selected.data)}
+                type="button"
+              >
+                Создать черновик
+              </button>
+            </div>
+          </section>
+          <Link
+            className="back-link"
+            to={`/teacher/students/${selected.data.studentId}`}
+          >
+            Открыть ученика →
+          </Link>
+        </Modal>
+      ) : null}
+      {selected && editOpen ? (
+        <Modal
+          className="homework-create-modal"
+          onClose={() => setEditOpen(false)}
+          title="Редактировать ДЗ"
+        >
+          <CreateHomeworkForm
+            homework={selected}
+            key={`edit-${selected.id}`}
+            onSaved={() => setEditOpen(false)}
+            studentId={selected.data.studentId}
+            studentProgramId={selected.data.studentProgramId}
+            teacherId={user?.uid ?? ""}
+          />
+        </Modal>
+      ) : null}
+      {preview ? (
+        <Modal
+          className="attachment-modal"
+          onClose={() => setPreview(null)}
+          title={preview.title}
+        >
+          {preview.contentType?.startsWith("image/") ? (
+            <img
+              alt={preview.title}
+              className="attachment-large-preview"
+              src={preview.url ?? ""}
+            />
+          ) : (
+            <iframe
+              className="attachment-pdf-preview"
+              src={preview.url ?? ""}
+              title={preview.title}
+            />
+          )}
+          <a
+            className="primary-button primary-button--fit"
+            href={preview.url ?? "#"}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Открыть в новой вкладке
+          </a>
+        </Modal>
+      ) : null}
+      {createOpen ? (
+        <Modal
+          className="homework-create-modal"
+          onClose={() => setCreateOpen(false)}
+          title="Создать домашнее задание"
+        >
+          <div className="modal-form">
+            <label className="form-field">
+              <span>Ученик</span>
+              <select
+                onChange={(event) => setCreateStudentId(event.target.value)}
+                value={createStudentId}
+              >
+                <option value="">Выберите ученика</option>
+                {data.students
+                  .filter(({ data: item }) => item.status === "active")
+                  .map(({ id, data: student }) => (
+                    <option key={id} value={id}>
+                      {student.displayName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {createStudentId &&
+            programs.data.find(
+              ({ data: program }) =>
+                program.studentId === createStudentId &&
+                program.status === "active",
+            ) ? (
+              <CreateHomeworkForm
+                teacherId={user?.uid ?? ""}
+                studentId={createStudentId}
+                studentProgramId={
+                  programs.data.find(
+                    ({ data: program }) =>
+                      program.studentId === createStudentId &&
+                      program.status === "active",
+                  )!.id
+                }
+              />
+            ) : (
+              <p className="content-state">
+                Выберите ученика с активной программой.
+              </p>
+            )}
+          </div>
+        </Modal>
+      ) : null}
+    </main>
+  );
 }
 
-function HomeworkCard({ homework, board, onOpen }: { homework: DocumentWithId<Homework>; board: ReturnType<typeof useTeacherHomeworkBoard>["data"]; onOpen(): void }) { const student = board.students.find(({ id }) => id === homework.data.studentId); const submissions = board.submissions.filter(({ data }) => data.homeworkId === homework.id); const latest = [...submissions].sort((a, b) => a.data.submissionNumber - b.data.submissionNumber).at(-1)?.data; const itemProgress = latest?.studentInput.itemProgress ?? []; const complete = itemProgress.filter((item) => item.completed).length; const attachments = submissions.reduce((count, item) => count + (item.data.studentInput.attachments?.length ?? 0) + (item.data.studentInput.itemProgress?.reduce((sum, progress) => sum + progress.attachments.length, 0) ?? 0), 0); return <button className="workflow-card homework-workspace-card" data-testid="teacher-homework-card" onClick={onOpen} type="button"><div className="workflow-card__heading"><div><span className="eyebrow">{student?.data.displayName ?? "Ученик"} · {typeLabels[homework.data.type]}</span><h2>{homework.data.title}</h2></div><HomeworkStatus homework={homework.data} /></div><div className="homework-card-summary"><span>Срок: {formatHomeworkDueDate(homework.data)}</span><span>{homework.data.items?.length ?? 1} пунктов</span><span>Прогресс {complete}/{homework.data.items?.length ?? 1}</span><span>📎 {attachments}</span><span>Попыток: {submissions.length}</span></div>{latest?.status === "submitted" ? <strong className="review-badge">1 работа ждёт проверки</strong> : null}</button>; }
+function HomeworkCard({
+  homework,
+  board,
+  onOpen,
+}: {
+  homework: DocumentWithId<Homework>;
+  board: ReturnType<typeof useTeacherHomeworkBoard>["data"];
+  onOpen(): void;
+}) {
+  const student = board.students.find(
+    ({ id }) => id === homework.data.studentId,
+  );
+  const submissions = board.submissions.filter(
+    ({ data }) => data.homeworkId === homework.id,
+  );
+  const latest = [...submissions]
+    .sort((a, b) => a.data.submissionNumber - b.data.submissionNumber)
+    .at(-1)?.data;
+  const itemProgress = latest?.studentInput.itemProgress ?? [];
+  const complete = itemProgress.filter((item) => item.completed).length;
+  const attachments = submissions.reduce(
+    (count, item) =>
+      count +
+      (item.data.studentInput.attachments?.length ?? 0) +
+      (item.data.studentInput.itemProgress?.reduce(
+        (sum, progress) => sum + progress.attachments.length,
+        0,
+      ) ?? 0),
+    0,
+  );
+  return (
+    <button
+      className="workflow-card homework-workspace-card"
+      data-testid="teacher-homework-card"
+      onClick={onOpen}
+      type="button"
+    >
+      <div className="workflow-card__heading">
+        <div>
+          <span className="eyebrow">
+            {student?.data.displayName ?? "Ученик"} ·{" "}
+            {typeLabels[homework.data.type]}
+          </span>
+          <h2>{homework.data.title}</h2>
+        </div>
+        <HomeworkStatus homework={homework.data} />
+      </div>
+      <div className="homework-card-summary">
+        <span>Срок: {formatHomeworkDueDate(homework.data)}</span>
+        <span>{homework.data.items?.length ?? 1} пунктов</span>
+        <span>
+          Прогресс {complete}/{homework.data.items?.length ?? 1}
+        </span>
+        <span>📎 {attachments}</span>
+        <span>Попыток: {submissions.length}</span>
+      </div>
+      {latest?.status === "submitted" ? (
+        <strong className="review-badge">1 работа ждёт проверки</strong>
+      ) : null}
+    </button>
+  );
+}
 
-function HomeworkDetail({ homework, submissions, teacherId, onPreview, onRevisionDraft }: { homework: DocumentWithId<Homework>; submissions: Array<DocumentWithId<HomeworkSubmission>>; teacherId: string; onPreview(value: Attachment): void; onRevisionDraft(submission: HomeworkSubmission): void }) { const ordered = [...submissions].sort((a, b) => a.data.submissionNumber - b.data.submissionNumber); const latest = ordered.at(-1); return <div className="homework-detail"><div className="homework-detail-meta"><HomeworkStatus homework={homework.data} /><span>Срок: {homework.data.dueAt ? formatCompactDate(homework.data.dueAt) : "без точного времени"}</span></div>{homework.data.description ? <p>{homework.data.description}</p> : null}<section><h3>Что назначено</h3><ol className="assigned-item-list">{(homework.data.items ?? []).map((item) => <li key={item.itemId}><div><strong>{item.title}</strong><small>{typeLabels[item.type]}{item.examTaskNumbers.length ? ` · ${item.examTaskNumbers.map((n) => `№${n}`).join(", ")}` : ""}</small></div><AttachmentButtons attachments={item.attachments} onPreview={onPreview} /></li>)}</ol><AttachmentButtons attachments={homework.data.attachments ?? []} onPreview={onPreview} /></section><TeacherExternalSubmissionControls homework={homework.data} homeworkId={homework.id} submissions={submissions} teacherId={teacherId} />{ordered.map(({ id, data: submission }) => <details className="attempt-card" key={id} open={id === latest?.id}><summary>Попытка {submission.submissionNumber} · {submission.status === "submitted" ? "ждёт проверки" : submission.status === "checked" ? "проверена" : "доработка"}</summary><div className="attempt-content"><p><strong>Комментарий ученика:</strong> {submission.studentInput.note || "Не добавлен"}</p><AttachmentButtons attachments={submission.studentInput.attachments ?? []} onPreview={onPreview} />{submission.studentInput.itemProgress?.map((progress) => <div className="item-progress-row" key={progress.itemId}><span>{progress.completed ? "✓" : "○"} {(homework.data.items ?? []).find((item) => item.itemId === progress.itemId)?.title ?? "Пункт"}</span>{progress.responseText ? <blockquote className="written-response-preview">{progress.responseText}</blockquote> : null}<AttachmentButtons attachments={progress.attachments} onPreview={onPreview} /></div>)}{submission.teacherEvaluation ? <div className="evaluation-result"><strong>Результат: {submission.teacherEvaluation.scoreEarned ?? "—"}/{submission.teacherEvaluation.scoreMax ?? "—"}</strong>{submission.teacherEvaluation.qualityScore ? <span>Качество выполнения: {submission.teacherEvaluation.qualityScore}/10</span> : null}{submission.teacherEvaluation.criteria.length ? <div className="criteria-report">{submission.teacherEvaluation.criteria.map((item) => <span key={item.code}>{item.code}: {item.earned}/{item.max}{item.errorsCount !== null ? ` · ошибок ${item.errorsCount}` : ""}</span>)}</div> : null}<p>{submission.teacherEvaluation.comment || "Без комментария"}</p>{submission.status === "needs_revision" ? <button className="secondary-button" onClick={() => onRevisionDraft(submission)} type="button">Создать ДЗ на доработку</button> : null}</div> : null}{["submitted", "needs_revision"].includes(submission.status) ? <TeacherEvaluationForm homework={homework.data} homeworkId={homework.id} submission={submission} submissionId={id} teacherId={teacherId} /> : null}</div></details>)}</div>; }
-function AttachmentButtons({ attachments, onPreview }: { attachments: Attachment[]; onPreview(value: Attachment): void }) { return <HomeworkAttachmentList attachments={attachments} onOpenFile={onPreview} />; }
+function HomeworkDetail({
+  homework,
+  submissions,
+  teacherId,
+  deleting,
+  onDelete,
+  onEdit,
+  onPreview,
+  onRevisionDraft,
+}: {
+  homework: DocumentWithId<Homework>;
+  submissions: Array<DocumentWithId<HomeworkSubmission>>;
+  teacherId: string;
+  deleting: boolean;
+  onDelete(): void;
+  onEdit(): void;
+  onPreview(value: Attachment): void;
+  onRevisionDraft(submission: HomeworkSubmission): void;
+}) {
+  const ordered = [...submissions].sort(
+    (a, b) => a.data.submissionNumber - b.data.submissionNumber,
+  );
+  const latest = ordered.at(-1);
+  return (
+    <div className="homework-detail">
+      <div className="homework-detail-meta">
+        <HomeworkStatus homework={homework.data} />
+        <span>
+          Срок:{" "}
+          {homework.data.dueAt
+            ? formatCompactDate(homework.data.dueAt)
+            : "без точного времени"}
+        </span>
+      </div>
+      <div className="homework-management-actions">
+        <button className="secondary-button" onClick={onEdit} type="button">
+          Редактировать ДЗ
+        </button>
+        <button
+          className="secondary-button secondary-button--danger"
+          disabled={deleting}
+          onClick={onDelete}
+          type="button"
+        >
+          {deleting ? "Удаляем…" : "Удалить ДЗ"}
+        </button>
+      </div>
+      {homework.data.description ? <p>{homework.data.description}</p> : null}
+      <section>
+        <h3>Что назначено</h3>
+        <ol className="assigned-item-list">
+          {(homework.data.items ?? []).map((item) => (
+            <li key={item.itemId}>
+              <div>
+                <strong>{item.title}</strong>
+                <small>
+                  {typeLabels[item.type]}
+                  {item.examTaskNumbers.length
+                    ? ` · ${item.examTaskNumbers.map((n) => `№${n}`).join(", ")}`
+                    : ""}
+                </small>
+              </div>
+              <AttachmentButtons
+                attachments={item.attachments}
+                onPreview={onPreview}
+              />
+            </li>
+          ))}
+        </ol>
+        <AttachmentButtons
+          attachments={homework.data.attachments ?? []}
+          onPreview={onPreview}
+        />
+      </section>
+      <TeacherExternalSubmissionControls
+        homework={homework.data}
+        homeworkId={homework.id}
+        submissions={submissions}
+        teacherId={teacherId}
+      />
+      {ordered.map(({ id, data: submission }) => (
+        <details className="attempt-card" key={id} open={id === latest?.id}>
+          <summary>
+            Попытка {submission.submissionNumber} ·{" "}
+            {submission.status === "submitted"
+              ? "ждёт проверки"
+              : submission.status === "checked"
+                ? "проверена"
+                : "доработка"}
+          </summary>
+          <div className="attempt-content">
+            <p>
+              <strong>Комментарий ученика:</strong>{" "}
+              {submission.studentInput.note || "Не добавлен"}
+            </p>
+            <AttachmentButtons
+              attachments={submission.studentInput.attachments ?? []}
+              onPreview={onPreview}
+            />
+            {submission.studentInput.itemProgress?.map((progress) => (
+              <div className="item-progress-row" key={progress.itemId}>
+                <span>
+                  {progress.completed ? "✓" : "○"}{" "}
+                  {(homework.data.items ?? []).find(
+                    (item) => item.itemId === progress.itemId,
+                  )?.title ?? "Пункт"}
+                </span>
+                {progress.responseText ? (
+                  <blockquote className="written-response-preview">
+                    {progress.responseText}
+                  </blockquote>
+                ) : null}
+                <AttachmentButtons
+                  attachments={progress.attachments}
+                  onPreview={onPreview}
+                />
+              </div>
+            ))}
+            {submission.teacherEvaluation ? (
+              <div className="evaluation-result">
+                <strong>
+                  Результат: {submission.teacherEvaluation.scoreEarned ?? "—"}/
+                  {submission.teacherEvaluation.scoreMax ?? "—"}
+                </strong>
+                {submission.teacherEvaluation.qualityScore ? (
+                  <span>
+                    Качество выполнения:{" "}
+                    {submission.teacherEvaluation.qualityScore}/10
+                  </span>
+                ) : null}
+                {submission.teacherEvaluation.criteria.length ? (
+                  <div className="criteria-report">
+                    {submission.teacherEvaluation.criteria.map((item) => (
+                      <span key={item.code}>
+                        {item.code}: {item.earned}/{item.max}
+                        {item.errorsCount !== null
+                          ? ` · ошибок ${item.errorsCount}`
+                          : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <p>
+                  {submission.teacherEvaluation.comment || "Без комментария"}
+                </p>
+                {submission.status === "needs_revision" ? (
+                  <button
+                    className="secondary-button"
+                    onClick={() => onRevisionDraft(submission)}
+                    type="button"
+                  >
+                    Создать ДЗ на доработку
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {["submitted", "needs_revision", "checked"].includes(
+              submission.status,
+            ) ? (
+              <TeacherEvaluationForm
+                homework={homework.data}
+                homeworkId={homework.id}
+                submission={submission}
+                submissionId={id}
+                teacherId={teacherId}
+              />
+            ) : null}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+function AttachmentButtons({
+  attachments,
+  onPreview,
+}: {
+  attachments: Attachment[];
+  onPreview(value: Attachment): void;
+}) {
+  return (
+    <HomeworkAttachmentList attachments={attachments} onOpenFile={onPreview} />
+  );
+}

@@ -28,17 +28,22 @@ export function TeacherExternalSubmissionControls({
   submissions: Array<DocumentWithId<HomeworkSubmission>>;
   teacherId: string;
 }) {
-  const [state, setState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
+    "idle",
+  );
   const latest = [...submissions]
-    .sort((left, right) => left.data.submissionNumber - right.data.submissionNumber)
+    .sort(
+      (left, right) => left.data.submissionNumber - right.data.submissionNumber,
+    )
     .at(-1);
   const canRecord = new Set<Homework["status"]>([
     "assigned",
     "overdue",
     "needs_revision",
   ]).has(homework.status);
-  const canUndo = latest?.data.submissionSource === "teacher_external"
-    && latest.data.status === "submitted";
+  const canUndo =
+    latest?.data.submissionSource === "teacher_external" &&
+    latest.data.status === "submitted";
 
   async function record() {
     setState("saving");
@@ -92,19 +97,38 @@ export function TeacherExternalSubmissionControls({
     <section className="external-homework-submission">
       <div>
         <strong>Сдача вне платформы</strong>
-        <span>Если ученик прислал работу в мессенджере, отметьте её сданной и выставьте баллы здесь.</span>
+        <span>
+          Если ученик прислал работу в мессенджере, отметьте её сданной и
+          выставьте баллы здесь.
+        </span>
       </div>
       {canUndo ? (
-        <button className="secondary-button" disabled={state === "saving"} onClick={() => void undo()} type="button">
+        <button
+          className="secondary-button"
+          disabled={state === "saving"}
+          onClick={() => void undo()}
+          type="button"
+        >
           Отменить отметку о сдаче
         </button>
       ) : (
-        <button className="secondary-button" disabled={state === "saving"} onClick={() => void record()} type="button">
+        <button
+          className="secondary-button"
+          disabled={state === "saving"}
+          onClick={() => void record()}
+          type="button"
+        >
           {state === "saving" ? "Отмечаем…" : "Отметить сданным вне платформы"}
         </button>
       )}
-      {state === "success" ? <span className="form-success">Работа отмечена сданной. Теперь можно выставить баллы.</span> : null}
-      {state === "error" ? <span className="form-error">Не удалось изменить отметку о сдаче.</span> : null}
+      {state === "success" ? (
+        <span className="form-success">
+          Работа отмечена сданной. Теперь можно выставить баллы.
+        </span>
+      ) : null}
+      {state === "error" ? (
+        <span className="form-error">Не удалось изменить отметку о сдаче.</span>
+      ) : null}
     </section>
   );
 }
@@ -122,14 +146,7 @@ export function TeacherEvaluationForm({
   submissionId: string;
   teacherId: string;
 }) {
-  const reviewable = (homework.items ?? []).filter(
-    (item) =>
-      item.type === "practice"
-      || (
-        (item.type === "essay" || item.type === "exposition" || item.type === "exam_written_work")
-        && (item.reviewCriteria || homework.reviewCriteria)
-      ),
-  );
+  const reviewable = homework.items ?? [];
   const [qualityScore, setQualityScore] = useState(
     submission.teacherEvaluation?.qualityScore?.toString() ?? "",
   );
@@ -153,6 +170,18 @@ export function TeacherEvaluationForm({
             key={item.itemId}
             onQualityScoreChange={setQualityScore}
             qualityScore={qualityScore}
+            reviewConfig={
+              item.reviewCriteria ??
+              (reviewable.length === 1 &&
+              new Set<HomeworkItem["type"]>([
+                "essay",
+                "exposition",
+                "exam_written_work",
+              ]).has(item.type)
+                ? homework.reviewCriteria
+                : null) ??
+              null
+            }
             submission={submission}
             submissionId={submissionId}
             teacherId={teacherId}
@@ -180,6 +209,7 @@ function ItemEvaluationForm({
   teacherId,
   qualityScore,
   onQualityScoreChange,
+  reviewConfig,
 }: {
   homeworkId: string;
   index: number;
@@ -189,6 +219,7 @@ function ItemEvaluationForm({
   teacherId: string;
   qualityScore: string;
   onQualityScoreChange(value: string): void;
+  reviewConfig: ReviewConfig | null;
 }) {
   const existing = submission.teacherEvaluation?.itemEvaluations?.find(
     (evaluation) => evaluation.itemId === item.itemId,
@@ -214,16 +245,23 @@ function ItemEvaluationForm({
         </span>
       </summary>
       <EvaluationEditor
-        config={(item.reviewCriteria ?? null) as ReviewConfig | null}
+        config={reviewConfig}
         existing={existing}
-        practiceTaskNumbers={item.type === "practice" ? item.examTaskNumbers : undefined}
+        practiceTaskNumbers={
+          item.type === "practice" ? item.examTaskNumbers : undefined
+        }
         qualityScore={qualityScore}
         onQualityScoreChange={onQualityScoreChange}
         showQualityScore={false}
         itemId={item.itemId}
-        minimumWords={item.minimumWordCountSnapshot ?? null}
-        responseText={submission.studentInput.itemProgress?.find((progress) => progress.itemId === item.itemId)?.responseText ?? null}
-        onEvaluate={(decision, scoreEarned, scoreMax, quality, criteria, comment) =>
+        onEvaluate={(
+          decision,
+          scoreEarned,
+          scoreMax,
+          quality,
+          criteria,
+          comment,
+        ) =>
           evaluateHomeworkItem(getFirebaseDb(), {
             homeworkId,
             submissionId,
@@ -271,11 +309,20 @@ function SingleEvaluationForm({
       <EvaluationEditor
         config={homework.reviewCriteria ?? null}
         existing={submission.teacherEvaluation ?? undefined}
-        fallbackMax={homework.requiredAmount ?? submission.studentInput.selfReportedMax}
+        fallbackMax={
+          homework.requiredAmount ?? submission.studentInput.selfReportedMax
+        }
         qualityScore={qualityScore}
         onQualityScoreChange={setQualityScore}
         showQualityScore
-        onEvaluate={(decision, scoreEarned, scoreMax, quality, criteria, comment) =>
+        onEvaluate={(
+          decision,
+          scoreEarned,
+          scoreMax,
+          quality,
+          criteria,
+          comment,
+        ) =>
           evaluateHomeworkSubmission(getFirebaseDb(), {
             homeworkId,
             submissionId,
@@ -302,8 +349,6 @@ function EvaluationEditor({
   qualityScore,
   onQualityScoreChange,
   showQualityScore,
-  minimumWords,
-  responseText,
   onEvaluate,
 }: {
   config: ReviewConfig | null;
@@ -319,8 +364,6 @@ function EvaluationEditor({
   qualityScore: string;
   onQualityScoreChange(value: string): void;
   showQualityScore: boolean;
-  minimumWords?: number | null;
-  responseText?: string | null;
   onEvaluate(
     decision: "checked" | "needs_revision",
     scoreEarned: number | null,
@@ -341,8 +384,8 @@ function EvaluationEditor({
                   ?.earned ?? 0,
               max: item.max,
               errorsCount: item.supportsErrorCount
-                ? existing?.criteria.find((value) => value.code === item.code)
-                    ?.errorsCount ?? 0
+                ? (existing?.criteria.find((value) => value.code === item.code)
+                    ?.errorsCount ?? 0)
                 : null,
             })),
             ...config.literacy.map((item) => ({
@@ -386,13 +429,7 @@ function EvaluationEditor({
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
-  const wordCount = responseText?.trim()
-    ? responseText.trim().split(/\s+/u).filter(Boolean).length
-    : 0;
-  const belowMinimum = Boolean(minimumWords && wordCount < minimumWords);
-  const effectiveCriteria = belowMinimum
-    ? criteria.map((criterion) => ({ ...criterion, earned: 0 }))
-    : criteria;
+  const effectiveCriteria = criteria;
   const calculatedMax = config
     ? initialCriteria.reduce((sum, item) => sum + item.max, 0)
     : maximum === ""
@@ -438,18 +475,16 @@ function EvaluationEditor({
     >
       {config ? (
         <>
-          {minimumWords ? (
-            <p className={belowMinimum ? "form-error" : "form-success"} role="status">
-              Объём: {wordCount} слов · минимум {minimumWords}.
-              {belowMinimum ? " По правилу blueprint итог по критериям будет 0." : " Полная проверка доступна."}
-            </p>
-          ) : null}
           <section className="criteria-editor">
             <h4>Критерии содержания</h4>
             {config.content.map((item) => (
               <CriterionInput
                 criterion={criteria.find((value) => value.code === item.code)!}
-                errorLabel={item.supportsErrorCount ? item.errorLabel ?? "Ошибок" : undefined}
+                errorLabel={
+                  item.supportsErrorCount
+                    ? (item.errorLabel ?? "Ошибок")
+                    : undefined
+                }
                 key={item.code}
                 label={item.title}
                 onChange={patchCriterion}
@@ -469,9 +504,9 @@ function EvaluationEditor({
             ))}
             {config.factual ? (
               <CriterionInput
-                criterion={
-                  criteria.find((value) => value.code === config.factual!.code)!
-                }
+                criterion={criteria.find(
+                  (value) => value.code === config.factual!.code,
+                )!}
                 errorLabel={config.factual.errorLabel}
                 label="Фактическая точность"
                 onChange={patchCriterion}
@@ -505,9 +540,14 @@ function EvaluationEditor({
                 className="secondary-button"
                 disabled={!practiceText.trim()}
                 onClick={() => {
-                  const parsed = parsePracticeScore(practiceText, practiceTaskNumbers);
+                  const parsed = parsePracticeScore(
+                    practiceText,
+                    practiceTaskNumbers,
+                  );
                   if (!parsed) {
-                    setPracticeError("Не удалось распознать результат. Используйте формат 8/10 или вставьте строку из Русского100.");
+                    setPracticeError(
+                      "Не удалось распознать результат. Используйте формат 8/10 или вставьте строку из Русского100.",
+                    );
                     return;
                   }
                   setEarned(String(parsed.earned));
@@ -518,7 +558,9 @@ function EvaluationEditor({
               >
                 Распознать результат
               </button>
-              {practiceError ? <span className="form-error">{practiceError}</span> : null}
+              {practiceError ? (
+                <span className="form-error">{practiceError}</span>
+              ) : null}
             </div>
           ) : null}
           <div className="score-inputs">
@@ -545,7 +587,10 @@ function EvaluationEditor({
         </>
       )}
       {showQualityScore ? (
-        <QualityScoreField onChange={onQualityScoreChange} value={qualityScore} />
+        <QualityScoreField
+          onChange={onQualityScoreChange}
+          value={qualityScore}
+        />
       ) : null}
       <label className="form-field">
         <span>Комментарий ученику</span>
@@ -596,7 +641,9 @@ function QualityScoreField({
       <select onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">Не выставлять</option>
         {Array.from({ length: 10 }, (_, index) => index + 1).map((score) => (
-          <option key={score} value={score}>{score} из 10</option>
+          <option key={score} value={score}>
+            {score} из 10
+          </option>
         ))}
       </select>
     </label>

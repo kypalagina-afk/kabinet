@@ -20,6 +20,7 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { completeLesson } from "../../src/lib/firebase/services/completeLesson.js";
@@ -81,7 +82,8 @@ function baseTimestamps() {
 function studentDocument(teacherId: string, displayName: string) {
   return {
     teacherId,
-    activeProgramId: teacherId === teacherAuth.uid ? "student-1-program" : "student-2-program",
+    activeProgramId:
+      teacherId === teacherAuth.uid ? "student-1-program" : "student-2-program",
     displayName,
     classGrade: 9,
     status: "active",
@@ -235,12 +237,18 @@ async function seedFixture() {
         ...baseTimestamps(),
       }),
       setDoc(doc(db, "examBlueprints", "blueprint-1"), {
-        examKind: "ege", sourceStatus: "project", primaryMaxScore: 50,
-        writingCriteria: { byTask: [{ taskNumber: 27, criteria: [{ code: "К1", max: 1 }] }] },
+        examKind: "ege",
+        sourceStatus: "project",
+        primaryMaxScore: 50,
+        writingCriteria: {
+          byTask: [{ taskNumber: 27, criteria: [{ code: "К1", max: 1 }] }],
+        },
         ...baseTimestamps(),
       }),
       setDoc(doc(db, "examBlueprints", "blueprint-other"), {
-        examKind: "oge", sourceStatus: "project", primaryMaxScore: 38,
+        examKind: "oge",
+        sourceStatus: "project",
+        primaryMaxScore: 38,
         ...baseTimestamps(),
       }),
       setDoc(doc(db, "studentPrograms", "student-1-program"), {
@@ -323,9 +331,9 @@ describe("homework workflow", () => {
       },
     });
     expect(first.status).toBe("applied");
-    expect((await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status).toBe(
-      "submitted",
-    );
+    expect(
+      (await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status,
+    ).toBe("submitted");
 
     await evaluateHomeworkSubmission(teacherDb, {
       homeworkId: "homework-1",
@@ -338,12 +346,13 @@ describe("homework workflow", () => {
       comment: "Исправить второй пример",
     });
     expect(
-      (await getDoc(doc(studentDb, "homeworkSubmissions", first.submissionId))).data()
-        ?.teacherEvaluation.scoreEarned,
+      (
+        await getDoc(doc(studentDb, "homeworkSubmissions", first.submissionId))
+      ).data()?.teacherEvaluation.scoreEarned,
     ).toBe(4);
-    expect((await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status).toBe(
-      "needs_revision",
-    );
+    expect(
+      (await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status,
+    ).toBe("needs_revision");
 
     const second = await submitHomework(studentDb, {
       homeworkId: "homework-1",
@@ -368,20 +377,32 @@ describe("homework workflow", () => {
       criteria: [],
       comment: "Хорошая доработка",
     });
-    expect((await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status).toBe(
-      "checked",
-    );
+    expect(
+      (await getDoc(doc(studentDb, "homeworks", "homework-1"))).data()?.status,
+    ).toBe("checked");
     const xpEvent = await getDoc(
       doc(studentDb, "gamificationEvents", "homework_completed__homework-1"),
     );
     expect(xpEvent.data()?.xpDelta).toBe(50);
     expect(xpEvent.data()?.sourceId).toBe("homework-1");
-    expect((await getDoc(
-      doc(studentDb, "studentAchievements", "student-1-program__first-step"),
-    )).data()?.achievementDefinitionId).toBe("first-step");
-    expect((await getDoc(
-      doc(studentDb, "studentAchievements", "student-1-program__comeback"),
-    )).data()?.achievementDefinitionId).toBe("comeback");
+    expect(
+      (
+        await getDoc(
+          doc(
+            studentDb,
+            "studentAchievements",
+            "student-1-program__first-step",
+          ),
+        )
+      ).data()?.achievementDefinitionId,
+    ).toBe("first-step");
+    expect(
+      (
+        await getDoc(
+          doc(studentDb, "studentAchievements", "student-1-program__comeback"),
+        )
+      ).data()?.achievementDefinitionId,
+    ).toBe("comeback");
   });
 });
 
@@ -417,17 +438,23 @@ describe("backend-only AI transcription jobs", () => {
 
     const databases = [
       testEnvironment.unauthenticatedContext().firestore(),
-      testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore(),
-      testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore(),
+      testEnvironment
+        .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+        .firestore(),
+      testEnvironment
+        .authenticatedContext(studentAuth.uid, studentAuth.token)
+        .firestore(),
     ];
 
     for (const db of databases) {
       await assertFails(getDoc(doc(db, "aiTranscriptionJobs", "job-1")));
       await assertFails(getDocs(collection(db, "aiTranscriptionJobs")));
-      await assertFails(setDoc(doc(db, "aiTranscriptionJobs", "browser-write"), {
-        teacherId: teacherAuth.uid,
-        status: "pending",
-      }));
+      await assertFails(
+        setDoc(doc(db, "aiTranscriptionJobs", "browser-write"), {
+          teacherId: teacherAuth.uid,
+          status: "pending",
+        }),
+      );
     }
   });
 });
@@ -442,7 +469,10 @@ describe("teacher access", () => {
     await assertSucceeds(getDoc(doc(db, "students", "student-1")));
     await assertSucceeds(
       getDocs(
-        query(collection(db, "students"), where("teacherId", "==", teacherAuth.uid)),
+        query(
+          collection(db, "students"),
+          where("teacherId", "==", teacherAuth.uid),
+        ),
       ),
     );
   });
@@ -474,18 +504,24 @@ describe("teacher access", () => {
       .authenticatedContext(teacherAuth.uid, teacherAuth.token)
       .firestore();
 
-    await assertSucceeds(updateDoc(doc(db, "users", "student-1"), {
-      timezone: { iana: "Asia/Novosibirsk", moscowOffsetMinutes: 420 },
-      updatedAt: Timestamp.now(),
-    }));
-    await assertFails(updateDoc(doc(db, "users", "student-1"), {
-      displayName: "Нельзя менять",
-      updatedAt: Timestamp.now(),
-    }));
-    await assertFails(updateDoc(doc(db, "users", "student-2"), {
-      timezone: { iana: "Asia/Omsk", moscowOffsetMinutes: 360 },
-      updatedAt: Timestamp.now(),
-    }));
+    await assertSucceeds(
+      updateDoc(doc(db, "users", "student-1"), {
+        timezone: { iana: "Asia/Novosibirsk", moscowOffsetMinutes: 420 },
+        updatedAt: Timestamp.now(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, "users", "student-1"), {
+        displayName: "Нельзя менять",
+        updatedAt: Timestamp.now(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, "users", "student-2"), {
+        timezone: { iana: "Asia/Omsk", moscowOffsetMinutes: 360 },
+        updatedAt: Timestamp.now(),
+      }),
+    );
   });
 
   test("allows cleanup deletion only for completed one-off teacher planner items", async () => {
@@ -502,8 +538,14 @@ describe("teacher access", () => {
         ...baseTimestamps(),
       };
       await Promise.all([
-        setDoc(doc(db, "plannerItems", "cleanup-done"), { ...base, status: "done" }),
-        setDoc(doc(db, "plannerItems", "cleanup-open"), { ...base, status: "todo" }),
+        setDoc(doc(db, "plannerItems", "cleanup-done"), {
+          ...base,
+          status: "done",
+        }),
+        setDoc(doc(db, "plannerItems", "cleanup-open"), {
+          ...base,
+          status: "todo",
+        }),
         setDoc(doc(db, "plannerItems", "cleanup-recurring"), {
           ...base,
           status: "done",
@@ -511,12 +553,24 @@ describe("teacher access", () => {
         }),
       ]);
     });
-    const teacherDb = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore();
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    await assertSucceeds(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-done")));
-    await assertFails(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-open")));
-    await assertFails(deleteDoc(doc(teacherDb, "plannerItems", "cleanup-recurring")));
-    await assertFails(deleteDoc(doc(studentDb, "plannerItems", "cleanup-open")));
+    const teacherDb = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore();
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    await assertSucceeds(
+      deleteDoc(doc(teacherDb, "plannerItems", "cleanup-done")),
+    );
+    await assertFails(
+      deleteDoc(doc(teacherDb, "plannerItems", "cleanup-open")),
+    );
+    await assertFails(
+      deleteDoc(doc(teacherDb, "plannerItems", "cleanup-recurring")),
+    );
+    await assertFails(
+      deleteDoc(doc(studentDb, "plannerItems", "cleanup-open")),
+    );
   });
 });
 
@@ -530,7 +584,10 @@ describe("student access", () => {
     await assertSucceeds(getDoc(doc(db, "students", "student-1")));
     await assertSucceeds(
       getDocs(
-        query(collection(db, "homeworks"), where("studentId", "==", "student-1")),
+        query(
+          collection(db, "homeworks"),
+          where("studentId", "==", "student-1"),
+        ),
       ),
     );
   });
@@ -557,7 +614,11 @@ describe("student access", () => {
           collection(db, "lessons"),
           where("studentId", "==", "student-1"),
           where("status", "==", "planned"),
-          where("startAt", ">=", Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z"))),
+          where(
+            "startAt",
+            ">=",
+            Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z")),
+          ),
           orderBy("startAt", "asc"),
           limit(1),
         ),
@@ -569,7 +630,11 @@ describe("student access", () => {
           collection(db, "lessons"),
           where("studentId", "==", "student-2"),
           where("status", "==", "planned"),
-          where("startAt", ">=", Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z"))),
+          where(
+            "startAt",
+            ">=",
+            Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z")),
+          ),
           orderBy("startAt", "asc"),
           limit(1),
         ),
@@ -584,8 +649,17 @@ describe("student access", () => {
       .firestore();
 
     await assertFails(getDocs(collection(db, "materials")));
-    await assertSucceeds(getDocs(query(collection(db, "materials"), where("allowedStudentIds", "array-contains", "student-1"))));
-    const otherDb = testEnvironment.authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token).firestore();
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(db, "materials"),
+          where("allowedStudentIds", "array-contains", "student-1"),
+        ),
+      ),
+    );
+    const otherDb = testEnvironment
+      .authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token)
+      .firestore();
     await assertFails(getDoc(doc(otherDb, "materials", "material-1")));
   });
 
@@ -594,11 +668,15 @@ describe("student access", () => {
     const db = testEnvironment
       .authenticatedContext(studentAuth.uid, studentAuth.token)
       .firestore();
-    await assertFails(updateDoc(doc(db, "materials", "material-1"), { active: false }));
-    await assertFails(setDoc(doc(db, "materials", "student-material"), {
-      teacherId: teacherAuth.uid,
-      title: "Запрещённый материал",
-    }));
+    await assertFails(
+      updateDoc(doc(db, "materials", "material-1"), { active: false }),
+    );
+    await assertFails(
+      setDoc(doc(db, "materials", "student-material"), {
+        teacherId: teacherAuth.uid,
+        title: "Запрещённый материал",
+      }),
+    );
   });
 
   test("denies changes to goal, payment, grades, homework and XP", async () => {
@@ -616,7 +694,9 @@ describe("student access", () => {
       updateDoc(doc(db, "lessons", "lesson-1"), { paymentStatus: "paid" }),
     );
     await assertFails(updateDoc(doc(db, "mockExams", "mock-1"), { grade: 5 }));
-    await assertFails(updateDoc(doc(db, "homeworks", "homework-1"), { status: "checked" }));
+    await assertFails(
+      updateDoc(doc(db, "homeworks", "homework-1"), { status: "checked" }),
+    );
     await assertFails(
       setDoc(doc(db, "gamificationEvents", "forbidden-xp"), {
         teacherId: teacherAuth.uid,
@@ -655,10 +735,19 @@ describe("materials workflow", () => {
       storagePath: null,
       active: true,
     });
-    await updateMaterial(db, teacherAuth.uid, id, { ...input, title: "Сложное предложение" });
-    expect((await getDoc(doc(db, "materials", id))).data()?.title).toBe("Сложное предложение");
-    await expect(archiveMaterial(db, teacherAuth.uid, id)).resolves.toBe("applied");
-    await expect(archiveMaterial(db, teacherAuth.uid, id)).resolves.toBe("noop");
+    await updateMaterial(db, teacherAuth.uid, id, {
+      ...input,
+      title: "Сложное предложение",
+    });
+    expect((await getDoc(doc(db, "materials", id))).data()?.title).toBe(
+      "Сложное предложение",
+    );
+    await expect(archiveMaterial(db, teacherAuth.uid, id)).resolves.toBe(
+      "applied",
+    );
+    await expect(archiveMaterial(db, teacherAuth.uid, id)).resolves.toBe(
+      "noop",
+    );
   });
 });
 
@@ -680,9 +769,19 @@ describe("gamification workflow", () => {
     await expect(syncStudentAchievements(teacherDb, input)).resolves.toEqual({
       created: ["momentum", "task-master-5"],
     });
-    await expect(syncStudentAchievements(teacherDb, input)).resolves.toEqual({ created: [] });
-    await assertSucceeds(getDoc(doc(studentDb, "studentAchievements", "student-1-program__momentum")));
-    expect((await getDoc(doc(studentDb, "achievementDefinitions", "task-master-5"))).data()?.title).toBe("Мастер №5");
+    await expect(syncStudentAchievements(teacherDb, input)).resolves.toEqual({
+      created: [],
+    });
+    await assertSucceeds(
+      getDoc(
+        doc(studentDb, "studentAchievements", "student-1-program__momentum"),
+      ),
+    );
+    expect(
+      (
+        await getDoc(doc(studentDb, "achievementDefinitions", "task-master-5"))
+      ).data()?.title,
+    ).toBe("Мастер №5");
   });
 });
 
@@ -755,7 +854,10 @@ describe("Phase 2 vertical slice access", () => {
     );
     await assertSucceeds(
       getDocs(
-        query(collection(db, "mockExams"), where("studentId", "==", "student-1")),
+        query(
+          collection(db, "mockExams"),
+          where("studentId", "==", "student-1"),
+        ),
       ),
     );
     await assertSucceeds(getDoc(doc(db, "programProfiles", "program-1")));
@@ -790,12 +892,38 @@ describe("Phase 2 vertical slice access", () => {
     await assertSucceeds(
       updateDoc(doc(db, "lessons", "lesson-1"), { paymentStatus: "paid" }),
     );
-    await assertSucceeds(updateDoc(doc(db, "mockExams", "mock-1"), { grade: 4 }));
-    await assertSucceeds(updateDoc(doc(db, "homeworks", "homework-1"), { status: "checked" }));
+    await assertSucceeds(
+      updateDoc(doc(db, "mockExams", "mock-1"), { grade: 4 }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(db, "homeworks", "homework-1"), { status: "checked" }),
+    );
   });
 });
 
 describe("homework submission integrity", () => {
+  test("lets the owning teacher delete homework and its submissions atomically", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(
+        doc(context.firestore(), "homeworkSubmissions", "submission-to-delete"),
+        submissionDocument("homework-1"),
+      );
+    });
+    const teacherDb = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore();
+
+    await assertFails(
+      deleteDoc(doc(teacherDb, "homeworkSubmissions", "submission-to-delete")),
+    );
+
+    const batch = writeBatch(teacherDb);
+    batch.delete(doc(teacherDb, "homeworkSubmissions", "submission-to-delete"));
+    batch.delete(doc(teacherDb, "homeworks", "homework-1"));
+    await assertSucceeds(batch.commit());
+  });
+
   test("allows a student to create and update a submission for their homework", async () => {
     await seedFixture();
     const db = testEnvironment
@@ -911,7 +1039,9 @@ describe("idempotent domain operations", () => {
     );
     await materializeLessonSeries(db, input);
     const statuses = await Promise.all(
-      firstResult.createdIds.map(async (id) => (await getDoc(doc(db, "lessons", id))).data()?.status),
+      firstResult.createdIds.map(
+        async (id) => (await getDoc(doc(db, "lessons", id))).data()?.status,
+      ),
     );
     expect(statuses).toEqual(protectedStatuses);
   });
@@ -937,11 +1067,26 @@ describe("idempotent domain operations", () => {
         ...baseTimestamps(),
       });
       const materializer = new FirestoreScheduledLessonMaterializer(db);
-      const first = await materializer.run(new Date("2026-08-14T00:00:00.000Z"));
-      const second = await materializer.run(new Date("2026-08-14T00:00:00.000Z"));
-      expect(first.series[0]).toMatchObject({ created: 12, skipped: 0, suppressed: 0 });
-      expect(second.series[0]).toMatchObject({ created: 0, skipped: 12, suppressed: 0 });
-      expect((await getDoc(doc(db, "lessonSeries", "scheduled-series"))).data()?.materializedThrough).toBeTruthy();
+      const first = await materializer.run(
+        new Date("2026-08-14T00:00:00.000Z"),
+      );
+      const second = await materializer.run(
+        new Date("2026-08-14T00:00:00.000Z"),
+      );
+      expect(first.series[0]).toMatchObject({
+        created: 12,
+        skipped: 0,
+        suppressed: 0,
+      });
+      expect(second.series[0]).toMatchObject({
+        created: 0,
+        skipped: 12,
+        suppressed: 0,
+      });
+      expect(
+        (await getDoc(doc(db, "lessonSeries", "scheduled-series"))).data()
+          ?.materializedThrough,
+      ).toBeTruthy();
     });
   });
 
@@ -968,12 +1113,13 @@ describe("idempotent domain operations", () => {
     });
     expect(first.status).toBe("applied");
     expect(retry.status).toBe("noop");
-    expect((await getDoc(doc(db, "lessons", "reschedule-source"))).data()?.status).toBe(
-      "rescheduled",
-    );
-    expect((await getDoc(doc(db, "lessons", first.newLessonId))).data()?.rescheduledFromLessonId).toBe(
-      "reschedule-source",
-    );
+    expect(
+      (await getDoc(doc(db, "lessons", "reschedule-source"))).data()?.status,
+    ).toBe("rescheduled");
+    expect(
+      (await getDoc(doc(db, "lessons", first.newLessonId))).data()
+        ?.rescheduledFromLessonId,
+    ).toBe("reschedule-source");
     await expect(
       rescheduleLesson(db, {
         lessonId: "reschedule-source",
@@ -994,13 +1140,21 @@ describe("idempotent domain operations", () => {
     const db = testEnvironment
       .authenticatedContext(teacherAuth.uid, teacherAuth.token)
       .firestore() as unknown as Firestore;
-    expect((await cancelLesson(db, "cancel-one", "student")).status).toBe("applied");
-    expect((await cancelLesson(db, "cancel-one", "student")).status).toBe("noop");
-    expect((await getDoc(doc(db, "lessons", "cancel-one"))).data()?.status).toBe(
-      "cancelled_student",
+    expect((await cancelLesson(db, "cancel-one", "student")).status).toBe(
+      "applied",
     );
-    expect((await getDoc(doc(db, "lessons", "cancel-one"))).exists()).toBe(true);
-    expect((await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active).toBe(true);
+    expect((await cancelLesson(db, "cancel-one", "student")).status).toBe(
+      "noop",
+    );
+    expect(
+      (await getDoc(doc(db, "lessons", "cancel-one"))).data()?.status,
+    ).toBe("cancelled_student");
+    expect((await getDoc(doc(db, "lessons", "cancel-one"))).exists()).toBe(
+      true,
+    );
+    expect(
+      (await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active,
+    ).toBe(true);
   });
 
   test("hard-deletes one recurring occurrence and materialization keeps it suppressed", async () => {
@@ -1021,15 +1175,22 @@ describe("idempotent domain operations", () => {
     };
     const materialized = await materializeLessonSeries(db, input);
     const lessonId = materialized.createdIds[0]!;
-    const removed = await hardDeleteLesson(db, { lessonId, teacherId: teacherAuth.uid });
+    const removed = await hardDeleteLesson(db, {
+      lessonId,
+      teacherId: teacherAuth.uid,
+    });
     expect(removed).toEqual({ status: "applied", suppressedOccurrence: true });
     expect((await getDoc(doc(db, "lessons", lessonId))).exists()).toBe(false);
-    expect((await getDoc(doc(db, "lessonOccurrenceExclusions", lessonId))).data()).toMatchObject({
+    expect(
+      (await getDoc(doc(db, "lessonOccurrenceExclusions", lessonId))).data(),
+    ).toMatchObject({
       teacherId: teacherAuth.uid,
       lessonSeriesId: "series-1",
       reason: "hard_deleted",
     });
-    await expect(hardDeleteLesson(db, { lessonId, teacherId: teacherAuth.uid })).resolves.toEqual({
+    await expect(
+      hardDeleteLesson(db, { lessonId, teacherId: teacherAuth.uid }),
+    ).resolves.toEqual({
       status: "noop",
       suppressedOccurrence: true,
     });
@@ -1068,7 +1229,9 @@ describe("idempotent domain operations", () => {
     const studentDb = testEnvironment
       .authenticatedContext(studentAuth.uid, studentAuth.token)
       .firestore();
-    await assertFails(deleteDoc(doc(studentDb, "lessons", "accidental-manual")));
+    await assertFails(
+      deleteDoc(doc(studentDb, "lessons", "accidental-manual")),
+    );
     const teacherDb = testEnvironment
       .authenticatedContext(teacherAuth.uid, teacherAuth.token)
       .firestore() as unknown as Firestore;
@@ -1076,10 +1239,15 @@ describe("idempotent domain operations", () => {
       lessonId: "accidental-manual",
       teacherId: teacherAuth.uid,
     });
-    const account = (await getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1"))).data();
+    const account = (
+      await getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1"))
+    ).data();
     expect(account?.manualPaidBillingIds).toEqual([]);
     expect(account?.lastAllocationLessonIds).toEqual(["next-valid"]);
-    expect((await getDoc(doc(teacherDb, "lessons", "next-valid"))).data()?.paymentStatus).toBe("paid");
+    expect(
+      (await getDoc(doc(teacherDb, "lessons", "next-valid"))).data()
+        ?.paymentStatus,
+    ).toBe("paid");
   });
 
   test("cancels the series and only future planned lessons", async () => {
@@ -1093,7 +1261,10 @@ describe("idempotent domain operations", () => {
         ),
         setDoc(
           doc(db, "lessons", "series-future-completed"),
-          scheduledLessonDocument(new Date("2026-08-27T07:00:00.000Z"), "completed"),
+          scheduledLessonDocument(
+            new Date("2026-08-27T07:00:00.000Z"),
+            "completed",
+          ),
         ),
         setDoc(
           doc(db, "lessons", "series-past"),
@@ -1118,14 +1289,20 @@ describe("idempotent domain operations", () => {
     });
     expect(first.status).toBe("applied");
     expect(retry.status).toBe("noop");
-    expect((await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active).toBe(false);
-    expect((await getDoc(doc(db, "lessons", "series-future-planned"))).data()?.status).toBe(
-      "cancelled_teacher",
-    );
-    expect((await getDoc(doc(db, "lessons", "series-future-completed"))).data()?.status).toBe(
-      "completed",
-    );
-    expect((await getDoc(doc(db, "lessons", "series-past"))).data()?.status).toBe("planned");
+    expect(
+      (await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active,
+    ).toBe(false);
+    expect(
+      (await getDoc(doc(db, "lessons", "series-future-planned"))).data()
+        ?.status,
+    ).toBe("cancelled_teacher");
+    expect(
+      (await getDoc(doc(db, "lessons", "series-future-completed"))).data()
+        ?.status,
+    ).toBe("completed");
+    expect(
+      (await getDoc(doc(db, "lessons", "series-past"))).data()?.status,
+    ).toBe("planned");
   });
 
   test("deletes future series occurrences but preserves completed and past lessons", async () => {
@@ -1133,10 +1310,28 @@ describe("idempotent domain operations", () => {
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
       await Promise.all([
-        setDoc(doc(db, "lessons", "series-delete-planned"), scheduledLessonDocument(new Date("2026-08-20T07:00:00.000Z"))),
-        setDoc(doc(db, "lessons", "series-delete-cancelled"), scheduledLessonDocument(new Date("2026-08-21T07:00:00.000Z"), "cancelled_teacher")),
-        setDoc(doc(db, "lessons", "series-delete-completed"), scheduledLessonDocument(new Date("2026-08-27T07:00:00.000Z"), "completed")),
-        setDoc(doc(db, "lessons", "series-delete-past"), scheduledLessonDocument(new Date("2026-08-01T07:00:00.000Z"))),
+        setDoc(
+          doc(db, "lessons", "series-delete-planned"),
+          scheduledLessonDocument(new Date("2026-08-20T07:00:00.000Z")),
+        ),
+        setDoc(
+          doc(db, "lessons", "series-delete-cancelled"),
+          scheduledLessonDocument(
+            new Date("2026-08-21T07:00:00.000Z"),
+            "cancelled_teacher",
+          ),
+        ),
+        setDoc(
+          doc(db, "lessons", "series-delete-completed"),
+          scheduledLessonDocument(
+            new Date("2026-08-27T07:00:00.000Z"),
+            "completed",
+          ),
+        ),
+        setDoc(
+          doc(db, "lessons", "series-delete-past"),
+          scheduledLessonDocument(new Date("2026-08-01T07:00:00.000Z")),
+        ),
       ]);
     });
     const db = testEnvironment
@@ -1147,12 +1342,25 @@ describe("idempotent domain operations", () => {
       teacherId: teacherAuth.uid,
       effectiveAt: Timestamp.fromDate(new Date("2026-08-14T00:00:00.000Z")),
     });
-    expect(result.deletedLessonIds.sort()).toEqual(["series-delete-cancelled", "series-delete-planned"]);
-    expect((await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active).toBe(false);
-    expect((await getDoc(doc(db, "lessons", "series-delete-planned"))).exists()).toBe(false);
-    expect((await getDoc(doc(db, "lessons", "series-delete-cancelled"))).exists()).toBe(false);
-    expect((await getDoc(doc(db, "lessons", "series-delete-completed"))).exists()).toBe(true);
-    expect((await getDoc(doc(db, "lessons", "series-delete-past"))).exists()).toBe(true);
+    expect(result.deletedLessonIds.sort()).toEqual([
+      "series-delete-cancelled",
+      "series-delete-planned",
+    ]);
+    expect(
+      (await getDoc(doc(db, "lessonSeries", "series-1"))).data()?.active,
+    ).toBe(false);
+    expect(
+      (await getDoc(doc(db, "lessons", "series-delete-planned"))).exists(),
+    ).toBe(false);
+    expect(
+      (await getDoc(doc(db, "lessons", "series-delete-cancelled"))).exists(),
+    ).toBe(false);
+    expect(
+      (await getDoc(doc(db, "lessons", "series-delete-completed"))).exists(),
+    ).toBe(true);
+    expect(
+      (await getDoc(doc(db, "lessons", "series-delete-past"))).exists(),
+    ).toBe(true);
   });
 
   test("teacher can edit the owned active program goal", async () => {
@@ -1166,8 +1374,10 @@ describe("idempotent domain operations", () => {
       studentProgramId: "student-1-program",
       displayText: "ЕГЭ на 85+ баллов",
     });
-    expect((await getDoc(doc(db, "studentPrograms", "student-1-program"))).data()?.goal.displayText)
-      .toBe("ЕГЭ на 85+ баллов");
+    expect(
+      (await getDoc(doc(db, "studentPrograms", "student-1-program"))).data()
+        ?.goal.displayText,
+    ).toBe("ЕГЭ на 85+ баллов");
   });
 
   test("completes a lesson atomically and returns a no-op on retry", async () => {
@@ -1228,7 +1438,9 @@ describe("idempotent domain operations", () => {
 
       expect(firstResult.status).toBe("completed");
       expect(retryResult.status).toBe("already_completed");
-      expect((await getDoc(lessonReference)).data()?.topic).toBe("Тестовая тема");
+      expect((await getDoc(lessonReference)).data()?.topic).toBe(
+        "Тестовая тема",
+      );
       expect((await getDocs(collection(db, "homeworks"))).size).toBe(1);
     });
   });
@@ -1236,34 +1448,46 @@ describe("idempotent domain operations", () => {
   test("completes an EGE lesson when selected tasks have no coverage records yet", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
-      await setDoc(doc(context.firestore(), "lessons", "ege-lesson-new-coverage"), {
-        ...scheduledLessonDocument(new Date("2026-09-01T15:00:00.000Z")),
-        lessonSeriesId: null,
-      });
+      await setDoc(
+        doc(context.firestore(), "lessons", "ege-lesson-new-coverage"),
+        {
+          ...scheduledLessonDocument(new Date("2026-09-01T15:00:00.000Z")),
+          lessonSeriesId: null,
+        },
+      );
     });
     const db = testEnvironment
       .authenticatedContext(teacherAuth.uid, teacherAuth.token)
       .firestore() as unknown as Firestore;
 
-    await expect(completeLesson(db, {
-      lessonId: "ege-lesson-new-coverage",
-      teacherId: teacherAuth.uid,
-      topic: "Подготовка к заданию 27 ЕГЭ",
-      lessonSummary: {
-        homeworkResultText: null,
-        teacherComment: "Разобрали структуру сочинения",
-        focusNotes: ["Паронимы"],
-        errors: ["Паронимы"],
-        studentComment: "Повторить словарь паронимов",
-      },
-      understanding: { score: 7, status: "in_progress" },
-      examTaskNumbers: [27],
-    })).resolves.toEqual({ status: "completed", homeworkId: null });
+    await expect(
+      completeLesson(db, {
+        lessonId: "ege-lesson-new-coverage",
+        teacherId: teacherAuth.uid,
+        topic: "Подготовка к заданию 27 ЕГЭ",
+        lessonSummary: {
+          homeworkResultText: null,
+          teacherComment: "Разобрали структуру сочинения",
+          focusNotes: ["Паронимы"],
+          errors: ["Паронимы"],
+          studentComment: "Повторить словарь паронимов",
+        },
+        understanding: { score: 7, status: "in_progress" },
+        examTaskNumbers: [27],
+      }),
+    ).resolves.toEqual({ status: "completed", homeworkId: null });
 
-    expect((await getDoc(doc(db, "lessons", "ege-lesson-new-coverage"))).data()?.status)
-      .toBe("completed");
-    expect((await getDoc(doc(db, "studentTaskCoverage", "student-1-program__task__27"))).data()?.taskNumber)
-      .toBe(27);
+    expect(
+      (await getDoc(doc(db, "lessons", "ege-lesson-new-coverage"))).data()
+        ?.status,
+    ).toBe("completed");
+    expect(
+      (
+        await getDoc(
+          doc(db, "studentTaskCoverage", "student-1-program__task__27"),
+        )
+      ).data()?.taskNumber,
+    ).toBe(27);
   });
 
   test("teacher can record and undo an unchecked homework submission received externally", async () => {
@@ -1288,29 +1512,41 @@ describe("idempotent domain operations", () => {
       },
     });
     expect(result.status).toBe("applied");
-    expect((await getDoc(doc(db, "homeworkSubmissions", result.submissionId))).data()?.submissionSource)
-      .toBe("teacher_external");
+    expect(
+      (await getDoc(doc(db, "homeworkSubmissions", result.submissionId))).data()
+        ?.submissionSource,
+    ).toBe("teacher_external");
 
     await undoTeacherExternalHomeworkSubmission(db, {
       homeworkId: "homework-1",
       submissionId: result.submissionId,
       teacherId: teacherAuth.uid,
     });
-    expect((await getDoc(doc(db, "homeworkSubmissions", result.submissionId))).exists())
-      .toBe(false);
-    expect((await getDoc(doc(db, "homeworks", "homework-1"))).data()?.status)
-      .toBe("assigned");
+    expect(
+      (
+        await getDoc(doc(db, "homeworkSubmissions", result.submissionId))
+      ).exists(),
+    ).toBe(false);
+    expect(
+      (await getDoc(doc(db, "homeworks", "homework-1"))).data()?.status,
+    ).toBe("assigned");
   });
 
   test("links a post-lesson homework atomically and never creates a duplicate", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
-      await setDoc(doc(context.firestore(), "lessons", "completed-for-homework"), {
-        ...scheduledLessonDocument(new Date("2026-08-20T07:00:00.000Z"), "completed"),
-        homeworkResolution: "pending",
-        examTaskNumbers: [2, 3],
-        topic: "Связь урока и ДЗ",
-      });
+      await setDoc(
+        doc(context.firestore(), "lessons", "completed-for-homework"),
+        {
+          ...scheduledLessonDocument(
+            new Date("2026-08-20T07:00:00.000Z"),
+            "completed",
+          ),
+          homeworkResolution: "pending",
+          examTaskNumbers: [2, 3],
+          topic: "Связь урока и ДЗ",
+        },
+      );
     });
     const db = testEnvironment
       .authenticatedContext(teacherAuth.uid, teacherAuth.token)
@@ -1330,67 +1566,116 @@ describe("idempotent domain operations", () => {
       examTaskNumbers: [2, 3],
     };
     const firstId = await createHomework(db, input);
-    const retryId = await createHomework(db, { ...input, title: "Повторный клик" });
+    const retryId = await createHomework(db, {
+      ...input,
+      title: "Повторный клик",
+    });
     expect(firstId).toBe("lesson-homework__completed-for-homework");
     expect(retryId).toBe(firstId);
-    expect((await getDoc(doc(db, "homeworks", firstId))).data()?.sourceLessonId).toBe("completed-for-homework");
-    expect((await getDoc(doc(db, "lessons", "completed-for-homework"))).data()?.homeworkResolution).toBe("assigned");
-    const linked = await getDocs(query(
-      collection(db, "homeworks"),
-      where("teacherId", "==", teacherAuth.uid),
-      where("sourceLessonId", "==", "completed-for-homework"),
-    ));
+    expect(
+      (await getDoc(doc(db, "homeworks", firstId))).data()?.sourceLessonId,
+    ).toBe("completed-for-homework");
+    expect(
+      (await getDoc(doc(db, "lessons", "completed-for-homework"))).data()
+        ?.homeworkResolution,
+    ).toBe("assigned");
+    const linked = await getDocs(
+      query(
+        collection(db, "homeworks"),
+        where("teacherId", "==", teacherAuth.uid),
+        where("sourceLessonId", "==", "completed-for-homework"),
+      ),
+    );
     expect(linked.size).toBe(1);
   });
 
   test("lets a student acknowledge a reviewed submission without changing the evaluation", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
-      await setDoc(doc(context.firestore(), "homeworkSubmissions", "reviewed-submission"), {
-        ...submissionDocument("homework-1"),
-        status: "checked",
-        reviewedUnread: true,
-        reviewedOpenedAt: null,
-        teacherEvaluation: { scoreEarned: 4, scoreMax: 7, comment: "Проверено" },
-      });
+      await setDoc(
+        doc(context.firestore(), "homeworkSubmissions", "reviewed-submission"),
+        {
+          ...submissionDocument("homework-1"),
+          status: "checked",
+          reviewedUnread: true,
+          reviewedOpenedAt: null,
+          teacherEvaluation: {
+            scoreEarned: 4,
+            scoreMax: 7,
+            comment: "Проверено",
+          },
+        },
+      );
     });
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    await assertSucceeds(updateDoc(doc(studentDb, "homeworkSubmissions", "reviewed-submission"), {
-      reviewedUnread: false,
-      reviewedOpenedAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    }));
-    await assertFails(updateDoc(doc(studentDb, "homeworkSubmissions", "reviewed-submission"), {
-      reviewedUnread: false,
-      reviewedOpenedAt: Timestamp.now(),
-      teacherEvaluation: { scoreEarned: 7, scoreMax: 7, comment: "Подмена" },
-      updatedAt: Timestamp.now(),
-    }));
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    await assertSucceeds(
+      updateDoc(doc(studentDb, "homeworkSubmissions", "reviewed-submission"), {
+        reviewedUnread: false,
+        reviewedOpenedAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(studentDb, "homeworkSubmissions", "reviewed-submission"), {
+        reviewedUnread: false,
+        reviewedOpenedAt: Timestamp.now(),
+        teacherEvaluation: { scoreEarned: 7, scoreMax: 7, comment: "Подмена" },
+        updatedAt: Timestamp.now(),
+      }),
+    );
   });
 
   test("keeps material folders private to explicitly allowed students", async () => {
     await seedFixture();
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
-      await setDoc(doc(context.firestore(), "materialFolders", "student-folder"), {
-        teacherId: teacherAuth.uid,
-        title: "Папка ученика",
-        allowedStudentIds: ["student-1"],
-        ...baseTimestamps(),
-      });
+      await setDoc(
+        doc(context.firestore(), "materialFolders", "student-folder"),
+        {
+          teacherId: teacherAuth.uid,
+          title: "Папка ученика",
+          allowedStudentIds: ["student-1"],
+          ...baseTimestamps(),
+        },
+      );
     });
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    const otherStudentDb = testEnvironment.authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token).firestore();
-    await assertSucceeds(getDoc(doc(studentDb, "materialFolders", "student-folder")));
-    await assertFails(getDoc(doc(otherStudentDb, "materialFolders", "student-folder")));
-    await assertSucceeds(getDocs(query(collection(studentDb, "materialFolders"), where("allowedStudentIds", "array-contains", "student-1"))));
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    const otherStudentDb = testEnvironment
+      .authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token)
+      .firestore();
+    await assertSucceeds(
+      getDoc(doc(studentDb, "materialFolders", "student-folder")),
+    );
+    await assertFails(
+      getDoc(doc(otherStudentDb, "materialFolders", "student-folder")),
+    );
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(studentDb, "materialFolders"),
+          where("allowedStudentIds", "array-contains", "student-1"),
+        ),
+      ),
+    );
   });
 
   test("allows only the owning teacher to manage payment records", async () => {
     await seedFixture();
-    const teacherDb = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore();
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    await assertSucceeds(getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1")));
-    await assertFails(getDoc(doc(studentDb, "studentPaymentAccounts", "student-1")));
+    const teacherDb = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore();
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    await assertSucceeds(
+      getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1")),
+    );
+    await assertFails(
+      getDoc(doc(studentDb, "studentPaymentAccounts", "student-1")),
+    );
     const paymentAccount = {
       teacherId: teacherAuth.uid,
       studentId: "student-1",
@@ -1399,19 +1684,33 @@ describe("idempotent domain operations", () => {
       lastAllocationLessonIds: [],
       ...baseTimestamps(),
     };
-    await assertSucceeds(setDoc(doc(teacherDb, "studentPaymentAccounts", "student-1"), paymentAccount));
-    await assertSucceeds(getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1")));
-    await assertFails(getDoc(doc(studentDb, "studentPaymentAccounts", "student-1")));
-    await assertFails(setDoc(doc(studentDb, "paymentCreditEvents", "forbidden"), {
-      teacherId: teacherAuth.uid,
-      studentId: "student-1",
-      lessonCount: 10,
-      ...baseTimestamps(),
-    }));
+    await assertSucceeds(
+      setDoc(
+        doc(teacherDb, "studentPaymentAccounts", "student-1"),
+        paymentAccount,
+      ),
+    );
+    await assertSucceeds(
+      getDoc(doc(teacherDb, "studentPaymentAccounts", "student-1")),
+    );
+    await assertFails(
+      getDoc(doc(studentDb, "studentPaymentAccounts", "student-1")),
+    );
+    await assertFails(
+      setDoc(doc(studentDb, "paymentCreditEvents", "forbidden"), {
+        teacherId: teacherAuth.uid,
+        studentId: "student-1",
+        lessonCount: 10,
+        ...baseTimestamps(),
+      }),
+    );
   });
 
   test("isolates a demo tenant from the real teacher tenant", async () => {
-    const demoTeacher = { uid: "teacher-demo-review-v1", token: { email: "demo.teacher@example.test" } };
+    const demoTeacher = {
+      uid: "teacher-demo-review-v1",
+      token: { email: "demo.teacher@example.test" },
+    };
     await testEnvironment.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
       await Promise.all([
@@ -1424,45 +1723,81 @@ describe("idempotent domain operations", () => {
           timezone: { iana: "Europe/Moscow", moscowOffsetMinutes: 180 },
           ...baseTimestamps(),
         }),
-        setDoc(doc(db, "students", "student-demo-review-v1"),
-          studentDocument(demoTeacher.uid, "Демо-ученик")),
-        setDoc(doc(db, "homeworks", "demo-homework"),
-          homeworkDocument(demoTeacher.uid, "student-demo-review-v1")),
+        setDoc(
+          doc(db, "students", "student-demo-review-v1"),
+          studentDocument(demoTeacher.uid, "Демо-ученик"),
+        ),
+        setDoc(
+          doc(db, "homeworks", "demo-homework"),
+          homeworkDocument(demoTeacher.uid, "student-demo-review-v1"),
+        ),
       ]);
     });
-    const demoDb = testEnvironment.authenticatedContext(demoTeacher.uid, demoTeacher.token).firestore();
-    await assertSucceeds(getDoc(doc(demoDb, "students", "student-demo-review-v1")));
+    const demoDb = testEnvironment
+      .authenticatedContext(demoTeacher.uid, demoTeacher.token)
+      .firestore();
+    await assertSucceeds(
+      getDoc(doc(demoDb, "students", "student-demo-review-v1")),
+    );
     await assertFails(getDoc(doc(demoDb, "students", "student-1")));
-    const own = await assertSucceeds(getDocs(query(
-      collection(demoDb, "homeworks"),
-      where("teacherId", "==", demoTeacher.uid),
-    )));
+    const own = await assertSucceeds(
+      getDocs(
+        query(
+          collection(demoDb, "homeworks"),
+          where("teacherId", "==", demoTeacher.uid),
+        ),
+      ),
+    );
     expect(own.size).toBe(1);
-    await assertFails(getDocs(query(
-      collection(demoDb, "homeworks"),
-      where("teacherId", "==", teacherAuth.uid),
-    )));
+    await assertFails(
+      getDocs(
+        query(
+          collection(demoDb, "homeworks"),
+          where("teacherId", "==", teacherAuth.uid),
+        ),
+      ),
+    );
   });
 
   test("lets a student read only the active program blueprint and never change criteria", async () => {
     await seedFixture();
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    await assertSucceeds(getDoc(doc(studentDb, "programProfiles", "program-1")));
-    await assertSucceeds(getDoc(doc(studentDb, "examBlueprints", "blueprint-1")));
-    await assertFails(getDoc(doc(studentDb, "programProfiles", "program-other")));
-    await assertFails(getDoc(doc(studentDb, "examBlueprints", "blueprint-other")));
-    await assertFails(updateDoc(doc(studentDb, "examBlueprints", "blueprint-1"), {
-      primaryMaxScore: 1,
-      updatedAt: Timestamp.now(),
-    }));
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    await assertSucceeds(
+      getDoc(doc(studentDb, "programProfiles", "program-1")),
+    );
+    await assertSucceeds(
+      getDoc(doc(studentDb, "examBlueprints", "blueprint-1")),
+    );
+    await assertFails(
+      getDoc(doc(studentDb, "programProfiles", "program-other")),
+    );
+    await assertFails(
+      getDoc(doc(studentDb, "examBlueprints", "blueprint-other")),
+    );
+    await assertFails(
+      updateDoc(doc(studentDb, "examBlueprints", "blueprint-1"), {
+        primaryMaxScore: 1,
+        updatedAt: Timestamp.now(),
+      }),
+    );
   });
 
   test("protects manually imported external practice by student ownership", async () => {
     await seedFixture();
-    const teacherDb = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore();
-    const otherTeacherDb = testEnvironment.authenticatedContext(otherTeacherAuth.uid, otherTeacherAuth.token).firestore();
-    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
-    const otherStudentDb = testEnvironment.authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token).firestore();
+    const teacherDb = testEnvironment
+      .authenticatedContext(teacherAuth.uid, teacherAuth.token)
+      .firestore();
+    const otherTeacherDb = testEnvironment
+      .authenticatedContext(otherTeacherAuth.uid, otherTeacherAuth.token)
+      .firestore();
+    const studentDb = testEnvironment
+      .authenticatedContext(studentAuth.uid, studentAuth.token)
+      .firestore();
+    const otherStudentDb = testEnvironment
+      .authenticatedContext(otherStudentAuth.uid, otherStudentAuth.token)
+      .firestore();
     const attempt = {
       teacherId: teacherAuth.uid,
       studentId: "student-1",
@@ -1482,17 +1817,48 @@ describe("idempotent domain operations", () => {
       sourceUrl: null,
       ...baseTimestamps(),
     };
-    await assertSucceeds(setDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"), attempt));
-    await assertSucceeds(getDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")));
-    await assertSucceeds(getDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")));
-    await assertFails(getDoc(doc(otherStudentDb, "externalPracticeAttempts", "manual-attempt-1")));
-    await assertFails(setDoc(doc(otherTeacherDb, "externalPracticeAttempts", "forbidden"), attempt));
-    await assertFails(updateDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"), {
-      score: 5,
-      updatedAt: Timestamp.now(),
-    }));
-    await assertFails(deleteDoc(doc(otherTeacherDb, "externalPracticeAttempts", "manual-attempt-1")));
-    await assertFails(deleteDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")));
-    await assertSucceeds(deleteDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")));
+    await assertSucceeds(
+      setDoc(
+        doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"),
+        attempt,
+      ),
+    );
+    await assertSucceeds(
+      getDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")),
+    );
+    await assertSucceeds(
+      getDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")),
+    );
+    await assertFails(
+      getDoc(
+        doc(otherStudentDb, "externalPracticeAttempts", "manual-attempt-1"),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(otherTeacherDb, "externalPracticeAttempts", "forbidden"),
+        attempt,
+      ),
+    );
+    await assertFails(
+      updateDoc(
+        doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1"),
+        {
+          score: 5,
+          updatedAt: Timestamp.now(),
+        },
+      ),
+    );
+    await assertFails(
+      deleteDoc(
+        doc(otherTeacherDb, "externalPracticeAttempts", "manual-attempt-1"),
+      ),
+    );
+    await assertFails(
+      deleteDoc(doc(studentDb, "externalPracticeAttempts", "manual-attempt-1")),
+    );
+    await assertSucceeds(
+      deleteDoc(doc(teacherDb, "externalPracticeAttempts", "manual-attempt-1")),
+    );
   });
 });

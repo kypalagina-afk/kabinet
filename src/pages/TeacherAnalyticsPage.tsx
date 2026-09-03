@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
+import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { MockAnalyticsDashboard } from "../features/analytics/MockAnalyticsDashboard";
 import {
   saveMasteryOverride,
@@ -12,7 +13,10 @@ import {
 } from "../features/analytics/mastery";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
-import { useExamBlueprints, useProgramProfiles } from "../features/materials/hooks";
+import {
+  useExamBlueprints,
+  useProgramProfiles,
+} from "../features/materials/hooks";
 import {
   useTeacherMockExams,
   useTeacherStudents,
@@ -20,10 +24,11 @@ import {
   useTeacherStudentWorkspace,
 } from "../features/vertical-slice/hooks";
 import { getFirebaseDb } from "../lib/firebase/client";
-import { programBlueprintId, programDisplayName } from "../features/exams/blueprints";
 import {
-  ExternalPracticePanel,
-} from "../features/external-practice/ExternalPracticePanel";
+  programBlueprintId,
+  programDisplayName,
+} from "../features/exams/blueprints";
+import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
 import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
 
 export function TeacherAnalyticsPage() {
@@ -39,16 +44,27 @@ export function TeacherAnalyticsPage() {
   const [studentId, setStudentId] = useState(
     () => sessionStorage.getItem("teacher-analytics-student") ?? "all",
   );
-  const [programFilter, setProgramFilter] = useState<"all" | "oge" | "ege" | "school">("all");
-  const activeStudentId = !students.loading
-    && studentId !== "all"
-    && !students.data.some(({ id }) => id === studentId)
-    ? "all"
-    : studentId;
-  const activeProfileTitles = [...new Set(assignments.data
-    .filter(({ data }) => data.status === "active")
-    .map(({ data }) => profiles.data.find(({ id }) => id === data.programProfileId)?.data.title)
-    .filter((value): value is string => Boolean(value)))];
+  const [programFilter, setProgramFilter] = useState<
+    "all" | "oge" | "ege" | "school"
+  >("all");
+  const activeStudentId =
+    !students.loading &&
+    studentId !== "all" &&
+    !students.data.some(({ id }) => id === studentId)
+      ? "all"
+      : studentId;
+  const activeProfileTitles = [
+    ...new Set(
+      assignments.data
+        .filter(({ data }) => data.status === "active")
+        .map(
+          ({ data }) =>
+            profiles.data.find(({ id }) => id === data.programProfileId)?.data
+              .title,
+        )
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
   return (
     <main
       className="shell-content progress-page"
@@ -58,7 +74,11 @@ export function TeacherAnalyticsPage() {
         <div>
           <p className="eyebrow">Аналитика</p>
           <h1 id="teacher-analytics-title">Прогресс и готовность к экзамену</h1>
-          <p>{activeProfileTitles.length ? activeProfileTitles.join(" · ") : "Программы активных учеников"}</p>
+          <p>
+            {activeProfileTitles.length
+              ? activeProfileTitles.join(" · ")
+              : "Программы активных учеников"}
+          </p>
         </div>
         <div className="inline-control analytics-filters">
           <label className="form-field compact-filter analytics-student-filter">
@@ -66,7 +86,10 @@ export function TeacherAnalyticsPage() {
             <select
               onChange={(event) => {
                 setStudentId(event.target.value);
-                sessionStorage.setItem("teacher-analytics-student", event.target.value);
+                sessionStorage.setItem(
+                  "teacher-analytics-student",
+                  event.target.value,
+                );
               }}
               title={
                 activeStudentId === "all"
@@ -89,7 +112,9 @@ export function TeacherAnalyticsPage() {
               <span>Программа</span>
               <select
                 aria-label="Программа аналитики"
-                onChange={(event) => setProgramFilter(event.target.value as typeof programFilter)}
+                onChange={(event) =>
+                  setProgramFilter(event.target.value as typeof programFilter)
+                }
                 value={programFilter}
               >
                 <option value="all">Все программы</option>
@@ -137,6 +162,18 @@ function TeacherAnalyticsWorkspace({
   const overrides = useTeacherMasteryOverrides(teacherId, studentId);
   const coverage = useStudentTaskCoverage(studentId, teacherId);
   const practice = useExternalPracticeAttempts(teacherId, studentId);
+  const homeworkPractice = useMemo(
+    () =>
+      homeworkPracticeEvidence(
+        data.homeworks,
+        data.homeworkSubmissions,
+        data.examBlueprint?.id ?? "",
+        data.examBlueprint?.data.examKind ??
+          data.examBlueprint?.data.programType ??
+          "oge",
+      ),
+    [data.examBlueprint, data.homeworkSubmissions, data.homeworks],
+  );
   const [editing, setEditing] = useState<{
     taskNumber: number;
     autoMastery: number;
@@ -166,18 +203,19 @@ function TeacherAnalyticsWorkspace({
         submissions={data.homeworkSubmissions}
         teacherControls
       />
-      <ExternalPracticePanel
-        studentId={studentId}
-        teacherId={teacherId}
-      />
+      <ExternalPracticePanel studentId={studentId} teacherId={teacherId} />
       <MockAnalyticsDashboard
         audience="teacher"
         coverage={coverage}
         exams={data.mockExams}
         masteryPublic={publicMastery}
-        practiceAttempts={practice.data.filter(
-          ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
-        )}
+        practiceAttempts={[
+          ...practice.data.filter(
+            ({ data: attempt }) =>
+              attempt.examBlueprintId === data.examBlueprint?.id,
+          ),
+          ...homeworkPractice,
+        ]}
         programTitle={data.programProfile?.data.title}
         secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}
         taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
@@ -284,8 +322,12 @@ function AllStudentsAnalytics({
 }) {
   const visibleStudents = students.filter((student) => {
     if (programFilter === "all") return true;
-    const assignment = assignments.find(({ data }) => data.studentId === student.id && data.status === "active");
-    const profile = profiles.find(({ id }) => id === assignment?.data.programProfileId)?.data;
+    const assignment = assignments.find(
+      ({ data }) => data.studentId === student.id && data.status === "active",
+    );
+    const profile = profiles.find(
+      ({ id }) => id === assignment?.data.programProfileId,
+    )?.data;
     return (profile?.examKind ?? profile?.type) === programFilter;
   });
   const visibleStudentIds = new Set(visibleStudents.map(({ id }) => id));
@@ -302,13 +344,19 @@ function AllStudentsAnalytics({
     const studied = coverage.filter(
       ({ data }) => data.studentId === student.id && data.state === "studied",
     ).length;
-    const assignment = assignments.find(({ data }) =>
-      data.studentId === student.id && data.status === "active",
+    const assignment = assignments.find(
+      ({ data }) => data.studentId === student.id && data.status === "active",
     );
-    const profile = profiles.find(({ id }) => id === assignment?.data.programProfileId);
-    const blueprint = blueprints.find(({ id }) => id === (profile ? programBlueprintId(profile.data) : null));
+    const profile = profiles.find(
+      ({ id }) => id === assignment?.data.programProfileId,
+    );
+    const blueprint = blueprints.find(
+      ({ id }) => id === (profile ? programBlueprintId(profile.data) : null),
+    );
     const evidenceTaskCount = new Set([
-      ...coverage.filter(({ data }) => data.studentId === student.id).map(({ data }) => data.taskNumber),
+      ...coverage
+        .filter(({ data }) => data.studentId === student.id)
+        .map(({ data }) => data.taskNumber),
       ...(latest?.data.taskResults.map((item) => item.taskNumber) ?? []),
     ]).size;
     const totalTasks = blueprint?.data.tasks.length ?? evidenceTaskCount;
@@ -323,7 +371,9 @@ function AllStudentsAnalytics({
         ? Math.round((latest.data.total.earned / latest.data.total.max) * 100)
         : 0,
       coverage: totalTasks ? Math.round((studied / totalTasks) * 100) : 0,
-      programTitle: profile ? programDisplayName(profile.data) : "Программа не назначена",
+      programTitle: profile
+        ? programDisplayName(profile.data)
+        : "Программа не назначена",
     };
   });
   const average = (values: number[]) =>
@@ -335,8 +385,12 @@ function AllStudentsAnalytics({
   return (
     <>
       <HomeworkAnalyticsPanel
-        homeworks={board.homeworks.filter(({ data }) => visibleStudentIds.has(data.studentId))}
-        submissions={board.submissions.filter(({ data }) => visibleStudentIds.has(data.studentId))}
+        homeworks={board.homeworks.filter(({ data }) =>
+          visibleStudentIds.has(data.studentId),
+        )}
+        submissions={board.submissions.filter(({ data }) =>
+          visibleStudentIds.has(data.studentId),
+        )}
         teacherControls
       />
       <section className="analytics-panel">
@@ -353,7 +407,9 @@ function AllStudentsAnalytics({
           </article>
           <article className="metric-card">
             <span>Ученики с зоной роста</span>
-            <strong>{summaries.filter((item) => item.readiness < 45).length}</strong>
+            <strong>
+              {summaries.filter((item) => item.readiness < 45).length}
+            </strong>
           </article>
         </div>
         <div className="analytics-student-table">
@@ -380,7 +436,9 @@ function AllStudentsAnalytics({
               >
                 <span>{student.data.displayName}</span>
                 <span>{readiness}%</span>
-                <span title={programTitle}>{programCoverage}% · {programTitle}</span>
+                <span title={programTitle}>
+                  {programCoverage}% · {programTitle}
+                </span>
                 <span>
                   {latest
                     ? `${latest.data.total.earned}/${latest.data.total.max}`

@@ -32,6 +32,12 @@
   --shadow-soft: var(--shadow-card);
 }
 
+.homework-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
 /* Phase 12 · shared blueprint-driven exam controls */
 .blueprint-mock-form{position:relative;padding-bottom:6rem}
 .exam-score-section,.criteria-score-section{border:1px solid var(--border-color);border-radius:1rem;padding:0;background:var(--surface)}

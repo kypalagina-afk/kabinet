@@ -108,4 +108,32 @@ describe("homework analytics", () => {
     expect(result.qualityPercent).toBe(90);
     expect(result.qualityCount).toBe(1);
   });
+
+  test("excludes homework whose deadline is after today", () => {
+    const completedPast = homework(
+      "past",
+      "2026-09-01T00:00:00Z",
+      "2026-09-02T20:00:00Z",
+    );
+    const future = homework(
+      "future",
+      "2026-09-01T00:00:00Z",
+      "2026-09-10T20:00:00Z",
+    );
+    const result = calculateHomeworkAnalytics(
+      [completedPast, future],
+      [
+        submission("past-result", "past", "2026-09-02T18:00:00Z"),
+        submission("future-result", "future", "2026-09-02T18:00:00Z"),
+      ],
+      undefined,
+      new Date("2026-09-03T10:00:00Z"),
+    );
+
+    expect(result).toMatchObject({
+      assignedCount: 1,
+      completedCount: 1,
+      completionPercent: 100,
+    });
+  });
 });

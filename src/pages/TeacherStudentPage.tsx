@@ -6,14 +6,21 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { DetailedMockExamForm } from "../features/analytics/DetailedMockExamForm";
+import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { programDisplayName } from "../features/exams/blueprints";
 import { useProgramProfiles } from "../features/materials/hooks";
 import { ExternalPracticePanel } from "../features/external-practice/ExternalPracticePanel";
 import { LessonJournal } from "../features/schedule/LessonJournal";
-import { formatDateTimeForTimezone, resolveTimezone } from "../features/schedule/timezone";
-import { russianTimezoneOptions, timezoneOffsetMinutes } from "../features/schedule/timezoneOptions";
+import {
+  formatDateTimeForTimezone,
+  resolveTimezone,
+} from "../features/schedule/timezone";
+import {
+  russianTimezoneOptions,
+  timezoneOffsetMinutes,
+} from "../features/schedule/timezoneOptions";
 import { useLessonTeacherNotes } from "../features/schedule/useLessonTeacherNotes";
 import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
 import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
@@ -23,7 +30,11 @@ import {
   selectLatestMockExam,
   selectNearestLesson,
 } from "../features/vertical-slice/selectors";
-import { getFirebaseDb, isProductionBackendAvailable, isUsingFirebaseEmulators } from "../lib/firebase/client";
+import {
+  getFirebaseDb,
+  isProductionBackendAvailable,
+  isUsingFirebaseEmulators,
+} from "../lib/firebase/client";
 import { getStudentProvisioningService } from "../lib/firebase/services/studentProvisioning";
 import {
   setStudentArchived,
@@ -36,7 +47,8 @@ import {
 import type { Student } from "../lib/firebase/types";
 import { isDemoProfile } from "../features/demo/demoMode";
 
-type Tab = "overview" | "lessons" | "homework" | "mocks" | "practice" | "payment";
+type Tab =
+  "overview" | "lessons" | "homework" | "mocks" | "practice" | "payment";
 const tabs: Array<[Tab, string]> = [
   ["overview", "Обзор"],
   ["lessons", "Занятия"],
@@ -58,7 +70,8 @@ export function TeacherStudentPage() {
   ) as Tab;
   const { user, profile } = useAuth();
   const demoMode = isDemoProfile(profile);
-  const provisioningAvailable = !demoMode && (isUsingFirebaseEmulators() || isProductionBackendAvailable());
+  const provisioningAvailable =
+    !demoMode && (isUsingFirebaseEmulators() || isProductionBackendAvailable());
   const [editing, setEditing] = useState(false);
   const [credentialPassword, setCredentialPassword] = useState(
     () =>
@@ -90,6 +103,14 @@ export function TeacherStudentPage() {
   const student = data.student.data;
   const nearestLesson = selectNearestLesson(data.lessons);
   const currentHomework = selectCurrentHomework(data.homeworks);
+  const homeworkPractice = homeworkPracticeEvidence(
+    data.homeworks,
+    data.homeworkSubmissions,
+    data.examBlueprint?.id ?? "",
+    data.examBlueprint?.data.examKind ??
+      data.examBlueprint?.data.programType ??
+      "oge",
+  );
   const latestMock = selectLatestMockExam(data.mockExams);
   const paidRemaining = data.lessons.filter(
     ({ data: lesson }) =>
@@ -121,20 +142,27 @@ export function TeacherStudentPage() {
       moscowOffsetMinutes: timezoneOffsetMinutes(timezoneIana),
     });
     const programProfileId = String(
-      form.get("programProfileId") ?? data.studentProgram?.data.programProfileId ?? "",
+      form.get("programProfileId") ??
+        data.studentProgram?.data.programProfileId ??
+        "",
     );
     const programGoal = String(
-      form.get("programGoal") ?? data.studentProgram?.data.goal.displayText ?? "",
+      form.get("programGoal") ??
+        data.studentProgram?.data.goal.displayText ??
+        "",
     ).trim();
     if (
       data.studentProgram &&
       programProfileId &&
       programProfileId !== data.studentProgram.data.programProfileId
     ) {
-      const selectedProfile = programProfiles.data.find(({ id }) => id === programProfileId);
+      const selectedProfile = programProfiles.data.find(
+        ({ id }) => id === programProfileId,
+      );
       if (!selectedProfile) throw new Error("Выбранная программа не найдена");
       const numericGoal = Number(programGoal.match(/\d+/)?.[0] ?? 0) || null;
-      const examKind = selectedProfile.data.examKind ?? selectedProfile.data.type;
+      const examKind =
+        selectedProfile.data.examKind ?? selectedProfile.data.type;
       await switchStudentProgram(getFirebaseDb(), {
         teacherId: user.uid,
         studentId,
@@ -167,11 +195,10 @@ export function TeacherStudentPage() {
       );
       return;
     }
-    await getStudentProvisioningService().updateCredentials(
-      user,
-      studentId,
-      { username, ...(password ? { password } : {}) },
-    );
+    await getStudentProvisioningService().updateCredentials(user, studentId, {
+      username,
+      ...(password ? { password } : {}),
+    });
     setCredentialPassword(password);
     setNotice(
       password
@@ -199,9 +226,12 @@ export function TeacherStudentPage() {
               : "Класс не указан"}
           </p>
           <p>
-            Часовой пояс: {russianTimezoneOptions.find(([value]) => value === data.studentUser?.data.timezone.iana)?.[1]
-              ?? data.studentUser?.data.timezone.iana
-              ?? "не указан"}
+            Часовой пояс:{" "}
+            {russianTimezoneOptions.find(
+              ([value]) => value === data.studentUser?.data.timezone.iana,
+            )?.[1] ??
+              data.studentUser?.data.timezone.iana ??
+              "не указан"}
           </p>
         </div>
         <div className="student-profile-actions">
@@ -280,11 +310,15 @@ export function TeacherStudentPage() {
           <label className="form-field">
             <span>Часовой пояс ученика</span>
             <select
-              defaultValue={data.studentUser?.data.timezone.iana ?? "Europe/Moscow"}
+              defaultValue={
+                data.studentUser?.data.timezone.iana ?? "Europe/Moscow"
+              }
               name="timezone"
             >
               {russianTimezoneOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
           </label>
@@ -300,7 +334,9 @@ export function TeacherStudentPage() {
                   {programProfiles.data
                     .filter(({ data: item }) => item.status === "active")
                     .map(({ id, data: item }) => (
-                      <option key={id} value={id}>{programDisplayName(item)}</option>
+                      <option key={id} value={id}>
+                        {programDisplayName(item)}
+                      </option>
                     ))}
                 </select>
               </label>
@@ -335,7 +371,10 @@ export function TeacherStudentPage() {
               <span className="summary-card__label">Ближайшее занятие</span>
               <strong>
                 {nearestLesson
-                  ? formatDateTimeForTimezone(nearestLesson.data.startAt.toDate(), resolveTimezone(profile?.timezone))
+                  ? formatDateTimeForTimezone(
+                      nearestLesson.data.startAt.toDate(),
+                      resolveTimezone(profile?.timezone),
+                    )
                   : "Не запланировано"}
               </strong>
               <p>{nearestLesson?.data.topic ?? "Тема пока не указана"}</p>
@@ -361,7 +400,9 @@ export function TeacherStudentPage() {
                   : "—"}
               </p>
             </article>
-            <article className={`summary-card${paidRemaining <= 1 ? " summary-card--warning" : ""}`}>
+            <article
+              className={`summary-card${paidRemaining <= 1 ? " summary-card--warning" : ""}`}
+            >
               <span className="summary-card__label">Оплата</span>
               <strong>{paidRemaining} оплаченных занятий</strong>
               <p>Подробности и изменения — во вкладке «Оплата».</p>
@@ -380,14 +421,26 @@ export function TeacherStudentPage() {
             username={data.studentUser?.data.username ?? ""}
             onSave={updateCredentials}
           />
-          <section className="student-overview-actions" aria-label="Быстрые действия">
-            <Link className="primary-button primary-button--fit" to={`/teacher/students/${studentId}?tab=homework`}>
+          <section
+            className="student-overview-actions"
+            aria-label="Быстрые действия"
+          >
+            <Link
+              className="primary-button primary-button--fit"
+              to={`/teacher/students/${studentId}?tab=homework`}
+            >
               + Выдать ДЗ
             </Link>
-            <Link className="secondary-button" to={`/teacher/students/${studentId}?tab=mocks`}>
+            <Link
+              className="secondary-button"
+              to={`/teacher/students/${studentId}?tab=mocks`}
+            >
               + Добавить пробник
             </Link>
-            <Link className="secondary-button" to={`/teacher/students/${studentId}?tab=lessons`}>
+            <Link
+              className="secondary-button"
+              to={`/teacher/students/${studentId}?tab=lessons`}
+            >
               Открыть журнал
             </Link>
           </section>
@@ -401,7 +454,9 @@ export function TeacherStudentPage() {
           lessons={data.lessons}
           notes={lessonNotes}
           teacherId={user?.uid ?? ""}
-          taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
+          taskNumbers={data.examBlueprint?.data.tasks.map(
+            (item) => item.number,
+          )}
           timezone={profile?.timezone}
         />
       ) : null}
@@ -410,7 +465,9 @@ export function TeacherStudentPage() {
           studentId={studentId}
           studentProgramId={data.studentProgram.id}
           teacherId={user?.uid ?? ""}
-          sourceLesson={data.lessons.find(({ id }) => id === params.get("sourceLesson"))}
+          sourceLesson={data.lessons.find(
+            ({ id }) => id === params.get("sourceLesson"),
+          )}
         />
       ) : null}
       {tab === "mocks" && data.studentProgram ? (
@@ -430,12 +487,18 @@ export function TeacherStudentPage() {
       ) : null}
       {tab === "practice" ? (
         <ExternalPracticePanel
+          additionalAttempts={homeworkPractice}
           examBlueprintId={data.examBlueprint?.id}
-          examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}
+          examKind={
+            data.examBlueprint?.data.examKind ??
+            data.examBlueprint?.data.programType
+          }
           importEnabled
           studentId={studentId}
           studentProgramId={data.studentProgram?.id}
-          taskNumbers={data.examBlueprint?.data.tasks.map((item) => item.number)}
+          taskNumbers={data.examBlueprint?.data.tasks.map(
+            (item) => item.number,
+          )}
           teacherId={user?.uid ?? ""}
           timezoneIana={profile?.timezone.iana}
         />
@@ -502,9 +565,15 @@ function Credentials({
       <div>
         <span className="summary-card__label">Безопасный доступ</span>
         <h2>Данные для входа</h2>
-        <p>Логин виден всегда. Новый пароль показывается только до обновления страницы и не хранится в Firestore.</p>
+        <p>
+          Логин виден всегда. Новый пароль показывается только до обновления
+          страницы и не хранится в Firestore.
+        </p>
       </div>
-      <form className="credentials-form" onSubmit={(event) => void submit(event)}>
+      <form
+        className="credentials-form"
+        onSubmit={(event) => void submit(event)}
+      >
         <label className="form-field">
           <span>Логин</span>
           <input
@@ -528,7 +597,11 @@ function Credentials({
             value={draftPassword}
           />
         </label>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className="form-actions">
           <button
             className="primary-button primary-button--fit"
@@ -537,27 +610,27 @@ function Credentials({
           >
             {saving ? "Сохраняем…" : "Сохранить данные входа"}
           </button>
-        <button
-          className="secondary-button"
-          onClick={() => void navigator.clipboard.writeText(draftUsername)}
-          type="button"
-        >
-          Копировать логин
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!draftPassword}
-          onClick={() => void copy()}
-          type="button"
-        >
-          Скопировать данные для входа
-        </button>
+          <button
+            className="secondary-button"
+            onClick={() => void navigator.clipboard.writeText(draftUsername)}
+            type="button"
+          >
+            Копировать логин
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!draftPassword}
+            onClick={() => void copy()}
+            type="button"
+          >
+            Скопировать данные для входа
+          </button>
         </div>
       </form>
       {!provisioningAvailable ? (
         <p className="workflow-hint">
-          Создание аккаунтов и изменение данных входа временно недоступны в публичной
-          версии.
+          Создание аккаунтов и изменение данных входа временно недоступны в
+          публичной версии.
         </p>
       ) : null}
     </section>

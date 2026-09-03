@@ -203,7 +203,11 @@ function TeacherAnalyticsWorkspace({
         submissions={data.homeworkSubmissions}
         teacherControls
       />
-      <ExternalPracticePanel studentId={studentId} teacherId={teacherId} />
+      <ExternalPracticePanel
+        additionalAttempts={homeworkPractice}
+        studentId={studentId}
+        teacherId={teacherId}
+      />
       <MockAnalyticsDashboard
         audience="teacher"
         coverage={coverage}

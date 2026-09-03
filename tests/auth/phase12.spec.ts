@@ -218,11 +218,13 @@ test("teacher can preview and import Russian100 attempts without an API", async 
   ).toBeVisible();
   await expect(
     page
-      .getByLabel("Сводка Русский100")
+      .getByLabel("Сводка практики по заданиям")
       .getByText("Попыток: 2", { exact: false }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Сводка Русский100").getByText("Последняя: 5/5"),
+    page
+      .getByLabel("Сводка практики по заданиям")
+      .getByText("Последняя: 5/5"),
   ).toBeVisible();
 
   const mixedResults = [
@@ -243,7 +245,7 @@ test("teacher can preview and import Russian100 attempts without an API", async 
   ).toBeVisible();
   await expect(
     page
-      .getByLabel("Сводка Русский100")
+      .getByLabel("Сводка практики по заданиям")
       .getByText("Попыток: 2", { exact: false }),
   ).toBeVisible();
 
@@ -254,6 +256,8 @@ test("teacher can preview and import Russian100 attempts without an API", async 
     page.getByText("История практики · 2", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Сводка Русский100").getByText("№12", { exact: true }),
+    page
+      .getByLabel("Сводка практики по заданиям")
+      .getByText("№12", { exact: true }),
   ).toHaveCount(0);
 });

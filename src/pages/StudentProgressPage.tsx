@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
+import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import {
   MockAnalyticsDashboard,
   MockExamReport,
@@ -22,7 +23,22 @@ export function StudentProgressPage() {
   const { data, loading, error } = useStudentWorkspace(studentId);
   const publicMastery = useTaskMasteryPublic(studentId);
   const coverage = useStudentTaskCoverage(studentId);
-  const practice = useExternalPracticeAttempts(profile?.teacherId ?? "", studentId);
+  const practice = useExternalPracticeAttempts(
+    profile?.teacherId ?? "",
+    studentId,
+  );
+  const homeworkPractice = useMemo(
+    () =>
+      homeworkPracticeEvidence(
+        data.homeworks,
+        data.homeworkSubmissions,
+        data.examBlueprint?.id ?? "",
+        data.examBlueprint?.data.examKind ??
+          data.examBlueprint?.data.programType ??
+          "oge",
+      ),
+    [data.examBlueprint, data.homeworkSubmissions, data.homeworks],
+  );
   const [params, setParams] = useSearchParams();
   const [compareMode, setCompareMode] = useState(false);
   const [compare, setCompare] = useState<string[]>([]);
@@ -49,8 +65,8 @@ export function StudentProgressPage() {
         <h1 id="student-progress-title">Прогресс и готовность к экзамену</h1>
         <p>{data.programProfile?.data.title}</p>
         <small className="workflow-hint">
-          Одна попытка не считается полным освоением: уверенность растёт по
-          нескольким подтверждённым результатам.
+          Процент показывает фактический средний результат. Количество
+          подтверждений показывает, насколько надёжна эта оценка.
         </small>
       </header>
       {loading ? <p className="content-state">Считаем прогресс…</p> : null}
@@ -66,9 +82,13 @@ export function StudentProgressPage() {
             coverage={coverage}
             exams={data.mockExams}
             masteryPublic={publicMastery}
-            practiceAttempts={practice.data.filter(
-              ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
-            )}
+            practiceAttempts={[
+              ...practice.data.filter(
+                ({ data: attempt }) =>
+                  attempt.examBlueprintId === data.examBlueprint?.id,
+              ),
+              ...homeworkPractice,
+            ]}
             taskNumbers={data.examBlueprint?.data.tasks.map(
               (item) => item.number,
             )}
@@ -111,8 +131,9 @@ export function StudentProgressPage() {
             const delta = previous
               ? exam.data.total.earned - previous.data.total.earned
               : null;
-            const secondaryScore = exam.data.secondaryScore
-              ?? secondaryScoreForPrimary(
+            const secondaryScore =
+              exam.data.secondaryScore ??
+              secondaryScoreForPrimary(
                 exam.data.total.earned,
                 data.examBlueprint?.data.secondaryScoreScale,
               );
@@ -149,12 +170,16 @@ export function StudentProgressPage() {
                   </small>
                   <h3>
                     {exam.data.total.earned}/{exam.data.total.max}
-                    {secondaryScore !== null ? ` · ${secondaryScore}/100 тест.` : ""}
+                    {secondaryScore !== null
+                      ? ` · ${secondaryScore}/100 тест.`
+                      : ""}
                     {exam.data.grade ? ` · оценка ${exam.data.grade}` : ""}
                   </h3>
                   <p>
                     {exam.data.sectionResults
-                      ? Object.values(exam.data.sectionResults).map((score) => `${score.earned}/${score.max}`).join(" · ")
+                      ? Object.values(exam.data.sectionResults)
+                          .map((score) => `${score.earned}/${score.max}`)
+                          .join(" · ")
                       : `Тест ${exam.data.sections.test.earned}/${exam.data.sections.test.max} · Изложение ${exam.data.sections.exposition.earned}/${exam.data.sections.exposition.max} · Сочинение ${exam.data.sections.essay.earned}/${exam.data.sections.essay.max}`}
                   </p>
                 </div>
@@ -175,7 +200,9 @@ export function StudentProgressPage() {
                     <MockExamReport
                       audience="student"
                       exam={exam.data}
-                      secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}
+                      secondaryScoreScale={
+                        data.examBlueprint?.data.secondaryScoreScale
+                      }
                     />
                   </div>
                 ) : null}
@@ -196,17 +223,46 @@ function MockComparison({
   second: DocumentWithId<MockExam>;
 }) {
   if (first.data.examBlueprintId !== second.data.examBlueprintId)
-    return <section className="compare-card"><h3>Сравнение недоступно</h3><p>Эти результаты относятся к разным программам или ревизиям экзамена.</p></section>;
-  const dynamicKeys = Object.keys(first.data.sectionResults ?? {}).filter((key) => second.data.sectionResults?.[key]);
+    return (
+      <section className="compare-card">
+        <h3>Сравнение недоступно</h3>
+        <p>
+          Эти результаты относятся к разным программам или ревизиям экзамена.
+        </p>
+      </section>
+    );
+  const dynamicKeys = Object.keys(first.data.sectionResults ?? {}).filter(
+    (key) => second.data.sectionResults?.[key],
+  );
   const sections: Array<[string, number, number]> = [
     ["Итог", first.data.total.earned, second.data.total.earned],
     ...(dynamicKeys.length
-      ? dynamicKeys.map((key): [string, number, number] => [key, first.data.sectionResults?.[key]?.earned ?? 0, second.data.sectionResults?.[key]?.earned ?? 0])
+      ? dynamicKeys.map((key): [string, number, number] => [
+          key,
+          first.data.sectionResults?.[key]?.earned ?? 0,
+          second.data.sectionResults?.[key]?.earned ?? 0,
+        ])
       : [
-          ["Тест", first.data.sections.test.earned, second.data.sections.test.earned] as [string, number, number],
-          ["Изложение", first.data.sections.exposition.earned, second.data.sections.exposition.earned] as [string, number, number],
-          ["Сочинение", first.data.sections.essay.earned, second.data.sections.essay.earned] as [string, number, number],
-          ["Грамотность", first.data.sections.literacy.earned, second.data.sections.literacy.earned] as [string, number, number],
+          [
+            "Тест",
+            first.data.sections.test.earned,
+            second.data.sections.test.earned,
+          ] as [string, number, number],
+          [
+            "Изложение",
+            first.data.sections.exposition.earned,
+            second.data.sections.exposition.earned,
+          ] as [string, number, number],
+          [
+            "Сочинение",
+            first.data.sections.essay.earned,
+            second.data.sections.essay.earned,
+          ] as [string, number, number],
+          [
+            "Грамотность",
+            first.data.sections.literacy.earned,
+            second.data.sections.literacy.earned,
+          ] as [string, number, number],
         ]),
   ];
   return (

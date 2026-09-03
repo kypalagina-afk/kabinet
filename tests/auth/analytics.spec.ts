@@ -11,5 +11,9 @@ test("student sees a detailed 20/37 report and confidence-adjusted analytics", a
   await expect(page.getByTestId("mock-exam-report")).toContainText("20/37");
   await expect(page.getByTestId("mock-exam-report")).toContainText("7/11");
   await expect(page.getByTestId("mock-exam-report")).toContainText("ГК2: 0/3 · ошибок 8");
-  await expect(page.getByText("Одна попытка не считается полным освоением")).toBeVisible();
+  await expect(
+    page.getByText("Процент показывает фактический средний результат", {
+      exact: false,
+    }),
+  ).toBeVisible();
 });

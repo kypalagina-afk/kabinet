@@ -63,7 +63,15 @@ export function calculateMockAnalytics(
   config = defaultAnalyticsConfig,
   practiceAttempts: Array<DocumentWithId<ExternalPracticeAttempt>> = [],
 ): MockAnalytics {
-  const taskMap = new Map<number, { attempts: number; earned: number; max: number; lastEvidenceAt: number | null }>();
+  const taskMap = new Map<
+    number,
+    {
+      attempts: number;
+      earned: number;
+      max: number;
+      lastEvidenceAt: number | null;
+    }
+  >();
   for (const { data: exam } of exams) {
     const evidenceAt = (exam.takenAt ?? exam.createdAt).toMillis();
     for (const result of exam.taskResults) {
@@ -76,7 +84,10 @@ export function calculateMockAnalytics(
       current.attempts += 1;
       current.earned += result.earned;
       current.max += result.max;
-      current.lastEvidenceAt = Math.max(current.lastEvidenceAt ?? 0, evidenceAt);
+      current.lastEvidenceAt = Math.max(
+        current.lastEvidenceAt ?? 0,
+        evidenceAt,
+      );
       taskMap.set(result.taskNumber, current);
     }
   }
@@ -99,17 +110,19 @@ export function calculateMockAnalytics(
   const masteryByTask = [...taskMap.entries()]
     .map(([taskNumber, value]) => {
       const rawPercent = percent(value.earned, value.max);
-      const confidence = Math.min(1, value.attempts / config.confidenceAttempts);
       return {
         taskNumber,
         ...value,
         rawPercent,
-        mastery: Math.round(rawPercent * confidence),
-        freshnessDays: value.lastEvidenceAt ? Math.floor((Date.now() - value.lastEvidenceAt) / 86_400_000) : null,
+        mastery: rawPercent,
+        freshnessDays: value.lastEvidenceAt
+          ? Math.floor((Date.now() - value.lastEvidenceAt) / 86_400_000)
+          : null,
       };
     })
     .sort((left, right) => left.taskNumber - right.taskNumber);
-  const masteryWeight = (taskNumber: number) => config.taskWeights?.[taskNumber] ?? 1;
+  const masteryWeight = (taskNumber: number) =>
+    config.taskWeights?.[taskNumber] ?? 1;
   const masteryWeightTotal = masteryByTask.reduce(
     (total, task) => total + masteryWeight(task.taskNumber),
     0,
@@ -117,7 +130,8 @@ export function calculateMockAnalytics(
   const studiedMastery = masteryWeightTotal
     ? Math.round(
         masteryByTask.reduce(
-          (total, task) => total + task.mastery * masteryWeight(task.taskNumber),
+          (total, task) =>
+            total + task.mastery * masteryWeight(task.taskNumber),
           0,
         ) / masteryWeightTotal,
       )
@@ -143,12 +157,15 @@ export function calculateMockAnalytics(
     return result;
   });
   const latestPercent = mockTrend.at(-1)?.percent ?? 0;
-  const totalExamTasks = config.totalExamTasks || new Set(
-    [
-      ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+  const totalExamTasks =
+    config.totalExamTasks ||
+    new Set([
+      ...exams.flatMap(({ data }) =>
+        data.taskResults.map((item) => item.taskNumber),
+      ),
       ...practiceAttempts.map(({ data }) => data.taskNumber),
-    ],
-  ).size || 1;
+    ]).size ||
+    1;
   const allTaskWeight = config.taskWeights
     ? Object.values(config.taskWeights).reduce((sum, value) => sum + value, 0)
     : totalExamTasks;
@@ -162,7 +179,9 @@ export function calculateMockAnalytics(
   );
 
   const latest = chronological.at(-1)?.data;
-  const sectionEntries: Array<readonly [string, { earned: number; max: number }]> = latest
+  const sectionEntries: Array<
+    readonly [string, { earned: number; max: number }]
+  > = latest
     ? latest.sectionResults
       ? Object.entries(latest.sectionResults)
       : [
@@ -174,18 +193,26 @@ export function calculateMockAnalytics(
         ]
     : [];
   const strongestSections = sectionEntries
-    .filter(([, score]) => percent(score.earned, score.max) >= config.strongThreshold)
+    .filter(
+      ([, score]) => percent(score.earned, score.max) >= config.strongThreshold,
+    )
     .map(([title]) => title);
   const growthSections = sectionEntries
-    .filter(([, score]) => percent(score.earned, score.max) < config.weakThreshold)
+    .filter(
+      ([, score]) => percent(score.earned, score.max) < config.weakThreshold,
+    )
     .map(([title]) => title);
 
   return {
     masteryByTask,
     examReadiness,
     studiedMastery,
-    weakTasks: masteryByTask.filter((task) => task.mastery < config.weakThreshold),
-    strongTasks: masteryByTask.filter((task) => task.mastery >= config.strongThreshold),
+    weakTasks: masteryByTask.filter(
+      (task) => task.mastery < config.weakThreshold,
+    ),
+    strongTasks: masteryByTask.filter(
+      (task) => task.mastery >= config.strongThreshold,
+    ),
     mockTrend,
     strongestSections,
     growthSections,
@@ -198,7 +225,9 @@ export function gradeForScore(
 ): number {
   const entries = Object.entries(thresholds)
     .map(([grade, minimum]) => [Number(grade), minimum] as const)
-    .filter(([grade, minimum]) => Number.isFinite(grade) && Number.isFinite(minimum))
+    .filter(
+      ([grade, minimum]) => Number.isFinite(grade) && Number.isFinite(minimum),
+    )
     .sort((left, right) => right[1] - left[1]);
   const effective = entries.length
     ? entries
@@ -217,12 +246,21 @@ export function gradeForBlueprint(
   blueprint: Pick<ExamBlueprint, "gradeRules" | "gradeThresholds">,
 ): { grade: number | null; explanation: string | null } {
   const rule = blueprint.gradeRules
-    ?.filter((candidate) => earned >= candidate.minScore && earned <= candidate.maxScore)
+    ?.filter(
+      (candidate) =>
+        earned >= candidate.minScore && earned <= candidate.maxScore,
+    )
     .sort((left, right) => right.grade - left.grade)[0];
   if (!rule) {
     if (!Object.keys(blueprint.gradeThresholds).length)
-      return { grade: null, explanation: "Официальная шкала перевода пока не опубликована." };
-    return { grade: gradeForScore(earned, blueprint.gradeThresholds), explanation: null };
+      return {
+        grade: null,
+        explanation: "Официальная шкала перевода пока не опубликована.",
+      };
+    return {
+      grade: gradeForScore(earned, blueprint.gradeThresholds),
+      explanation: null,
+    };
   }
   if (rule.minGkScore !== undefined && gkScore < rule.minGkScore) {
     return {

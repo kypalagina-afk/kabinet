@@ -202,11 +202,7 @@ export function MockAnalyticsDashboard({
                     {mastery}%{onEditMastery ? " ✎" : ""}
                   </strong>
                   <small>
-                    {status}
-                    {automatic && attempts
-                      ? ` · результат ${automatic.rawPercent}%`
-                      : ""}{" "}
-                    · {attempts} подтвержд.
+                    {status} · {attempts} подтвержд.
                   </small>
                   {audience === "teacher" &&
                   (automatic?.freshnessDays ?? 0) > 60 ? (

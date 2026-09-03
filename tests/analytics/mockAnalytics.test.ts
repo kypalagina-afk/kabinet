@@ -12,7 +12,12 @@ import type {
 } from "../../src/lib/firebase/types.js";
 import { calculateDetailedMockExam } from "../../src/lib/firebase/services/mockExamWorkflow.js";
 
-function exam(id: string, date: string, taskEarned: number, total: number): DocumentWithId<MockExam> {
+function exam(
+  id: string,
+  date: string,
+  taskEarned: number,
+  total: number,
+): DocumentWithId<MockExam> {
   const timestamp = Timestamp.fromDate(new Date(`${date}T00:00:00.000Z`));
   return {
     id,
@@ -42,7 +47,10 @@ function exam(id: string, date: string, taskEarned: number, total: number): Docu
   };
 }
 
-function practice(id: string, score: number): DocumentWithId<ExternalPracticeAttempt> {
+function practice(
+  id: string,
+  score: number,
+): DocumentWithId<ExternalPracticeAttempt> {
   const timestamp = Timestamp.fromDate(new Date("2026-08-30T10:00:00.000Z"));
   return {
     id,
@@ -80,15 +88,45 @@ describe("mock analytics", () => {
         examBlueprintId: "blueprint-1",
         title: "Pilot",
         takenDate: "2026-06-16",
-        taskResults: [0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1].map((earned, index) => ({ taskNumber: index + 2, earned, max: 1 })),
-        expositionCriteria: [{ code: "ИК", earned: 6, max: 6, errorsCount: null }],
+        taskResults: [0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1].map((earned, index) => ({
+          taskNumber: index + 2,
+          earned,
+          max: 1,
+        })),
+        expositionCriteria: [
+          { code: "ИК", earned: 6, max: 6, errorsCount: null },
+        ],
         essayCriteria: [{ code: "СК", earned: 5, max: 7, errorsCount: null }],
         essayComment: "Второй пример не засчитан",
         literacyCriteria: [
-          { code: "ГК1", earned: 0, max: 3, errorsCount: 6, category: "orthography" },
-          { code: "ГК2", earned: 0, max: 3, errorsCount: 8, category: "punctuation" },
-          { code: "ГК3", earned: 2, max: 3, errorsCount: 2, category: "grammar" },
-          { code: "ГК4", earned: 0, max: 3, errorsCount: 6, category: "speech" },
+          {
+            code: "ГК1",
+            earned: 0,
+            max: 3,
+            errorsCount: 6,
+            category: "orthography",
+          },
+          {
+            code: "ГК2",
+            earned: 0,
+            max: 3,
+            errorsCount: 8,
+            category: "punctuation",
+          },
+          {
+            code: "ГК3",
+            earned: 2,
+            max: 3,
+            errorsCount: 2,
+            category: "grammar",
+          },
+          {
+            code: "ГК4",
+            earned: 0,
+            max: 3,
+            errorsCount: 6,
+            category: "speech",
+          },
         ],
         factualAccuracy: { earned: 0, max: 1, errorsCount: 1 },
         teacherComment: null,
@@ -113,10 +151,12 @@ describe("mock analytics", () => {
     expect(calculated.grade).toBe(3);
   });
 
-  test("does not turn one perfect task attempt into 100% mastery", () => {
-    const analytics = calculateMockAnalytics([exam("one", "2026-06-16", 1, 20)]);
+  test("shows the actual average even when there is only one attempt", () => {
+    const analytics = calculateMockAnalytics([
+      exam("one", "2026-06-16", 1, 20),
+    ]);
     expect(analytics.masteryByTask[0]?.rawPercent).toBe(100);
-    expect(analytics.masteryByTask[0]?.mastery).toBe(33);
+    expect(analytics.masteryByTask[0]?.mastery).toBe(100);
   });
 
   test("combines mock and external practice evidence by task", () => {
@@ -142,7 +182,10 @@ describe("mock analytics", () => {
   });
 
   test("keeps source scores and calculates trend separately", () => {
-    const source = [exam("one", "2026-06-16", 0, 20), exam("two", "2026-07-16", 1, 25)];
+    const source = [
+      exam("one", "2026-06-16", 0, 20),
+      exam("two", "2026-07-16", 1, 25),
+    ];
     const analytics = calculateMockAnalytics(source);
     expect(source[0]?.data.total.earned).toBe(20);
     expect(analytics.mockTrend.at(-1)?.delta).toBe(14);
@@ -163,7 +206,7 @@ describe("mock analytics", () => {
       readinessWeights: { latestMock: 0.6, studiedMastery: 0.4 },
       taskWeights: { 1: 1, 27: 22 },
     });
-    expect(analytics.studiedMastery).toBe(1);
+    expect(analytics.studiedMastery).toBe(4);
   });
 
   test("uses configured thresholds and fallback OGE thresholds", () => {
@@ -171,11 +214,38 @@ describe("mock analytics", () => {
     expect(gradeForScore(18, { 2: 0, 3: 10, 4: 18, 5: 30 })).toBe(4);
   });
 
-  test.each([[24, 0, 3], [31, 5, 3], [31, 6, 4], [35, 8, 4], [35, 9, 5]])("applies configured OGE literacy gate for %i points and GK %i", (score, gk, expected) => {
-    expect(gradeForBlueprint(score, gk, { gradeThresholds: {}, gradeRules: [
-      { grade: 2, minScore: 0, maxScore: 14 }, { grade: 3, minScore: 15, maxScore: 25 },
-      { grade: 4, minScore: 26, maxScore: 32, minGkScore: 6, fallbackGrade: 3 },
-      { grade: 5, minScore: 33, maxScore: 37, minGkScore: 9, fallbackGrade: 4 },
-    ] }).grade).toBe(expected);
-  });
+  test.each([
+    [24, 0, 3],
+    [31, 5, 3],
+    [31, 6, 4],
+    [35, 8, 4],
+    [35, 9, 5],
+  ])(
+    "applies configured OGE literacy gate for %i points and GK %i",
+    (score, gk, expected) => {
+      expect(
+        gradeForBlueprint(score, gk, {
+          gradeThresholds: {},
+          gradeRules: [
+            { grade: 2, minScore: 0, maxScore: 14 },
+            { grade: 3, minScore: 15, maxScore: 25 },
+            {
+              grade: 4,
+              minScore: 26,
+              maxScore: 32,
+              minGkScore: 6,
+              fallbackGrade: 3,
+            },
+            {
+              grade: 5,
+              minScore: 33,
+              maxScore: 37,
+              minGkScore: 9,
+              fallbackGrade: 4,
+            },
+          ],
+        }).grade,
+      ).toBe(expected);
+    },
+  );
 });

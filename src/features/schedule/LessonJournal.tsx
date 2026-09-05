@@ -254,11 +254,20 @@ export function LessonJournal({
                     </details>
                   ) : null}
                   {audience === "teacher" ? (
-                    <CompleteLessonForm
-                      lesson={lesson}
-                      taskNumbers={taskNumbers}
-                      teacherId={teacherId}
-                    />
+                    lesson.data.pairedLessonId ? (
+                      <Link
+                        className="secondary-button"
+                        to={`/teacher/calendar?lesson=${lesson.id}`}
+                      >
+                        Открыть парный урок и заполнить итоги обоим
+                      </Link>
+                    ) : (
+                      <CompleteLessonForm
+                        lesson={lesson}
+                        taskNumbers={taskNumbers}
+                        teacherId={teacherId}
+                      />
+                    )
                   ) : null}
                 </div>
               ) : null}

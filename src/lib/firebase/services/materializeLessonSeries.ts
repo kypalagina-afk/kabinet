@@ -23,6 +23,10 @@ export interface MaterializeLessonSeriesInput {
   teacherId: string;
   studentId: string;
   studentProgramId: string | null;
+  pairId?: string | null;
+  pairedStudentId?: string | null;
+  pairedSeriesId?: string | null;
+  pairPrimary?: boolean;
   occurrences: LessonOccurrence[];
   paymentStatus?: Lesson["paymentStatus"];
 }
@@ -118,6 +122,15 @@ export async function materializeLessonSeries(
         studentId: input.studentId,
         studentProgramId: input.studentProgramId,
         lessonSeriesId: input.seriesId,
+        pairId: input.pairId ?? null,
+        pairedStudentId: input.pairedStudentId ?? null,
+        pairedLessonId: input.pairedSeriesId
+          ? lessonIdForOccurrence(input.pairedSeriesId, occurrence.startAt)
+          : null,
+        sharedLessonId: input.pairId
+          ? `${input.pairId}__lesson__${occurrence.startAt.toMillis()}`
+          : null,
+        pairPrimary: input.pairPrimary ?? false,
         startAt: occurrence.startAt,
         endAt: occurrence.endAt,
         originalStartAt: null,
@@ -164,6 +177,13 @@ export function materializeRollingLessonSeries(
     teacherId: series.teacherId,
     studentId: series.studentId,
     studentProgramId: series.studentProgramId,
+    pairId: series.pairId ?? null,
+    pairedStudentId: series.pairedStudentId ?? null,
+    pairedSeriesId: series.pairedSeriesId ?? null,
+    pairPrimary:
+      Boolean(series.pairId) &&
+      Boolean(series.pairedStudentId) &&
+      series.studentId.localeCompare(series.pairedStudentId!) < 0,
     occurrences,
   }).then(async (result) => {
     const through = occurrences.at(-1)?.startAt ?? null;

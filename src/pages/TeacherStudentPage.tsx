@@ -360,6 +360,13 @@ export function TeacherStudentPage() {
       {tab === "overview" ? (
         <>
           <section className="summary-grid">
+            {student.pairedStudentId ? (
+              <article className="summary-card summary-card--pair">
+                <span className="summary-card__label">Формат занятий</span>
+                <strong>Постоянная пара</strong>
+                <p>Вместе с {student.pairedStudentName ?? "другим учеником"}</p>
+              </article>
+            ) : null}
             <article className="summary-card">
               <span className="summary-card__label">Программа</span>
               <strong data-testid="teacher-program-title">

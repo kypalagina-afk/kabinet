@@ -88,6 +88,9 @@ export function StudentHomePage() {
           <p className="eyebrow">Моя подготовка</p>
           <h1 id="student-page-title">Привет, {data.student?.data.displayName ?? profile?.username}!</h1>
           <p data-testid="student-program-title">{data.programProfile?.data.title ?? "Программа не назначена"}</p>
+          {data.student?.data.pairedStudentId ? (
+            <span className="student-pair-banner">Занятия в паре с {data.student.data.pairedStudentName ?? "другим учеником"}</span>
+          ) : null}
           {examDays !== null ? <span className="mobile-exam-countdown">До экзамена {examDays} дней</span> : null}
         </div>
         <Link className="hero-goal" to="/student/progress">

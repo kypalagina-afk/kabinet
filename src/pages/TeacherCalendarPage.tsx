@@ -7,6 +7,11 @@ import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
+import { CompletePairLessonForm } from "../features/schedule/CompletePairLessonForm";
+import {
+  lessonParticipantLabel,
+  visibleCalendarLessons,
+} from "../features/schedule/studentPairs";
 import { AIShortcutButton } from "../features/ai/AIShortcutButton";
 import { useTeacherStudentWorkspace } from "../features/vertical-slice/hooks";
 import {
@@ -28,15 +33,15 @@ import {
 import { getFirebaseDb } from "../lib/firebase/client";
 import { findActiveStudentProgramId } from "../lib/firebase/repositories/scheduleRepository";
 import {
-  cancelLesson,
-  cancelLessonSeries,
-  createOneOffLesson,
-  createLessonSeries,
-  deleteLessonSeriesFuture,
-  hardDeleteLesson,
-  rescheduleLesson,
-  changeRecurringSeriesFuture,
-} from "../lib/firebase/services/scheduleOperations";
+  cancelLessonForStudentOrPair,
+  cancelLessonSeriesForStudentOrPair,
+  changeRecurringSeriesFutureForStudentOrPair,
+  createLessonSeriesForStudentOrPair,
+  createOneOffLessonForStudentOrPair,
+  deleteLessonSeriesFutureForStudentOrPair,
+  hardDeleteLessonForStudentOrPair,
+  rescheduleLessonForStudentOrPair,
+} from "../lib/firebase/services/studentPairing";
 import {
   addPaymentCredits,
   previewPaymentAllocation,
@@ -142,20 +147,27 @@ export function TeacherCalendarPage() {
   );
   const selectedLesson =
     data.lessons.find(({ id }) => id === selectedLessonId) ?? null;
+  const selectedPairedLesson = selectedLesson?.data.pairedLessonId
+    ? data.lessons.find(({ id }) => id === selectedLesson.data.pairedLessonId) ?? null
+    : null;
   const selectedStudentWorkspace = useTeacherStudentWorkspace(
     user?.uid ?? "",
     selectedLesson?.data.studentId ?? "",
   );
-  const visibleLessons = (
-    selectedStudentId
-      ? data.lessons.filter(
-          ({ data: lesson }) => lesson.studentId === selectedStudentId,
-        )
-      : data.lessons
-  ).filter(
-    ({ data: lesson }) =>
-      paymentFilter === "all" || lesson.paymentStatus !== "paid",
+  const selectedPairedStudentWorkspace = useTeacherStudentWorkspace(
+    user?.uid ?? "",
+    selectedPairedLesson?.data.studentId ?? "",
   );
+  const visibleLessons = visibleCalendarLessons(
+    data.lessons,
+    selectedStudentId,
+  ).filter(({ data: lesson }) => {
+    if (paymentFilter === "all") return true;
+    const partner = lesson.pairedLessonId
+      ? data.lessons.find(({ id }) => id === lesson.pairedLessonId)
+      : null;
+    return lesson.paymentStatus !== "paid" || partner?.data.paymentStatus !== "paid";
+  });
   const dates = useMemo(
     () => calendarVisibleDates(view, focusDate),
     [focusDate, view],
@@ -238,7 +250,7 @@ export function TeacherCalendarPage() {
       );
       if (!studentProgramId)
         throw new Error("у ученика нет активной программы. Откройте карточку ученика и проверьте назначенную программу");
-      const result = await createLessonSeries(getFirebaseDb(), {
+      const result = await createLessonSeriesForStudentOrPair(getFirebaseDb(), {
         teacherId,
         studentId,
         studentProgramId,
@@ -274,7 +286,7 @@ export function TeacherCalendarPage() {
           "Europe/Moscow",
         );
         if (scope === "future" && selectedLesson.data.lessonSeriesId)
-          return changeRecurringSeriesFuture(getFirebaseDb(), {
+          return changeRecurringSeriesFutureForStudentOrPair(getFirebaseDb(), {
             seriesId: selectedLesson.data.lessonSeriesId,
             teacherId: user?.uid ?? "",
             effectiveLessonId: selectedLesson.id,
@@ -284,7 +296,7 @@ export function TeacherCalendarPage() {
             durationMinutes: duration / 60_000,
             baseTimezone: "Europe/Moscow",
           });
-        return rescheduleLesson(getFirebaseDb(), {
+        return rescheduleLessonForStudentOrPair(getFirebaseDb(), {
           lessonId: selectedLesson.id,
           newStartAt: Timestamp.fromDate(start),
           newEndAt: Timestamp.fromMillis(start.getTime() + duration),
@@ -314,7 +326,7 @@ export function TeacherCalendarPage() {
         "Europe/Moscow",
       );
       const duration = Number(form.get("duration")) || 60;
-      return createOneOffLesson(getFirebaseDb(), {
+      return createOneOffLessonForStudentOrPair(getFirebaseDb(), {
         teacherId,
         studentId,
         studentProgramId,
@@ -637,9 +649,6 @@ export function TeacherCalendarPage() {
                     </button>
                     <div className="calendar-day__events">
                       {lessons.map((lesson) => {
-                        const student = data.students.find(
-                          ({ id }) => id === lesson.data.studentId,
-                        );
                         return (
                           <button
                             className={`calendar-event calendar-event--${lesson.data.status}`}
@@ -662,7 +671,7 @@ export function TeacherCalendarPage() {
                                 { timeStyle: "short" },
                               )}
                             </strong>
-                            <span>{student?.data.displayName ?? "Ученик"}</span>
+                            <span>{lessonParticipantLabel(lesson.data, data.students)}</span>
                             <i
                               aria-label={
                                 lesson.data.paymentStatus === "paid"
@@ -719,9 +728,6 @@ export function TeacherCalendarPage() {
                     }}
                   >
                     {(byDate.get(date) ?? []).map((lesson) => {
-                      const student = data.students.find(
-                        ({ id }) => id === lesson.data.studentId,
-                      );
                       return (
                         <article
                           className={`agenda-event agenda-event--${lesson.data.status}`}
@@ -742,7 +748,7 @@ export function TeacherCalendarPage() {
                               { timeStyle: "short" },
                             )}
                           </strong>
-                          <span>{student?.data.displayName ?? "Ученик"}</span>
+                          <span>{lessonParticipantLabel(lesson.data, data.students)}</span>
                           <small>
                             {lesson.data.topic ?? "Тема не указана"}
                           </small>
@@ -795,16 +801,30 @@ export function TeacherCalendarPage() {
                     ? "Бесплатно"
                     : "Не оплачено"}
               </span>
-              <AIShortcutButton prompt={`Подведи итоги урока с ${data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "учеником"}`}>Черновик итогов</AIShortcutButton>
+              <AIShortcutButton prompt={`Подведи итоги урока с ${lessonParticipantLabel(selectedLesson.data, data.students)}`}>Черновик итогов</AIShortcutButton>
               {selectedLesson.data.status === "planned" ||
               selectedLesson.data.status === "completed" ? (
-                <CompleteLessonForm
-                  lesson={selectedLesson}
-                  taskNumbers={selectedStudentWorkspace.data.examBlueprint?.data.tasks.map(
-                    (task) => task.number,
-                  ) ?? []}
-                  teacherId={user?.uid ?? ""}
-                />
+                selectedPairedLesson ? (
+                  <CompletePairLessonForm
+                    firstLesson={selectedLesson}
+                    firstStudentName={data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "Ученик"}
+                    secondLesson={selectedPairedLesson}
+                    secondStudentName={data.students.find(({ id }) => id === selectedPairedLesson.data.studentId)?.data.displayName ?? "Ученик"}
+                    taskNumbers={[...new Set([
+                      ...(selectedStudentWorkspace.data.examBlueprint?.data.tasks.map((task) => task.number) ?? []),
+                      ...(selectedPairedStudentWorkspace.data.examBlueprint?.data.tasks.map((task) => task.number) ?? []),
+                    ])].sort((left, right) => left - right)}
+                    teacherId={user?.uid ?? ""}
+                  />
+                ) : (
+                  <CompleteLessonForm
+                    lesson={selectedLesson}
+                    taskNumbers={selectedStudentWorkspace.data.examBlueprint?.data.tasks.map(
+                      (task) => task.number,
+                    ) ?? []}
+                    teacherId={user?.uid ?? ""}
+                  />
+                )
               ) : null}
               {selectedLesson.data.status === "completed" ? (
                 <div className="selected-lesson-summary">
@@ -864,7 +884,12 @@ export function TeacherCalendarPage() {
                   className="selected-lesson-payment"
                   data-testid="selected-lesson-payment"
                 >
-                  <h3>Оплата</h3>
+                  <h3>
+                    Оплата
+                    {selectedPairedLesson
+                      ? ` · ${data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "первый ученик"}`
+                      : ""}
+                  </h3>
                   <p>
                     {selectedLesson.data.paymentStatus === "paid"
                       ? "Занятие оплачено"
@@ -929,6 +954,77 @@ export function TeacherCalendarPage() {
                   </div>
                 </section>
               ) : null}
+              {selectedPairedLesson &&
+              (selectedPairedLesson.data.status === "planned" ||
+                selectedPairedLesson.data.status === "completed") ? (
+                <section className="selected-lesson-payment selected-lesson-payment--pair">
+                  <h3>
+                    Оплата · {data.students.find(({ id }) => id === selectedPairedLesson.data.studentId)?.data.displayName ?? "второй ученик"}
+                  </h3>
+                  <p>
+                    {selectedPairedLesson.data.paymentStatus === "paid"
+                      ? "Занятие оплачено"
+                      : selectedPairedLesson.data.paymentStatus === "free"
+                        ? "Бесплатное занятие"
+                        : "Занятие не оплачено"}
+                  </p>
+                  <div className="form-actions">
+                    {selectedPairedLesson.data.paymentStatus === "unpaid" ? (
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setSelectedStudentId(selectedPairedLesson.data.studentId);
+                          setPaymentOpen(true);
+                        }}
+                        type="button"
+                      >
+                        Добавить оплату
+                      </button>
+                    ) : null}
+                    <button
+                      className="secondary-button"
+                      onClick={() =>
+                        void runOperation(
+                          () =>
+                            setLessonPaymentStatus(getFirebaseDb(), {
+                              teacherId: user?.uid ?? "",
+                              studentId: selectedPairedLesson.data.studentId,
+                              lessonId: selectedPairedLesson.id,
+                              paymentStatus:
+                                selectedPairedLesson.data.paymentStatus === "paid"
+                                  ? "unpaid"
+                                  : "paid",
+                            }),
+                          "Статус оплаты второго ученика обновлён.",
+                        )
+                      }
+                      type="button"
+                    >
+                      {selectedPairedLesson.data.paymentStatus === "paid"
+                        ? "Отметить неоплаченным"
+                        : "Отметить оплаченным"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() =>
+                        void runOperation(
+                          () =>
+                            setLessonPaymentStatus(getFirebaseDb(), {
+                              teacherId: user?.uid ?? "",
+                              studentId: selectedPairedLesson.data.studentId,
+                              lessonId: selectedPairedLesson.id,
+                              paymentStatus: "free",
+                            }),
+                          "Занятие второго ученика отмечено бесплатным.",
+                        )
+                      }
+                      type="button"
+                    >
+                      Сделать бесплатным
+                    </button>
+                  </div>
+                </section>
+              ) : null}
               {selectedLesson.data.status === "planned" ? (
                 <>
                   <div className="calendar-action-stack">
@@ -944,7 +1040,7 @@ export function TeacherCalendarPage() {
                       onClick={() =>
                         void runOperation(
                           () =>
-                            cancelLesson(
+                            cancelLessonForStudentOrPair(
                               getFirebaseDb(),
                               selectedLesson.id,
                               "teacher",
@@ -962,7 +1058,7 @@ export function TeacherCalendarPage() {
                       onClick={() => {
                         if (!window.confirm("Удалить занятие навсегда?")) return;
                         void runOperation(
-                          () => hardDeleteLesson(getFirebaseDb(), {
+                          () => hardDeleteLessonForStudentOrPair(getFirebaseDb(), {
                             lessonId: selectedLesson.id,
                             teacherId: user?.uid ?? "",
                           }).then((result) => {
@@ -982,7 +1078,7 @@ export function TeacherCalendarPage() {
                         onClick={() =>
                           void runOperation(
                             () =>
-                              cancelLessonSeries(getFirebaseDb(), {
+                              cancelLessonSeriesForStudentOrPair(getFirebaseDb(), {
                                 seriesId: selectedLesson.data.lessonSeriesId!,
                                 teacherId: user?.uid ?? "",
                                 actor: "teacher",
@@ -1005,7 +1101,7 @@ export function TeacherCalendarPage() {
                   onClick={() => {
                     if (!window.confirm("Удалить все будущие занятия этой серии? Уже проведённые уроки и история оплат сохранятся.")) return;
                     void runOperation(
-                      () => deleteLessonSeriesFuture(getFirebaseDb(), {
+                      () => deleteLessonSeriesFutureForStudentOrPair(getFirebaseDb(), {
                         seriesId: selectedLesson.data.lessonSeriesId!,
                         teacherId: user?.uid ?? "",
                       }).then((result) => {
@@ -1046,6 +1142,7 @@ export function TeacherCalendarPage() {
                   .map(({ id, data: student }) => (
                     <option key={id} value={id}>
                       {student.displayName}
+                      {student.pairedStudentName ? ` + ${student.pairedStudentName}` : ""}
                     </option>
                   ))}
               </select>
@@ -1252,6 +1349,7 @@ export function TeacherCalendarPage() {
               {data.students.map(({ id, data: student }) => (
                 <option key={id} value={id}>
                   {student.displayName}
+                  {student.pairedStudentName ? ` + ${student.pairedStudentName}` : ""}
                 </option>
               ))}
             </select>

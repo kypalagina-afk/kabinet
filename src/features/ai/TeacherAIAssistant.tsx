@@ -6,10 +6,11 @@ import { useAuth } from "../auth/AuthProvider";
 import { useTeacherPlanner } from "../planner/hooks";
 import { dateKeyForTimezone, resolveTimezone, zonedLocalDateTimeToDate } from "../schedule/timezone";
 import { useTeacherSchedule } from "../schedule/hooks";
+import { visibleCalendarLessons } from "../schedule/studentPairs";
 import { useTeacherStudentPrograms, useTeacherStudents } from "../vertical-slice/hooks";
 import { getFirebaseDb } from "../../lib/firebase/client";
 import { createPlannerItemsFromAssistant, updatePlannerItem, updateRecurringPlannerTaskScope, type PlannerRecurrenceScope } from "../../lib/firebase/services/plannerWorkflow";
-import { rescheduleLesson } from "../../lib/firebase/services/scheduleOperations";
+import { rescheduleLessonForStudentOrPair } from "../../lib/firebase/services/studentPairing";
 import { buildTeacherAIContext } from "./context";
 import { getTeacherAIUsage, interpretTeacherCommand, transcribeTeacherVoice, type TeacherAIUsage } from "./provider";
 import { teacherAIDraftSchema, type PlannerAIItemDraft, type TeacherAIDraft } from "./schema";
@@ -52,7 +53,7 @@ export function TeacherAIAssistant({ initialCommand = "", onClose }: { initialCo
     timezone: timezone.iana ?? "Europe/Moscow",
     selectedStudentId: selectedStudentId || null,
     students: students.data,
-    lessons: schedule.data.lessons,
+    lessons: visibleCalendarLessons(schedule.data.lessons),
     plannerItems: planner.data.items,
   }), [planner.data.items, schedule.data.lessons, selectedStudentId, students.data, teacherId, timezone]);
   useEffect(() => {
@@ -211,9 +212,9 @@ export function TeacherAIAssistant({ initialCommand = "", onClose }: { initialCo
         if (!lesson || lesson.data.status !== "planned" || (lesson.data.updatedAt?.toMillis() ?? null) !== draft.baselineUpdatedAtMillis) throw new Error("Занятие изменилось после создания черновика. Подготовьте перенос заново.");
         const start = zonedLocalDateTimeToDate(draft.newDate, draft.newTime, timezone.iana ?? "Europe/Moscow");
         const endMillis = start.getTime() + draft.durationMinutes * 60_000;
-        const conflict = schedule.data.lessons.find(({ id, data }) => id !== lesson.id && data.status === "planned" && data.startAt.toMillis() < endMillis && data.endAt.toMillis() > start.getTime());
+        const conflict = visibleCalendarLessons(schedule.data.lessons).find(({ id, data }) => id !== lesson.id && data.status === "planned" && data.startAt.toMillis() < endMillis && data.endAt.toMillis() > start.getTime());
         if (conflict) throw new Error("Конфликт времени: в выбранном интервале уже есть занятие.");
-        await rescheduleLesson(getFirebaseDb(), { lessonId: lesson.id, newStartAt: Timestamp.fromDate(start), newEndAt: Timestamp.fromMillis(endMillis) });
+        await rescheduleLessonForStudentOrPair(getFirebaseDb(), { lessonId: lesson.id, newStartAt: Timestamp.fromDate(start), newEndAt: Timestamp.fromMillis(endMillis) });
         setMessage("Занятие перенесено через календарный workflow.");
       } else if (draft.actionType === "HOMEWORK_DRAFT") {
         const program = programs.data.find(({ data }) => data.studentId === draft.studentId && data.status === "active");

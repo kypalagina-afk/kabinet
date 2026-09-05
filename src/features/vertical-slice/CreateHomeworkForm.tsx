@@ -42,6 +42,7 @@ import {
   reviewCriteriaForTask,
   writingConfigForTask,
 } from "../exams/blueprints";
+import { findActiveStudentProgramId } from "../../lib/firebase/repositories/scheduleRepository";
 
 interface Props {
   teacherId: string;
@@ -333,6 +334,12 @@ export function CreateHomeworkForm(props: Props) {
           purpose: "homework",
           homeworkId: null,
           itemId: itemId ?? null,
+          allowedStudentIds: [
+            props.studentId,
+            ...(props.sourceLesson?.data.pairedStudentId
+              ? [props.sourceLesson.data.pairedStudentId]
+              : []),
+          ],
         },
       );
       next.push(uploaded.attachment);
@@ -443,13 +450,34 @@ export function CreateHomeworkForm(props: Props) {
           ...writeInput,
           sourceLessonId: props.sourceLesson?.id ?? null,
         });
+        if (
+          props.sourceLesson?.data.pairedStudentId &&
+          props.sourceLesson.data.pairedLessonId
+        ) {
+          const pairedProgramId = await findActiveStudentProgramId(
+            getFirebaseDb(),
+            props.teacherId,
+            props.sourceLesson.data.pairedStudentId,
+          );
+          if (!pairedProgramId) {
+            throw new Error("У второго ученика пары нет активной программы.");
+          }
+          await createHomework(getFirebaseDb(), {
+            ...writeInput,
+            studentId: props.sourceLesson.data.pairedStudentId,
+            studentProgramId: pairedProgramId,
+            sourceLessonId: props.sourceLesson.data.pairedLessonId,
+          });
+        }
         setCreatedId(created);
         localStorage.removeItem(draftKey);
       }
       setMessage(
         editing
           ? "Домашнее задание обновлено ✓"
-          : "Домашнее задание назначено ✓",
+          : props.sourceLesson?.data.pairedStudentId
+            ? "Одинаковое домашнее задание назначено обоим ученикам ✓"
+            : "Домашнее задание назначено ✓",
       );
       setStatus("success");
       props.onSaved?.();
@@ -482,7 +510,9 @@ export function CreateHomeworkForm(props: Props) {
         <h2>
           {editing
             ? "Домашнее задание обновлено"
-            : "Домашнее задание назначено"}
+            : props.sourceLesson?.data.pairedStudentId
+              ? "Домашнее задание назначено обоим ученикам"
+              : "Домашнее задание назначено"}
         </h2>
         <p>
           {smartTitle(title, items)} · срок{" "}
@@ -541,7 +571,9 @@ export function CreateHomeworkForm(props: Props) {
       </div>
       {!editing && props.sourceLesson ? (
         <p className="workflow-hint" data-testid="homework-source-lesson">
-          ДЗ будет атомарно связано с завершённым занятием
+          {props.sourceLesson.data.pairedStudentId
+            ? "Одинаковое ДЗ будет создано отдельно для каждого ученика пары и связано с занятием"
+            : "ДЗ будет атомарно связано с завершённым занятием"}
           {props.sourceLesson.data.topic
             ? ` «${props.sourceLesson.data.topic}»`
             : ""}

@@ -35,6 +35,10 @@ export interface UserProfile extends AuditedDocument {
 export interface Student extends AuditedDocument {
   teacherId: string;
   activeProgramId?: string | null;
+  pairId?: string | null;
+  pairedStudentId?: string | null;
+  pairedStudentName?: string | null;
+  pairedAt?: Timestamp | null;
   displayName: string;
   classGrade: number | null;
   status: "active" | "paused" | "finished" | "archived";
@@ -202,6 +206,9 @@ export interface LessonSeries extends AuditedDocument {
   teacherId: string;
   studentId: string;
   studentProgramId: string | null;
+  pairId?: string | null;
+  pairedStudentId?: string | null;
+  pairedSeriesId?: string | null;
   frequency: "weekly";
   weekdays: number[];
   interval: number;
@@ -228,6 +235,12 @@ export interface Lesson extends AuditedDocument {
   teacherId: string;
   studentId: string;
   studentProgramId: string | null;
+  pairId?: string | null;
+  pairedStudentId?: string | null;
+  pairedLessonId?: string | null;
+  sharedLessonId?: string | null;
+  pairPrimary?: boolean;
+  pairReplaced?: boolean;
   lessonSeriesId: string | null;
   startAt: Timestamp;
   endAt: Timestamp;

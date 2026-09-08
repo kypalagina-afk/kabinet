@@ -2383,6 +2383,19 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .avatar img{padding:0;object-fit:cover;object-position:center 20%;transform:scale(var(--avatar-scale,1.3));transform-origin:center 28%}
 .avatar-picker{grid-template-columns:repeat(auto-fit,minmax(4.25rem,1fr))}
 .avatar-picker button{min-width:4.5rem;min-height:4.5rem}
+.task-understanding-editor,.homework-receipt-editor,.receipt-new-submission{display:grid;gap:.75rem;min-width:0}
+.task-understanding-row{display:grid;grid-template-columns:3rem minmax(7rem,1fr) minmax(10rem,1.3fr);gap:.65rem;align-items:center;padding:.65rem;border:1px solid var(--color-border);border-radius:.75rem;background:var(--color-surface-soft)}
+.task-understanding-row select,.homework-receipt-row select{width:100%;min-width:0;padding:.5rem}
+.task-understanding-result{color:var(--color-accent);line-height:1.5}
+.pair-analytics-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}
+.pair-analytics-student{display:grid;min-width:0;gap:1rem;padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface)}
+.pair-analytics-student .task-mastery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pair-analytics-student .analytics-stat-grid,.pair-analytics-student .analytics-two-column{grid-template-columns:1fr}
+.pair-analytics-student .homework-analytics{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pair-analytics-student .panel-heading{flex-wrap:wrap}
+.homework-receipt-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(10rem,.7fr);gap:.75rem;align-items:center;padding:.65rem;border:1px solid var(--color-border);border-radius:.75rem}
+.homework-receipt-editor{width:100%}.external-homework-submission{flex-wrap:wrap}.receipt-new-submission{width:100%}
+@media(max-width:47.999rem){.pair-analytics-columns{grid-template-columns:1fr}.task-understanding-row{grid-template-columns:2.5rem minmax(0,1fr)}.task-understanding-row>.form-field:last-child{grid-column:2}.homework-receipt-row{grid-template-columns:1fr}}
 .analytics-filters{display:flex;flex-wrap:wrap;align-items:end;gap:1rem}
 .analytics-student-filter{min-width:min(24rem,100%)}
 .analytics-student-filter select{width:100%;min-width:20rem}

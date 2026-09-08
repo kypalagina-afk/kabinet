@@ -198,6 +198,7 @@ export function LessonJournal({
                     {lesson.data.examTaskNumbers?.map((number) => (
                       <i className="status-chip" key={number}>
                         №{number}
+                        {lesson.data.taskUnderstanding?.[String(number)] ? ` · ${lesson.data.taskUnderstanding[String(number)]!.score}/10 · ${understandingLabels[lesson.data.taskUnderstanding[String(number)]!.status]}` : ""}
                       </i>
                     ))}
                   </span>

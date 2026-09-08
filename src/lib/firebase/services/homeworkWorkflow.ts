@@ -65,6 +65,7 @@ export async function submitHomework(
     submissionNumber: number;
     studentInput: StudentInput;
     submissionSource?: "student" | "teacher_external";
+    receiptOnTime?: boolean | null;
   },
 ): Promise<HomeworkWorkflowResult> {
   const submissionId = homeworkSubmissionId(
@@ -144,6 +145,7 @@ export async function submitHomework(
       ...(input.submissionSource === "teacher_external"
         ? {
             submissionSource: "teacher_external",
+            teacherReceipt: { onTime: studentInput.itemProgress?.length ? null : input.receiptOnTime ?? null, items: Object.fromEntries((studentInput.itemProgress ?? []).map((item) => [item.itemId, { received: item.completed, onTime: item.completed ? input.receiptOnTime ?? null : null, receivedAt: item.completed ? Timestamp.now() : null }])) },
             previousHomeworkStatus: homework.status,
           }
         : {}),
@@ -183,6 +185,7 @@ export async function undoTeacherExternalHomeworkSubmission(
       || submission.teacherId !== input.teacherId
       || submission.homeworkId !== input.homeworkId
       || submission.submissionSource !== "teacher_external"
+      || Boolean(submission.teacherEvaluation)
       || submission.status !== "submitted"
     ) throw new Error("Only an unchecked external submission can be undone");
     const previousStatus = submission.previousHomeworkStatus;
@@ -414,6 +417,7 @@ export async function evaluateHomeworkItem(
       throw new Error("Homework evaluation ownership check failed");
     if (!homework.items?.some((item) => item.itemId === input.itemId))
       throw new Error("Homework item does not exist");
+    if (submission.teacherReceipt?.items[input.itemId]?.received === false) throw new Error("Сначала отметьте этот пункт сданным.");
     if (!new Set(["submitted", "checked", "needs_revision"]).has(submission.status))
       throw new Error("Only an active submitted attempt can be evaluated");
     const itemEvaluation: HomeworkItemEvaluation = {
@@ -433,10 +437,10 @@ export async function evaluateHomeworkItem(
     const requiredItemIds = (homework.items ?? []).map((item) => item.itemId);
     const packageStatus = deriveStructuredPackageStatus(
       requiredItemIds,
-      itemEvaluations,
+      itemEvaluations.filter((item) => submission.teacherReceipt?.items[item.itemId]?.received !== false),
     );
     const numeric = itemEvaluations.filter(
-      (item) => item.scoreEarned !== null && item.scoreMax !== null,
+      (item) => submission.teacherReceipt?.items[item.itemId]?.received !== false && item.scoreEarned !== null && item.scoreMax !== null,
     );
     const teacherEvaluation = {
       scoreEarned: numeric.length

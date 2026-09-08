@@ -14,6 +14,7 @@ import type {
   HomeworkSubmission,
 } from "../../lib/firebase/types";
 import { parsePracticeScore } from "./practiceScoreParser";
+import { HomeworkReceiptEditor, ReceiptTiming } from "./HomeworkReceiptEditor";
 
 type ReviewConfig = NonNullable<Homework["reviewCriteria"]>;
 
@@ -28,6 +29,8 @@ export function TeacherExternalSubmissionControls({
   submissions: Array<DocumentWithId<HomeworkSubmission>>;
   teacherId: string;
 }) {
+  const [receivedItems, setReceivedItems] = useState<string[]>([]);
+  const [receiptOnTime, setReceiptOnTime] = useState<boolean | null>(null);
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
@@ -43,6 +46,7 @@ export function TeacherExternalSubmissionControls({
   ]).has(homework.status);
   const canUndo =
     latest?.data.submissionSource === "teacher_external" &&
+    !latest.data.teacherEvaluation &&
     latest.data.status === "submitted";
 
   async function record() {
@@ -54,8 +58,9 @@ export function TeacherExternalSubmissionControls({
         studentId: homework.studentId,
         submissionNumber: (latest?.data.submissionNumber ?? 0) + 1,
         submissionSource: "teacher_external",
+        receiptOnTime,
         studentInput: {
-          completed: true,
+          completed: !(homework.items?.length) || homework.items.every((item) => receivedItems.includes(item.itemId)),
           selfReportedEarned: null,
           selfReportedMax: null,
           note: "Сдано вне платформы — через мессенджер или лично.",
@@ -63,7 +68,7 @@ export function TeacherExternalSubmissionControls({
           attachments: [],
           itemProgress: (homework.items ?? []).map((item) => ({
             itemId: item.itemId,
-            completed: true,
+            completed: receivedItems.includes(item.itemId),
             selfReportedEarned: null,
             selfReportedMax: null,
             responseText: null,
@@ -92,7 +97,6 @@ export function TeacherExternalSubmissionControls({
     }
   }
 
-  if (!canRecord && !canUndo) return null;
   return (
     <section className="external-homework-submission">
       <div>
@@ -102,6 +106,11 @@ export function TeacherExternalSubmissionControls({
           выставьте баллы здесь.
         </span>
       </div>
+      {latest ? <HomeworkReceiptEditor key={`${latest.id}:${latest.data.updatedAt?.toMillis() ?? 0}`} homework={homework} homeworkId={homeworkId} submission={latest} teacherId={teacherId} /> : null}
+      {canRecord ? <div className="receipt-new-submission">
+        {(homework.items ?? []).map((item) => <label key={item.itemId}><input type="checkbox" checked={receivedItems.includes(item.itemId)} onChange={(event) => setReceivedItems(event.target.checked ? [...receivedItems, item.itemId] : receivedItems.filter((id) => id !== item.itemId))} /> {item.title}</label>)}
+        <ReceiptTiming label="Полученные пункты сданы" value={receiptOnTime} onChange={setReceiptOnTime} />
+      </div> : null}
       {canUndo ? (
         <button
           className="secondary-button"
@@ -111,16 +120,16 @@ export function TeacherExternalSubmissionControls({
         >
           Отменить отметку о сдаче
         </button>
-      ) : (
+      ) : canRecord ? (
         <button
           className="secondary-button"
-          disabled={state === "saving"}
+          disabled={state === "saving" || Boolean(homework.items?.length && !receivedItems.length)}
           onClick={() => void record()}
           type="button"
         >
           {state === "saving" ? "Отмечаем…" : "Отметить сданным вне платформы"}
         </button>
-      )}
+      ) : null}
       {state === "success" ? (
         <span className="form-success">
           Работа отмечена сданной. Теперь можно выставить баллы.
@@ -237,14 +246,14 @@ function ItemEvaluationForm({
         <span
           className={`status-chip${existing?.reviewStatus === "needs_revision" ? " status-chip--warning" : ""}`}
         >
-          {existing?.reviewStatus === "checked"
+          {submission.teacherReceipt?.items[item.itemId]?.received === false ? "Не сдано" : existing?.reviewStatus === "checked"
             ? "Проверено"
             : existing?.reviewStatus === "needs_revision"
               ? "На доработке"
               : "Ждёт проверки"}
         </span>
       </summary>
-      <EvaluationEditor
+      {submission.teacherReceipt?.items[item.itemId]?.received === false ? <p>Пункт пока не сдан. Когда получите работу, отметьте её в блоке «Что сдано и в какой срок».</p> : <EvaluationEditor
         config={reviewConfig}
         existing={existing}
         practiceTaskNumbers={
@@ -275,7 +284,7 @@ function ItemEvaluationForm({
             comment,
           })
         }
-      />
+      />}
     </details>
   );
 }

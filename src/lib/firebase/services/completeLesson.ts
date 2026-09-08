@@ -7,6 +7,7 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import type { Homework, HomeworkItem, HomeworkStatus, Lesson } from "../types.js";
+import { selectedTaskUnderstanding } from "../../../features/schedule/taskUnderstanding.js";
 
 export interface NewHomeworkInput {
   studentProgramId: string;
@@ -25,6 +26,7 @@ export interface CompleteLessonInput {
   topic: string;
   lessonSummary: Lesson["lessonSummary"];
   understanding?: NonNullable<Lesson["understanding"]>;
+  taskUnderstanding?: Lesson["taskUnderstanding"];
   examTaskNumbers?: number[];
   privateTeacherNote?: string | null;
   previousHomework?: {
@@ -123,6 +125,7 @@ export async function completeLesson(
       topic: input.topic,
       lessonSummary: input.lessonSummary,
       understanding: input.understanding ?? null,
+      taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding),
       examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b),
       homeworkResolution: input.newHomework ? "assigned" : "pending",
       updatedAt: serverTimestamp(),
@@ -177,7 +180,7 @@ export async function completeLesson(
   });
 }
 
-export async function updateCompletedLessonSummary(db: Firestore, input: Pick<CompleteLessonInput, "lessonId" | "teacherId" | "topic" | "lessonSummary" | "understanding" | "examTaskNumbers" | "privateTeacherNote">) {
+export async function updateCompletedLessonSummary(db: Firestore, input: Pick<CompleteLessonInput, "lessonId" | "teacherId" | "topic" | "lessonSummary" | "understanding" | "taskUnderstanding" | "examTaskNumbers" | "privateTeacherNote">) {
   const lessonReference = doc(db, "lessons", input.lessonId);
   const noteReference = doc(db, "lessonTeacherNotes", input.lessonId);
   await runTransaction(db, async (transaction) => {
@@ -185,6 +188,7 @@ export async function updateCompletedLessonSummary(db: Firestore, input: Pick<Co
     if (!lessonSnapshot.exists()) throw new Error("Lesson does not exist");
     const lesson = lessonSnapshot.data() as Lesson;
     if (lesson.teacherId !== input.teacherId || lesson.status !== "completed") throw new Error("Only an owned completed lesson can be edited");
+    transaction.update(lessonReference, { taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding ?? lesson.taskUnderstanding) });
     transaction.update(lessonReference, { topic: input.topic.trim(), lessonSummary: input.lessonSummary, understanding: input.understanding ?? null, examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b), updatedAt: serverTimestamp() });
     if (input.privateTeacherNote?.trim()) transaction.set(noteReference, { teacherId: lesson.teacherId, studentId: lesson.studentId, lessonId: input.lessonId, note: input.privateTeacherNote.trim(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(), schemaVersion: 1 }, { merge: true });
   });

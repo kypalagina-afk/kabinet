@@ -806,6 +806,7 @@ export function TeacherCalendarPage() {
               selectedLesson.data.status === "completed" ? (
                 selectedPairedLesson ? (
                   <CompletePairLessonForm
+                    key={selectedLesson.id}
                     firstLesson={selectedLesson}
                     firstStudentName={data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "Ученик"}
                     secondLesson={selectedPairedLesson}
@@ -818,6 +819,7 @@ export function TeacherCalendarPage() {
                   />
                 ) : (
                   <CompleteLessonForm
+                    key={selectedLesson.id}
                     lesson={selectedLesson}
                     taskNumbers={selectedStudentWorkspace.data.examBlueprint?.data.tasks.map(
                       (task) => task.number,

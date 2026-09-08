@@ -81,6 +81,7 @@ export function StudentProgressPage() {
             audience="student"
             coverage={coverage}
             exams={data.mockExams}
+            lessons={data.lessons.filter(({ data: lesson }) => lesson.studentProgramId === data.studentProgram?.id)}
             masteryPublic={publicMastery}
             practiceAttempts={[
               ...practice.data.filter(

@@ -70,6 +70,28 @@ const submission = (
 });
 
 describe("homework analytics", () => {
+  test("partial receipt is not full completion; individual checked work contributes quality", () => {
+    const hw = homework("partial", "2026-08-01T00:00:00Z", "2026-08-10T00:00:00Z");
+    hw.data.items = ["essay", "test"].map((itemId) => ({ itemId, type: "practice", title: itemId, description: null, requiredAmount: null, examTaskNumbers: [], attachments: [], materialIds: [], sortOrder: 0 }));
+    const attempt = submission("attempt", hw.id, "2026-08-09T00:00:00Z");
+    attempt.data.status = "submitted";
+    attempt.data.teacherReceipt = { onTime: null, items: { essay: { received: true, onTime: true, receivedAt: time("2026-08-09T00:00:00Z") }, test: { received: false, onTime: null, receivedAt: null } } };
+    attempt.data.teacherEvaluation = { scoreEarned: 6, scoreMax: 10, criteria: [], issues: [], comment: null, checkedAt: null, itemEvaluations: [{ itemId: "essay", scoreEarned: 6, scoreMax: 10, criteria: [], comment: null, reviewStatus: "checked", checkedAt: time("2026-08-11T00:00:00Z") }] };
+    expect(calculateHomeworkAnalytics([hw], [attempt])).toMatchObject({ completedCount: 0, submittedCount: 0, assignedItemCount: 2, receivedItemCount: 1, qualityPercent: 60, onTimePercent: null });
+    attempt.data.teacherReceipt.items.test = { received: true, onTime: false, receivedAt: time("2026-08-12T00:00:00Z") };
+    expect(calculateHomeworkAnalytics([hw], [attempt])).toMatchObject({ submittedCount: 1, onTimePercent: 0 });
+    attempt.data.teacherReceipt.onTime = true;
+    expect(calculateHomeworkAnalytics([hw], [attempt]).onTimePercent).toBe(100);
+  });
+  test("manual lateness overrides the platform timestamp in both directions", () => {
+    const hw = homework("a", "2026-08-01T00:00:00Z", "2026-08-10T00:00:00Z");
+    const attempt = submission("s", "a", "2026-08-20T00:00:00Z");
+    attempt.data.teacherReceipt = { onTime: true, items: {} };
+    expect(calculateHomeworkAnalytics([hw], [attempt]).onTimePercent).toBe(100);
+    attempt.data.submittedAt = time("2026-08-01T00:00:00Z");
+    attempt.data.teacherReceipt.onTime = false;
+    expect(calculateHomeworkAnalytics([hw], [attempt]).onTimePercent).toBe(0);
+  });
   test("calculates completion, timing and numeric quality inside the range", () => {
     const result = calculateHomeworkAnalytics(
       [

@@ -13,6 +13,8 @@ export interface HomeworkAnalytics {
   onTimePercent: number | null;
   qualityPercent: number | null;
   qualityCount: number;
+  receivedItemCount: number;
+  assignedItemCount: number;
 }
 
 export function calculateHomeworkAnalytics(
@@ -45,32 +47,41 @@ export function calculateHomeworkAnalytics(
       (map, item) => map.set(item.data.homeworkId, item),
       new Map<string, DocumentWithId<HomeworkSubmission>>(),
     );
-  const submitted = [...latest.values()].filter(({ data }) =>
-    Boolean(data.submittedAt),
-  );
+  const fullyReceived = (data: HomeworkSubmission) => {
+    const homework = selected.find(({ id }) => id === data.homeworkId)?.data;
+    return !data.teacherReceipt || !(homework?.items?.length) || homework.items.every((item) => data.teacherReceipt?.items[item.itemId]?.received);
+  };
+  const submitted = [...latest.values()].filter(({ data }) => Boolean(data.submittedAt) && fullyReceived(data));
   const completed = [...latest.values()].filter(
-    ({ data }) => data.status === "checked",
+    ({ data }) => data.status === "checked" && fullyReceived(data),
   );
   const onTime = submitted.filter(({ data }) => {
+    if (data.teacherReceipt?.onTime != null) return data.teacherReceipt.onTime;
     const homework = selected.find(({ id }) => id === data.homeworkId)?.data;
     const deadline = homework ? homeworkDeadlineAt(homework) : null;
+    if (homework?.items?.length && data.teacherReceipt) return homework.items.every((item) => {
+      const receipt = data.teacherReceipt?.items[item.itemId];
+      return receipt?.onTime ?? Boolean(deadline !== null && receipt?.receivedAt && receipt.receivedAt.toMillis() <= deadline);
+    });
     return (
       deadline !== null &&
       data.submittedAt &&
       data.submittedAt.toMillis() <= deadline
     );
   });
-  const qualityScores = completed.flatMap(({ data }) => {
+  const qualityScores = [...latest.values()].flatMap(({ data }) => {
     const evaluation = data.teacherEvaluation;
     if (!evaluation) return [];
     if (
-      evaluation.qualityScore !== undefined &&
+      data.status === "checked" && evaluation.qualityScore !== undefined &&
       evaluation.qualityScore !== null
     )
       return [evaluation.qualityScore * 10];
     const items =
       evaluation.itemEvaluations?.filter(
         (item) =>
+          item.reviewStatus === "checked" &&
+          data.teacherReceipt?.items[item.itemId]?.received !== false &&
           item.scoreEarned !== null &&
           item.scoreMax !== null &&
           item.scoreMax > 0,
@@ -79,7 +90,7 @@ export function calculateHomeworkAnalytics(
       return items.map(
         (item) => ((item.scoreEarned ?? 0) / (item.scoreMax ?? 1)) * 100,
       );
-    return evaluation.scoreEarned !== null &&
+    return data.status === "checked" && evaluation.scoreEarned !== null &&
       evaluation.scoreMax !== null &&
       evaluation.scoreMax > 0
       ? [(evaluation.scoreEarned / evaluation.scoreMax) * 100]
@@ -88,6 +99,11 @@ export function calculateHomeworkAnalytics(
   const percent = (part: number, total: number) =>
     total ? Math.round((part / total) * 100) : 0;
   return {
+    assignedItemCount: selected.reduce((sum, { data }) => sum + (data.items?.length ?? 0), 0),
+    receivedItemCount: selected.reduce((sum, { id, data }) => {
+      const submission = latest.get(id)?.data;
+      return sum + (data.items ?? []).filter((item) => submission?.teacherReceipt?.items[item.itemId]?.received ?? submission?.studentInput.itemProgress?.find((progress) => progress.itemId === item.itemId)?.completed ?? false).length;
+    }, 0),
     assignedCount: selected.length,
     completedCount: completed.length,
     completionPercent: percent(completed.length, selected.length),

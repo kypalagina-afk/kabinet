@@ -144,6 +144,7 @@ export function StudentHomeworkPage() {
                       <li key={item.itemId}>
                         <div>
                           <strong>{item.title}</strong>
+                          {latest?.teacherReceipt?.items[item.itemId] ? <small>{latest.teacherReceipt.items[item.itemId]!.received ? "Сдано" : "Пока не сдано"}{latest.teacherReceipt.items[item.itemId]!.received && latest.teacherReceipt.items[item.itemId]!.onTime !== null ? latest.teacherReceipt.items[item.itemId]!.onTime ? " · вовремя" : " · с опозданием" : ""}</small> : null}
                           <small>
                             {item.examTaskNumbers
                               .map((n) => `№${n}`)
@@ -151,7 +152,7 @@ export function StudentHomeworkPage() {
                           </small>
                         </div>
                         <StudentAttachments attachments={item.attachments} />
-                        {latest?.teacherEvaluation?.itemEvaluations?.find(
+                        {latest?.teacherReceipt?.items[item.itemId]?.received !== false && latest?.teacherEvaluation?.itemEvaluations?.find(
                           (evaluation) => evaluation.itemId === item.itemId,
                         ) ? (
                           <ItemResult
@@ -212,7 +213,7 @@ export function StudentHomeworkPage() {
                   {homework.status === "submitted" &&
                   !latest?.teacherEvaluation ? (
                     <div className="submitted-state">
-                      <strong>Работа отправлена · ждёт проверки</strong>
+                      <strong>{latest?.teacherReceipt && Object.values(latest.teacherReceipt.items).some((item) => !item.received) ? "ДЗ сдано частично · ожидаются остальные пункты" : "Работа отправлена · ждёт проверки"}</strong>
                       <span>
                         {latest?.submittedAt
                           ? new Intl.DateTimeFormat("ru-RU", {

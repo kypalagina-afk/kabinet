@@ -10,7 +10,10 @@ import {
 import type { DocumentWithId, Lesson } from "../../lib/firebase/types";
 
 type UnderstandingStatus = "needs_practice" | "in_progress" | "confident";
+import { TaskUnderstandingEditor } from "./TaskUnderstandingEditor";
+import type { TaskUnderstanding } from "./taskUnderstanding";
 interface StudentOutcome {
+  taskUnderstanding: TaskUnderstanding;
   score: number;
   status: UnderstandingStatus;
   errors: string;
@@ -24,6 +27,7 @@ function statusForScore(score: number): UnderstandingStatus {
 
 function initialOutcome(lesson: Lesson): StudentOutcome {
   return {
+    taskUnderstanding: lesson.taskUnderstanding ?? {},
     score: lesson.understanding?.score ?? 7,
     status: lesson.understanding?.status ?? "in_progress",
     errors: (lesson.lessonSummary.errors ?? lesson.lessonSummary.focusNotes ?? []).join("; "),
@@ -40,10 +44,12 @@ function errorsFromText(value: string) {
 }
 
 function PairOutcomeEditor({
+  tasks,
   name,
   value,
   onChange,
 }: {
+  tasks: number[];
   name: string;
   value: StudentOutcome;
   onChange(value: StudentOutcome): void;
@@ -51,6 +57,7 @@ function PairOutcomeEditor({
   return (
     <section className="pair-outcome-card">
       <h3>{name}</h3>
+      <TaskUnderstandingEditor tasks={tasks} value={value.taskUnderstanding} studentName={name} onChange={(taskUnderstanding) => onChange({ ...value, taskUnderstanding })} />
       <label className="form-field">
         <span>Понимание на занятии · {value.score}/10</span>
         <input
@@ -163,6 +170,7 @@ export function CompletePairLessonForm({
       topic: values.topic,
       understanding: { score: outcome.score, status: outcome.status },
       examTaskNumbers: values.tasks,
+      taskUnderstanding: outcome.taskUnderstanding,
       lessonSummary,
       privateTeacherNote: outcome.privateNote.trim() || null,
     };
@@ -254,8 +262,8 @@ export function CompletePairLessonForm({
                 {taskNumbers.map((task) => <button aria-pressed={values.tasks.includes(task)} className="task-chip" key={task} onClick={() => toggleTask(task)} type="button">№{task}</button>)}
               </fieldset>
               <div className="pair-outcome-grid">
-                <PairOutcomeEditor name={firstStudentName} onChange={(first) => setValues({ ...values, first })} value={values.first} />
-                <PairOutcomeEditor name={secondStudentName} onChange={(second) => setValues({ ...values, second })} value={values.second} />
+                <PairOutcomeEditor tasks={values.tasks} name={firstStudentName} onChange={(first) => setValues({ ...values, first })} value={values.first} />
+                <PairOutcomeEditor tasks={values.tasks} name={secondStudentName} onChange={(second) => setValues({ ...values, second })} value={values.second} />
               </div>
               <div className="form-actions">
                 <button className="primary-button primary-button--fit" disabled={state === "saving"}>{state === "saving" ? "Сохраняем обоим…" : editing ? "Сохранить изменения" : "Завершить урок пары"}</button>

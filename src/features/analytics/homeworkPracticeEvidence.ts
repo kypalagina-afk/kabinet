@@ -25,6 +25,7 @@ export function homeworkPracticeEvidence(
           (candidate) => candidate.itemId === evaluation.itemId,
         );
         if (
+          submission.teacherReceipt?.items[evaluation.itemId]?.received === false ||
           item?.type !== "practice" ||
           item.examTaskNumbers.length !== 1 ||
           (item.examBlueprintId ?? homework.examBlueprintId) !==

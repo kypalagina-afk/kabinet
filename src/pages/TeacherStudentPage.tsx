@@ -364,7 +364,8 @@ export function TeacherStudentPage() {
               <article className="summary-card summary-card--pair">
                 <span className="summary-card__label">Формат занятий</span>
                 <strong>Постоянная пара</strong>
-                <p>Вместе с {student.pairedStudentName ?? "другим учеником"}</p>
+                  <p>Вместе с {student.pairedStudentName ?? "другим учеником"}</p>
+                  <Link to={`/teacher/analytics?pair=${encodeURIComponent(student.pairId ?? "")}`}>Статистика пары →</Link>
               </article>
             ) : null}
             <article className="summary-card">

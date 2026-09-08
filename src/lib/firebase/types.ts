@@ -267,6 +267,7 @@ export interface Lesson extends AuditedDocument {
     score: number;
     status: "needs_practice" | "in_progress" | "confident";
   } | null;
+  taskUnderstanding?: Record<string, { score: number; status: "needs_practice" | "in_progress" | "confident" }>;
   paymentStatus: "paid" | "unpaid" | "free" | "unknown";
   wasRescheduled?: boolean;
   plannerCompletedAt?: Timestamp | null;
@@ -443,6 +444,10 @@ export interface HomeworkSubmission extends AuditedDocument {
   status: "submitted" | "checked" | "needs_revision";
   submittedAt: Timestamp | null;
   submissionSource?: "student" | "teacher_external";
+  teacherReceipt?: {
+    onTime: boolean | null;
+    items: Record<string, { received: boolean; onTime: boolean | null; receivedAt: Timestamp | null }>;
+  };
   previousHomeworkStatus?: HomeworkStatus | null;
   reviewedUnread?: boolean;
   reviewedOpenedAt?: Timestamp | null;

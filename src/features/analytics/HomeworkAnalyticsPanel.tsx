@@ -96,6 +96,7 @@ export function HomeworkAnalyticsPanel({
           <strong>{analytics.completionPercent}%</strong>
           <small>
             {analytics.completedCount} из {analytics.assignedCount}
+            {analytics.assignedItemCount > 0 ? ` · сдано пунктов: ${analytics.receivedItemCount} из ${analytics.assignedItemCount}` : ""}
           </small>
         </article>
         <article>

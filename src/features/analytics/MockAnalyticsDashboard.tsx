@@ -1,4 +1,5 @@
 import { calculateMockAnalytics } from "./mockAnalytics";
+import { latestTaskUnderstanding, understandingLabels } from "../schedule/taskUnderstanding";
 import { secondaryScoreForPrimary } from "../exams/blueprints";
 import type {
   CoverageState,
@@ -7,6 +8,7 @@ import type {
   EvaluationCriterion,
   ExternalPracticeAttempt,
   MockExam,
+  Lesson,
   StudentTaskCoverage,
   StudentTaskMasteryPublic,
 } from "../../lib/firebase/types";
@@ -17,6 +19,7 @@ export function MockAnalyticsDashboard({
   masteryPublic = [],
   coverage = [],
   practiceAttempts = [],
+  lessons = [],
   taskNumbers,
   taskWeights,
   programTitle,
@@ -29,6 +32,7 @@ export function MockAnalyticsDashboard({
   masteryPublic?: Array<DocumentWithId<StudentTaskMasteryPublic>>;
   coverage?: Array<DocumentWithId<StudentTaskCoverage>>;
   practiceAttempts?: Array<DocumentWithId<ExternalPracticeAttempt>>;
+  lessons?: Array<DocumentWithId<Lesson>>;
   taskNumbers?: number[];
   taskWeights?: Record<number, number>;
   programTitle?: string;
@@ -40,11 +44,13 @@ export function MockAnalyticsDashboard({
   ): void;
   onCoverageChange?(taskNumber: number, state: CoverageState): void;
 }) {
+  const understanding = latestTaskUnderstanding(lessons);
   const evidenceTasks = [...new Set([
     ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
     ...coverage.map(({ data }) => data.taskNumber),
     ...masteryPublic.map(({ data }) => data.taskNumber),
     ...practiceAttempts.map(({ data }) => data.taskNumber),
+    ...Object.keys(understanding).map(Number),
   ])].sort((a, b) => a - b);
   const ordered = [...exams].sort(
     (a, b) =>
@@ -102,7 +108,7 @@ export function MockAnalyticsDashboard({
           masteryAverage * 0.4,
       )
     : masteryAverage;
-  if (!latest && !coverage.length && !practiceAttempts.length)
+  if (!latest && !coverage.length && !practiceAttempts.length && !Object.keys(understanding).length)
     return <p className="content-state">Данных пока нет.</p>;
   return (
     <div className="analytics-dashboard" data-testid="mock-analytics-dashboard">
@@ -151,6 +157,7 @@ export function MockAnalyticsDashboard({
         </div>
         <div className="task-mastery-grid">
           {tasks.map((taskNumber) => {
+            const taskRating = understanding[String(taskNumber)];
             const automatic = analytics.masteryByTask.find(
               (item) => item.taskNumber === taskNumber,
             );
@@ -198,6 +205,7 @@ export function MockAnalyticsDashboard({
                   type="button"
                 >
                   <span>№{taskNumber}</span>
+                  {taskRating ? <small className="task-understanding-result">Понимание: {taskRating.score}/10 · {understandingLabels[taskRating.status]}<br />Урок {taskRating.date.toLocaleDateString("ru-RU")}</small> : null}
                   <strong>
                     {mastery}%{onEditMastery ? " ✎" : ""}
                   </strong>

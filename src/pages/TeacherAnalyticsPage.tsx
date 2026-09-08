@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
 import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { MockAnalyticsDashboard } from "../features/analytics/MockAnalyticsDashboard";
@@ -41,8 +41,10 @@ export function TeacherAnalyticsPage() {
   const assignments = useTeacherStudentPrograms(teacherId);
   const profiles = useProgramProfiles();
   const blueprints = useExamBlueprints();
+  const [params] = useSearchParams();
+  const pairs = students.data.filter(({ id, data }) => data.pairId && data.pairedStudentId && id < data.pairedStudentId && students.data.some((other) => other.id === data.pairedStudentId && other.data.pairId === data.pairId));
   const [studentId, setStudentId] = useState(
-    () => sessionStorage.getItem("teacher-analytics-student") ?? "all",
+    () => params.get("pair") ? `pair:${params.get("pair")}` : sessionStorage.getItem("teacher-analytics-student") ?? "all",
   );
   const [programFilter, setProgramFilter] = useState<
     "all" | "oge" | "ege" | "school"
@@ -51,6 +53,7 @@ export function TeacherAnalyticsPage() {
     !students.loading &&
     studentId !== "all" &&
     !students.data.some(({ id }) => id === studentId)
+    && !pairs.some(({ data }) => `pair:${data.pairId}` === studentId)
       ? "all"
       : studentId;
   const activeProfileTitles = [
@@ -82,7 +85,7 @@ export function TeacherAnalyticsPage() {
         </div>
         <div className="inline-control analytics-filters">
           <label className="form-field compact-filter analytics-student-filter">
-            <span>Ученик</span>
+            <span>Ученик или пара</span>
             <select
               onChange={(event) => {
                 setStudentId(event.target.value);
@@ -105,6 +108,7 @@ export function TeacherAnalyticsPage() {
                   {data.displayName}
                 </option>
               ))}
+              {pairs.length ? <optgroup label="Постоянные пары">{pairs.map(({ id, data }) => <option key={id} value={`pair:${data.pairId}`}>{data.displayName} + {students.data.find((student) => student.id === data.pairedStudentId)?.data.displayName}</option>)}</optgroup> : null}
             </select>
           </label>
           {activeStudentId === "all" ? (
@@ -137,8 +141,18 @@ export function TeacherAnalyticsPage() {
           programFilter={programFilter}
           students={students.data}
         />
+      ) : activeStudentId.startsWith("pair:") ? (
+        <section className="pair-analytics" data-testid="pair-analytics">
+          <h2>Статистика пары</h2>
+          <p>Готовность, карта экзамена, понимание заданий и результаты ДЗ каждого ученика — рядом для сравнения.</p>
+          <div className="pair-analytics-columns">{students.data.filter(({ data }) => `pair:${data.pairId}` === activeStudentId).map(({ id, data }) => <section className="pair-analytics-student" key={id}>
+            <h2><Link to={`/teacher/students/${id}`}>{data.displayName}</Link></h2>
+            <TeacherAnalyticsWorkspace studentId={id} teacherId={teacherId} compact />
+          </section>)}</div>
+        </section>
       ) : (
         <TeacherAnalyticsWorkspace
+          key={activeStudentId}
           studentId={activeStudentId}
           teacherId={teacherId}
         />
@@ -150,9 +164,11 @@ export function TeacherAnalyticsPage() {
 function TeacherAnalyticsWorkspace({
   teacherId,
   studentId,
+  compact = false,
 }: {
   teacherId: string;
   studentId: string;
+  compact?: boolean;
 }) {
   const { data, loading, error } = useTeacherStudentWorkspace(
     teacherId,
@@ -203,15 +219,16 @@ function TeacherAnalyticsWorkspace({
         submissions={data.homeworkSubmissions}
         teacherControls
       />
-      <ExternalPracticePanel
+      {!compact ? <ExternalPracticePanel
         additionalAttempts={homeworkPractice}
         studentId={studentId}
         teacherId={teacherId}
-      />
+      /> : null}
       <MockAnalyticsDashboard
         audience="teacher"
         coverage={coverage}
         exams={data.mockExams}
+        lessons={data.lessons.filter(({ data: lesson }) => lesson.studentProgramId === data.studentProgram?.id)}
         masteryPublic={publicMastery}
         practiceAttempts={[
           ...practice.data.filter(
@@ -248,6 +265,7 @@ function TeacherAnalyticsWorkspace({
           );
         }}
       />
+      {compact ? <details className="analytics-panel"><summary>История практики</summary><ExternalPracticePanel additionalAttempts={homeworkPractice} studentId={studentId} teacherId={teacherId} /></details> : null}
       {editing ? (
         <div className="modal-backdrop">
           <form

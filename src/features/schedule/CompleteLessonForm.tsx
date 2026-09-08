@@ -21,6 +21,7 @@ import type {
 } from "../../lib/firebase/types";
 
 type Understanding = "needs_practice" | "in_progress" | "confident";
+import { TaskUnderstandingEditor } from "./TaskUnderstandingEditor";
 const labels: Record<Understanding, string> = {
   needs_practice: "Нужна отработка",
   in_progress: "В процессе",
@@ -55,6 +56,7 @@ export function CompleteLessonForm({
       understandingStatus:
         lesson.data.understanding?.status ?? ("in_progress" as Understanding),
       tasks: lesson.data.examTaskNumbers ?? [],
+      taskUnderstanding: lesson.data.taskUnderstanding ?? {},
       errors:
         lesson.data.lessonSummary.errors ??
         lesson.data.lessonSummary.focusNotes ??
@@ -152,6 +154,7 @@ export function CompleteLessonForm({
             status: values.understandingStatus,
           },
           examTaskNumbers: values.tasks,
+          taskUnderstanding: values.taskUnderstanding,
           lessonSummary,
           privateTeacherNote: values.privateNote || null,
         });
@@ -165,6 +168,7 @@ export function CompleteLessonForm({
             status: values.understandingStatus,
           },
           examTaskNumbers: values.tasks,
+          taskUnderstanding: values.taskUnderstanding,
           lessonSummary,
           privateTeacherNote: values.privateNote || null,
           previousHomework: previousHomework
@@ -261,7 +265,7 @@ export function CompleteLessonForm({
                     className="secondary-button"
                     onClick={() => {
                       const raw = localStorage.getItem(key);
-                      if (raw) setValues(JSON.parse(raw) as typeof values);
+                      if (raw) setValues({ ...initial, ...JSON.parse(raw) } as typeof values);
                       setDraftFound(false);
                     }}
                     type="button"
@@ -303,9 +307,10 @@ export function CompleteLessonForm({
                   </button>
                 ))}
               </fieldset>
+              <TaskUnderstandingEditor tasks={values.tasks} value={values.taskUnderstanding} onChange={(taskUnderstanding) => setValues({ ...values, taskUnderstanding })} />
               <div className="understanding-editor">
                 <label className="form-field">
-                  <span>Понимание на занятии · {values.score}/10</span>
+                  <span>Общее понимание на занятии · {values.score}/10</span>
                   <input
                     max="10"
                     min="1"

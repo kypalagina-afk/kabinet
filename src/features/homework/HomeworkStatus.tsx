@@ -1,4 +1,5 @@
-import type { Homework } from "../../lib/firebase/types";
+import type { Homework, HomeworkSubmission } from "../../lib/firebase/types";
+import { homeworkReviewProgress } from "./reviewProgress";
 import { effectiveHomeworkStatus } from "./selectors";
 
 const labels: Record<Homework["status"], string> = {
@@ -10,11 +11,12 @@ const labels: Record<Homework["status"], string> = {
   overdue: "Просрочено",
 };
 
-export function HomeworkStatus({ homework }: { homework: Homework }) {
-  const status = effectiveHomeworkStatus(homework);
+export function HomeworkStatus({ homework, submissions }: { homework: Homework; submissions?: HomeworkSubmission[] }) {
+  const progress = submissions ? homeworkReviewProgress(homework, submissions) : null;
+  const status = progress?.status ?? effectiveHomeworkStatus(homework);
   return (
     <span className={`status-chip status-chip--${status}`}>
-      {labels[status]}
+      {progress && progress.checked > 0 && progress.checked < progress.total ? `Проверено ${progress.checked} из ${progress.total}` : labels[status]}
     </span>
   );
 }

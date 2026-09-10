@@ -60,7 +60,7 @@ async function teacherScreens(page: Page, theme: "light" | "dark") {
 
   await route(page, "/teacher/homeworks");
   await shot(page, theme, "teacher-homework-list");
-  await page.getByRole("button", { name: "Завершённые" }).click();
+  await page.getByRole("button", { name: "Проверенные" }).click();
   await page.getByTestId("teacher-homework-card").filter({ hasText: "Сочинение по прочитанному тексту" }).click();
   await expect(page.getByRole("dialog")).toContainText("Сочинение ученицы.jpg");
   await shot(page, theme, "teacher-homework-exact-detail-attachment");

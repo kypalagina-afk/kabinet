@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Avatar } from "../features/avatar/Avatar";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
-import { effectiveHomeworkStatus } from "../features/homework/selectors";
+import { homeworkReviewProgress } from "../features/homework/reviewProgress";
 import { useTeacherPlanner } from "../features/planner/hooks";
 import { FocusTimerWidget } from "../features/focus-timer/FocusTimerWidget";
 import { useTeacherSchedule } from "../features/schedule/hooks";
@@ -48,10 +48,10 @@ export function TeacherHomePage() {
   );
   const currentLessons = visibleCalendarLessons(currentLessonRecords);
   const overdue = board.data.homeworks.filter(
-    ({ data }) => effectiveHomeworkStatus(data, now) === "overdue",
+    ({ id, data }) => homeworkReviewProgress(data, board.data.submissions.filter((item) => item.data.homeworkId === id).map((item) => item.data), now).overdue,
   );
-  const pending = board.data.submissions.filter(
-    ({ data }) => data.status === "submitted",
+  const pending = board.data.homeworks.filter(
+    ({ id, data }) => homeworkReviewProgress(data, board.data.submissions.filter((item) => item.data.homeworkId === id).map((item) => item.data), now).pending > 0,
   );
   const unfinished = currentLessons.filter(
     ({ data }) => data.status === "planned" && data.endAt.toMillis() < now,
@@ -208,7 +208,7 @@ export function TeacherHomePage() {
               key={id}
               title={`${studentName(data.studentId)} · Работа ждёт проверки`}
               subtitle="Открыть точное домашнее задание"
-              to={`/teacher/homeworks?homework=${data.homeworkId}`}
+              to={`/teacher/homeworks?homework=${id}`}
             />
           ))}
           {unpaid.map(({ id, data }) => (

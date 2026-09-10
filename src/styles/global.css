@@ -2395,6 +2395,7 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .pair-analytics-student .panel-heading{flex-wrap:wrap}
 .homework-receipt-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(10rem,.7fr);gap:.75rem;align-items:center;padding:.65rem;border:1px solid var(--color-border);border-radius:.75rem}
 .homework-receipt-editor{width:100%}.external-homework-submission{flex-wrap:wrap}.receipt-new-submission{width:100%}
+.homework-review-items{display:grid;gap:.5rem;width:100%;margin-top:.5rem;text-align:left}.homework-review-items>span{display:flex;align-items:center;justify-content:space-between;gap:.75rem}.homework-review-items>span>span{min-width:0;overflow-wrap:anywhere}.homework-review-items .status-chip{flex-shrink:0}
 @media(max-width:47.999rem){.pair-analytics-columns{grid-template-columns:1fr}.task-understanding-row{grid-template-columns:2.5rem minmax(0,1fr)}.task-understanding-row>.form-field:last-child{grid-column:2}.homework-receipt-row{grid-template-columns:1fr}}
 .analytics-filters{display:flex;flex-wrap:wrap;align-items:end;gap:1rem}
 .analytics-student-filter{min-width:min(24rem,100%)}

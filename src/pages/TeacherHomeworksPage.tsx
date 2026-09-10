@@ -5,7 +5,7 @@ import { AIShortcutButton } from "../features/ai/AIShortcutButton";
 import { useAuth } from "../features/auth/AuthProvider";
 import { HomeworkStatus } from "../features/homework/HomeworkStatus";
 import { HomeworkAttachmentList } from "../features/homework/HomeworkAttachmentList";
-import { effectiveHomeworkStatus } from "../features/homework/selectors";
+import { homeworkReviewProgress, reviewItemLabels } from "../features/homework/reviewProgress";
 import {
   TeacherEvaluationForm,
   TeacherExternalSubmissionControls,
@@ -77,21 +77,18 @@ export function TeacherHomeworksPage() {
   const homeworks = useMemo(
     () =>
       [...data.homeworks]
-        .filter(({ data: homework }) => {
+        .filter(({ id, data: homework }) => {
           if (studentId && homework.studentId !== studentId) return false;
-          const status = effectiveHomeworkStatus(homework, currentTime);
-          if (tab === "review") return status === "submitted";
-          if (tab === "overdue") return status === "overdue";
-          if (tab === "completed")
-            return status === "checked" || status === "completed";
-          return !["overdue", "submitted", "checked", "completed"].includes(
-            status,
-          );
+          const progress = homeworkReviewProgress(homework, data.submissions.filter((entry) => entry.data.homeworkId === id).map((entry) => entry.data), currentTime);
+          if (tab === "review") return progress.pending > 0;
+          if (tab === "overdue") return progress.overdue;
+          if (tab === "completed") return progress.checked > 0;
+          return progress.revision > 0 || (progress.missing > 0 && !progress.overdue);
         })
         .sort(
           (a, b) => b.data.assignedAt.toMillis() - a.data.assignedAt.toMillis(),
         ),
-    [currentTime, data.homeworks, studentId, tab],
+    [currentTime, data.homeworks, data.submissions, studentId, tab],
   );
   const selected = selectedId
     ? (data.homeworks.find((item) => item.id === selectedId) ?? null)
@@ -190,11 +187,9 @@ export function TeacherHomeworksPage() {
           <h1 id="teacher-homework-title">Домашние задания</h1>
           <p>
             {
-              data.submissions.filter(
-                ({ data: item }) => item.status === "submitted",
-              ).length
+              data.homeworks.reduce((sum, homework) => sum + homeworkReviewProgress(homework.data, data.submissions.filter((entry) => entry.data.homeworkId === homework.id).map((entry) => entry.data), currentTime).pending, 0)
             }{" "}
-            работ ожидают проверки.
+            пунктов ДЗ ожидают проверки.
           </p>
         </div>
         <div className="homework-heading-actions">
@@ -244,7 +239,7 @@ export function TeacherHomeworksPage() {
             ["active", "Активные"],
             ["review", "На проверке"],
             ["overdue", "Просроченные"],
-            ["completed", "Завершённые"],
+            ["completed", "Проверенные"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -257,6 +252,7 @@ export function TeacherHomeworksPage() {
           </button>
         ))}
       </div>
+      {tab === "completed" ? <p className="workflow-hint">Здесь видны ДЗ с проверенными пунктами. Остальные пункты этих ДЗ могут ещё ожидать сдачи или проверки.</p> : null}
       {loading ? <p className="content-state">Загружаем работы…</p> : null}
       {error ? <p className="shell-notice">{error}</p> : null}
       {previewError ? (
@@ -455,11 +451,7 @@ function HomeworkCard({
   const submissions = board.submissions.filter(
     ({ data }) => data.homeworkId === homework.id,
   );
-  const latest = [...submissions]
-    .sort((a, b) => a.data.submissionNumber - b.data.submissionNumber)
-    .at(-1)?.data;
-  const itemProgress = latest?.studentInput.itemProgress ?? [];
-  const complete = itemProgress.filter((item) => item.completed).length;
+  const progress = homeworkReviewProgress(homework.data, submissions.map((item) => item.data));
   const attachments = submissions.reduce(
     (count, item) =>
       count +
@@ -481,23 +473,24 @@ function HomeworkCard({
         <div>
           <span className="eyebrow">
             {student?.data.displayName ?? "Ученик"} ·{" "}
-            {typeLabels[homework.data.type]}
+            {(homework.data.items?.length ?? 0) > 1 ? "ДЗ из нескольких пунктов" : typeLabels[homework.data.type]}
           </span>
           <h2>{homework.data.title}</h2>
         </div>
-        <HomeworkStatus homework={homework.data} />
+        <HomeworkStatus homework={homework.data} submissions={submissions.map((item) => item.data)} />
       </div>
       <div className="homework-card-summary">
         <span>Срок: {formatHomeworkDueDate(homework.data)}</span>
         <span>{homework.data.items?.length ?? 1} пунктов</span>
         <span>
-          Прогресс {complete}/{homework.data.items?.length ?? 1}
+          Сдано {progress.received}/{progress.total} · проверено {progress.checked}/{progress.total}
         </span>
         <span>📎 {attachments}</span>
         <span>Попыток: {submissions.length}</span>
       </div>
-      {latest?.status === "submitted" ? (
-        <strong className="review-badge">1 работа ждёт проверки</strong>
+      {progress.total > 1 ? <div className="homework-review-items">{progress.items.map((item) => <span key={item.itemId}><span>{item.title}</span><b className={`status-chip status-chip--${item.state === "checked" ? "checked" : "muted"}`}>{reviewItemLabels[item.state]}</b></span>)}</div> : null}
+      {progress.pending > 0 ? (
+        <strong className="review-badge">Ожидают проверки: {progress.pending}</strong>
       ) : null}
     </button>
   );
@@ -529,7 +522,7 @@ function HomeworkDetail({
   return (
     <div className="homework-detail">
       <div className="homework-detail-meta">
-        <HomeworkStatus homework={homework.data} />
+        <HomeworkStatus homework={homework.data} submissions={submissions.map((item) => item.data)} />
         <span>
           Срок:{" "}
           {homework.data.dueAt
@@ -587,11 +580,10 @@ function HomeworkDetail({
         <details className="attempt-card" key={id} open={id === latest?.id}>
           <summary>
             Попытка {submission.submissionNumber} ·{" "}
-            {submission.status === "submitted"
-              ? "ждёт проверки"
-              : submission.status === "checked"
-                ? "проверена"
-                : "доработка"}
+            {(() => {
+              const progress = homeworkReviewProgress(homework.data, [submission]);
+              return progress.checked === progress.total ? "проверена" : `проверено ${progress.checked}/${progress.total} · ожидают проверки: ${progress.pending} · не сдано: ${progress.missing}${progress.revision ? ` · на доработке: ${progress.revision}` : ""}`;
+            })()}
           </summary>
           <div className="attempt-content">
             <p>

@@ -30,7 +30,7 @@ export function TeacherExternalSubmissionControls({
   teacherId: string;
 }) {
   const [receivedItems, setReceivedItems] = useState<string[]>([]);
-  const [receiptOnTime, setReceiptOnTime] = useState<boolean | null>(null);
+  const [receiptOnTime, setReceiptOnTime] = useState(true);
   const [state, setState] = useState<"idle" | "saving" | "success" | "error">(
     "idle",
   );
@@ -540,7 +540,7 @@ function EvaluationEditor({
                     setPracticeText(event.target.value);
                     setPracticeError("");
                   }}
-                  placeholder="Например: 8/10 или Задание №15: 8/10 от 01.09.26 18:30"
+                  placeholder="Например: 10/15, 10\15, 10 из 15 или строка из Русского100"
                   rows={3}
                   value={practiceText}
                 />
@@ -555,7 +555,7 @@ function EvaluationEditor({
                   );
                   if (!parsed) {
                     setPracticeError(
-                      "Не удалось распознать результат. Используйте формат 8/10 или вставьте строку из Русского100.",
+                      "Не удалось распознать результат. Используйте формат 10/15, 10\\15, 10 из 15 или вставьте строку из Русского100.",
                     );
                     return;
                   }

@@ -4,6 +4,9 @@ import { parsePracticeScore } from "../../src/features/homework/practiceScorePar
 describe("practice score parser", () => {
   test.each([
     ["8/10", { earned: 8, maximum: 10 }],
+    ["10\\15", { earned: 10, maximum: 15 }],
+    [" 10 \\ 15 ", { earned: 10, maximum: 15 }],
+    ["3,5\\5", { earned: 3.5, maximum: 5 }],
     ["8 баллов из 10", { earned: 8, maximum: 10 }],
     ["3,5 из 5", { earned: 3.5, maximum: 5 }],
   ])("parses an inline score: %s", (input, expected) => {
@@ -20,5 +23,7 @@ describe("practice score parser", () => {
 
   test("rejects an impossible score", () => {
     expect(parsePracticeScore("12 из 10")).toBeNull();
+    expect(parsePracticeScore("16\\15")).toBeNull();
+    expect(parsePracticeScore("10\\0")).toBeNull();
   });
 });

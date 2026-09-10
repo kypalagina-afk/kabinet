@@ -25,7 +25,7 @@ export function parsePracticeScore(
   input: string,
   taskNumbers: number[] = [],
 ): PracticeScore | null {
-  const normalized = input.replace(/\u00a0/gu, " ").trim();
+  const normalized = input.replace(/\u00a0/gu, " ").replace(/\\/gu, "/").trim();
   if (!normalized) return null;
 
   const russian100 = parseRussian100ManualText(normalized).attempts;

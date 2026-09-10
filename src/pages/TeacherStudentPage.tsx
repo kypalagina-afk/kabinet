@@ -112,6 +112,7 @@ export function TeacherStudentPage() {
     data.examBlueprint?.data.examKind ??
       data.examBlueprint?.data.programType ??
       "oge",
+    data.studentProgram?.id,
   );
   const latestMock = selectLatestMockExam(data.mockExams);
   const paidRemaining = data.lessons.filter(

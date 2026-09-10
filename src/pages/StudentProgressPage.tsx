@@ -36,8 +36,9 @@ export function StudentProgressPage() {
         data.examBlueprint?.data.examKind ??
           data.examBlueprint?.data.programType ??
           "oge",
+        data.studentProgram?.id,
       ),
-    [data.examBlueprint, data.homeworkSubmissions, data.homeworks],
+    [data.examBlueprint, data.homeworkSubmissions, data.homeworks, data.studentProgram?.id],
   );
   const [params, setParams] = useSearchParams();
   const [compareMode, setCompareMode] = useState(false);

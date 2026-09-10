@@ -317,6 +317,7 @@ function SingleEvaluationForm({
       </div>
       <EvaluationEditor
         config={homework.reviewCriteria ?? null}
+        practiceTaskNumbers={homework.type === "practice" ? homework.examTaskNumbers : undefined}
         existing={submission.teacherEvaluation ?? undefined}
         fallbackMax={
           homework.requiredAmount ?? submission.studentInput.selfReportedMax
@@ -533,6 +534,11 @@ function EvaluationEditor({
         <>
           {practiceTaskNumbers ? (
             <div className="practice-result-import">
+              <p className="workflow-hint">
+                {practiceTaskNumbers.length === 1
+                  ? `После сохранения проверки баллы учитываются в прогрессе задания №${practiceTaskNumbers[0]}, даже если остальное ДЗ ещё не сдано.`
+                  : "Баллы сохранятся в ДЗ. Для учёта в карте экзамена выберите один номер задания для этого пункта. Для разных номеров создайте отдельные пункты с отдельными баллами."}
+              </p>
               <label className="form-field">
                 <span>Результат практики · можно вставить из Русского100</span>
                 <textarea

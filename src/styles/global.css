@@ -981,6 +981,37 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.lesson-homework-badge {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: .2rem .35rem;
+  border-radius: .4rem;
+  background: #fff0d6;
+  color: #804800;
+  border: 1px solid #e7bb75;
+  font-size: .6875rem;
+  font-weight: 750;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.lesson-homework-badge__compact { display: none; }
+@media (max-width: 47.999rem) {
+  .calendar-event .lesson-homework-badge__full { display: none; }
+  .calendar-event .lesson-homework-badge__compact { display: inline; }
+  .calendar-event .lesson-homework-badge { font-size: .5625rem; padding: .125rem; white-space: nowrap; }
+}
+.lesson-homework-notice {
+  display: grid;
+  gap: .5rem;
+  padding: .75rem;
+  margin: .5rem 0;
+  border: 1px solid #e7bb75;
+  border-radius: .75rem;
+  background: #fff0d6;
+  color: #804800;
+}
 .calendar-event--completed {
   border-left: 0.25rem solid #2c9b69;
 }

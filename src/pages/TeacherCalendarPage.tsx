@@ -8,6 +8,8 @@ import { useTeacherSchedule } from "../features/schedule/hooks";
 import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import { CompletePairLessonForm } from "../features/schedule/CompletePairLessonForm";
+import { LessonHomeworkBadge } from "../features/schedule/LessonHomeworkBadge";
+import { missingHomeworkParticipants } from "../features/schedule/lessonHomework";
 import {
   lessonParticipantLabel,
   visibleCalendarLessons,
@@ -600,6 +602,7 @@ export function TeacherCalendarPage() {
         </button>
       </section>
 
+      <p className="workflow-hint">Жёлтая отметка «ДЗ не выдано» (на телефоне — «ДЗ!») означает, что после проведённого урока ещё нужно назначить домашнее задание. Нажмите на урок, чтобы выдать его.</p>
       <div className="calendar-layout">
         {view === "month" ? (
           <section
@@ -672,6 +675,7 @@ export function TeacherCalendarPage() {
                               )}
                             </strong>
                             <span>{lessonParticipantLabel(lesson.data, data.students)}</span>
+                            <LessonHomeworkBadge lesson={lesson} lessons={data.lessons} students={data.students} />
                             <i
                               aria-label={
                                 lesson.data.paymentStatus === "paid"
@@ -749,6 +753,7 @@ export function TeacherCalendarPage() {
                             )}
                           </strong>
                           <span>{lessonParticipantLabel(lesson.data, data.students)}</span>
+                          <LessonHomeworkBadge lesson={lesson} lessons={data.lessons} students={data.students} />
                           <small>
                             {lesson.data.topic ?? "Тема не указана"}
                           </small>
@@ -793,6 +798,14 @@ export function TeacherCalendarPage() {
                 )}
               </h2>
               <p>{statusLabels[selectedLesson.data.status]}</p>
+              {missingHomeworkParticipants(selectedLesson, data.lessons).map((lesson) => (
+                <div className="lesson-homework-notice" key={lesson.id}>
+                  <strong>ДЗ не выдано · {data.students.find(({ id }) => id === lesson.data.studentId)?.data.displayName ?? "Ученик"}</strong>
+                  <Link className="secondary-button" to={`/teacher/students/${lesson.data.studentId}?tab=homework&sourceLesson=${lesson.id}`}>
+                    + Выдать ДЗ
+                  </Link>
+                </div>
+              ))}
               <p>{selectedLesson.data.topic ?? "Тема не указана"}</p>
               <span className="status-chip">
                 {selectedLesson.data.paymentStatus === "paid"

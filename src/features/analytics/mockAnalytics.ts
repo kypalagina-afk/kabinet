@@ -174,8 +174,10 @@ export function calculateMockAnalytics(
     masteryWeightTotal / Math.max(1, allTaskWeight),
   );
   const examReadiness = Math.round(
-    latestPercent * config.readinessWeights.latestMock +
-      studiedMastery * studiedCoverage * config.readinessWeights.studiedMastery,
+    mockTrend.length
+      ? latestPercent * config.readinessWeights.latestMock +
+        studiedMastery * studiedCoverage * config.readinessWeights.studiedMastery
+      : studiedMastery * studiedCoverage,
   );
 
   const latest = chronological.at(-1)?.data;

@@ -187,8 +187,9 @@ function TeacherAnalyticsWorkspace({
         data.examBlueprint?.data.examKind ??
           data.examBlueprint?.data.programType ??
           "oge",
+        data.studentProgram?.id,
       ),
-    [data.examBlueprint, data.homeworkSubmissions, data.homeworks],
+    [data.examBlueprint, data.homeworkSubmissions, data.homeworks, data.studentProgram?.id],
   );
   const [editing, setEditing] = useState<{
     taskNumber: number;

@@ -1,4 +1,5 @@
 import { Timestamp } from "firebase/firestore";
+import { missingHomeworkParticipants, needsLessonHomework } from "../../src/features/schedule/lessonHomework.js";
 import { describe, expect, test } from "vitest";
 import {
   lessonParticipantLabel,
@@ -42,6 +43,34 @@ function lesson(
 }
 
 describe("student pairs", () => {
+  test.each(["planned", "rescheduled", "cancelled_student", "cancelled_teacher"] as const)(
+    "does not warn about homework for a %s lesson", (status) => {
+      expect(needsLessonHomework(lesson("a", "alex", { status }).data)).toBe(false);
+    },
+  );
+
+  test("warns only for completed lessons requiring homework", () => {
+    expect(needsLessonHomework(lesson("a", "alex", { status: "completed" }).data)).toBe(true);
+    for (const homeworkResolution of ["assigned", "not_required"] as const) {
+      expect(needsLessonHomework(lesson("a", "alex", { status: "completed", homeworkResolution }).data)).toBe(false);
+    }
+    expect(needsLessonHomework(lesson("a", "alex", { status: "completed", pairReplaced: true }).data)).toBe(false);
+  });
+
+  test("a pair badge detects the second pupil's missing homework and clears after assignment", () => {
+    const first = lesson("a", "alex", { status: "completed", pairedLessonId: "b", pairedStudentId: "lera", homeworkResolution: "assigned" });
+    const second = lesson("b", "lera", { status: "completed", pairedLessonId: "a", pairedStudentId: "alex" });
+    expect(missingHomeworkParticipants(first, [first, second]).map(({ id }) => id)).toEqual(["b"]);
+    second.data.homeworkResolution = "assigned";
+    expect(missingHomeworkParticipants(first, [first, second])).toEqual([]);
+  });
+
+  test("both pair participants are listed when both need homework", () => {
+    const first = lesson("a", "alex", { status: "completed", pairedLessonId: "b", pairedStudentId: "lera" });
+    const second = lesson("b", "lera", { status: "completed" });
+    expect(missingHomeworkParticipants(first, [first, second]).map(({ id }) => id)).toEqual(["a", "b"]);
+  });
+
   test("creates the same stable pair id regardless of selection order", () => {
     expect(studentPairId("lera", "alex")).toBe(studentPairId("alex", "lera"));
   });

@@ -127,7 +127,7 @@ export async function completeLesson(
       understanding: input.understanding ?? null,
       taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding),
       examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b),
-      homeworkResolution: input.newHomework ? "assigned" : "pending",
+      homeworkResolution: input.newHomework ? "assigned" : lesson.homeworkResolution ?? "pending",
       updatedAt: serverTimestamp(),
     });
 

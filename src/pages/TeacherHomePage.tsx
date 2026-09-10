@@ -8,6 +8,7 @@ import { useTeacherPlanner } from "../features/planner/hooks";
 import { FocusTimerWidget } from "../features/focus-timer/FocusTimerWidget";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import { isCurrentDashboardLesson } from "../features/schedule/dashboardLessons";
+import { needsLessonHomework } from "../features/schedule/lessonHomework";
 import {
   lessonParticipantLabel,
   visibleCalendarLessons,
@@ -56,11 +57,7 @@ export function TeacherHomePage() {
   const unfinished = currentLessons.filter(
     ({ data }) => data.status === "planned" && data.endAt.toMillis() < now,
   );
-  const missingHomework = currentLessons.filter(
-    ({ data }) =>
-      data.status === "completed" &&
-      (data.homeworkResolution ?? "pending") === "pending",
-  );
+  const missingHomework = currentLessonRecords.filter(({ data }) => needsLessonHomework(data));
   const unpaid = currentLessonRecords.filter(
     ({ data }) =>
       data.status === "completed" && data.paymentStatus === "unpaid",
@@ -197,7 +194,7 @@ export function TeacherHomePage() {
           {missingHomework.map(({ id, data }) => (
             <Action
               key={id}
-              title={`${lessonStudentName(data)} · Не выдано ДЗ`}
+                title={`${studentName(data.studentId)} · Не выдано ДЗ`}
               subtitle="Выдать ДЗ или отметить, что оно не требуется"
               to={`/teacher/students/${data.studentId}?tab=homework&sourceLesson=${id}`}
               warning

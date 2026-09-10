@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { calculateMockAnalytics } from "../features/analytics/mockAnalytics";
+import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
 import { secondaryScoreForPrimary } from "../features/exams/blueprints";
@@ -52,9 +53,15 @@ export function StudentHomePage() {
         item.readinessWeight ?? item.maxScore,
       ]) ?? [],
     ),
-  }, practice.data.filter(
+  }, [...practice.data.filter(
     ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
-  ));
+  ), ...homeworkPracticeEvidence(
+    data.homeworks,
+    data.homeworkSubmissions,
+    data.examBlueprint?.id ?? "",
+    data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType ?? "oge",
+    data.studentProgram?.id,
+  )]);
   const game = calculateGamificationSummary({
     ...gamification.data,
     submissions: data.homeworkSubmissions,

@@ -128,6 +128,7 @@ export async function completeLesson(
       taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding),
       examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b),
       homeworkResolution: input.newHomework ? "assigned" : lesson.homeworkResolution ?? "pending",
+      plannerWrapUpCompletedAt: input.newHomework || lesson.homeworkResolution === "assigned" || lesson.homeworkResolution === "not_required" ? serverTimestamp() : null,
       updatedAt: serverTimestamp(),
     });
 
@@ -203,6 +204,6 @@ export async function setLessonHomeworkResolution(db: Firestore, lessonId: strin
     if (lesson.homeworkResolution === resolution) return;
     if (lesson.homeworkResolution === "assigned" && resolution !== "assigned")
       throw new Error("Assigned homework resolution cannot be overwritten");
-    transaction.update(reference, { homeworkResolution: resolution, updatedAt: serverTimestamp() });
+    transaction.update(reference, { homeworkResolution: resolution, plannerWrapUpCompletedAt: lesson.status === "completed" && resolution !== "pending" ? serverTimestamp() : null, updatedAt: serverTimestamp() });
   });
 }

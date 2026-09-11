@@ -2454,7 +2454,43 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .planner-entry>span,.planner-entry-copy>span{color:var(--color-muted);font-size:.68rem;font-weight:750}.planner-entry small{overflow:hidden;color:var(--color-muted);text-overflow:ellipsis;white-space:nowrap}
 .planner-calendar--week .planner-entry strong{display:-webkit-box;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:3}
 .planner-entry:has(.planner-check){grid-template-columns:auto minmax(0,1fr);align-items:start}.planner-check{width:1.8rem;height:1.8rem;border:0;color:var(--color-accent);font-size:1.2rem;background:transparent;cursor:pointer}.planner-entry-copy{display:grid;min-width:0;gap:.15rem;padding:0;border:0;color:var(--color-text);text-align:left;background:transparent;cursor:pointer}.planner-entry-copy strong{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:3;white-space:normal}.planner-entry--done{opacity:.5;background:var(--color-surface-soft)}.planner-entry--done strong{text-decoration:line-through}
-.planner-entry--lesson-task .planner-entry-copy{text-decoration:none}.planner-entry--lesson-task .planner-check:not(button){display:grid;place-items:center;cursor:default}
+.planner-entry--lesson-task .planner-entry-copy{text-decoration:none}
+.planner-check {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  font-size: 0;
+  text-decoration: none;
+}
+.planner-check::before {
+  content: "";
+  box-sizing: border-box;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.planner-entry--done .planner-check::before,
+.planner-timeline__event--done .planner-check::before {
+  content: "✓";
+  border: 0;
+  border-radius: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.planner-carried-tasks { margin: 1rem 0; padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.planner-carried-tasks h2 { margin: 0; font-size: 1.125rem; }
+.planner-carried-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.planner-carried-grid > div > small { display: block; color: var(--color-muted); margin-bottom: .3rem; }
+.planner-carried-grid .planner-entry-copy { text-decoration: none; }
+@media (max-width: 47.999rem) { .planner-carried-grid { grid-template-columns: minmax(0, 1fr); } }
 .planner-task-count{display:block;margin-top:.3rem;color:var(--color-muted)}.planner-inline-add{width:100%;border-style:dashed;border-color:var(--color-border)}
 .planner-recurrence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin:0;padding:1rem;border:1px solid var(--color-border);border-radius:.75rem;background:var(--color-surface-soft)}
 .planner-recurrence legend{padding:0 .35rem;font-weight:850}.planner-recurrence>small{grid-column:1/-1;color:var(--color-muted)}.planner-recurrence-label{display:block;margin-bottom:.35rem;font-size:.82rem;font-weight:750}

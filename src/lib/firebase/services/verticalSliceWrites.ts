@@ -145,6 +145,7 @@ export async function createHomework(
         if (lesson.homeworkResolution !== "assigned") {
           transaction.update(lessonReference, {
             homeworkResolution: "assigned",
+            plannerWrapUpCompletedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
         }
@@ -184,6 +185,7 @@ export async function createHomework(
     if (lessonReference) {
       transaction.update(lessonReference, {
         homeworkResolution: "assigned",
+        plannerWrapUpCompletedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
     }
@@ -282,6 +284,7 @@ export async function deleteHomework(
     )
       batch.update(lessonReference, {
         homeworkResolution: "pending",
+        plannerWrapUpCompletedAt: null,
         updatedAt: serverTimestamp(),
       });
   }

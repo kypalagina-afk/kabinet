@@ -5,6 +5,7 @@ import { Modal } from "../components/Modal";
 import { AIShortcutButton } from "../features/ai/AIShortcutButton";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useTeacherPlanner } from "../features/planner/hooks";
+import { usePreviousPlannerLessons } from "../features/planner/usePreviousPlannerLessons";
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import {
   lessonParticipantLabel,
@@ -43,6 +44,7 @@ import {
 import { isPlannerRecurrenceTemplate } from "../features/planner/recurrence";
 import {
   calculatePlannerDayProgress,
+  carriedLessonTasks,
   isLessonWrapUpCompleted,
   isPlannerVisibleLesson,
   plannerProgressStage,
@@ -171,10 +173,19 @@ export function TeacherPlannerPage() {
   const { user, profile } = useAuth();
   const teacherId = user?.uid ?? "";
   const teacherTimezone = useMemo(() => resolveTimezone(profile?.timezone), [profile?.timezone]);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const currentDate = dateKeyForTimezone(new Date(clockNow), teacherTimezone);
+  useEffect(() => {
+    const refresh = () => setClockNow(Date.now());
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
   const [view, setViewState] = useState<ViewMode>(() =>
     (localStorage.getItem("teacher-planner-view") as ViewMode | null) ?? "day",
   );
-  const [focusDate, setFocusDate] = useState(() => dateKey(new Date()));
+  const [selectedDate, setFocusDate] = useState<string | null>(null);
+  const focusDate = selectedDate ?? currentDate;
   const [filter, setFilter] = useState<DisplayFilter>("all");
   const [itemOpen, setItemOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentWithId<PlannerItem> | null>(null);
@@ -196,6 +207,9 @@ export function TeacherPlannerPage() {
     return dateRangeForTimezone(dates[0]!, addCalendarDays(dates.at(-1)!, 1), teacherTimezone);
   }, [focusDate, teacherTimezone, view]);
   const schedule = useTeacherSchedule(teacherId, range);
+  const todayStart = dateRangeForTimezone(currentDate, addCalendarDays(currentDate, 1), teacherTimezone).start.getTime();
+  const previousLessons = usePreviousPlannerLessons(teacherId, todayStart);
+  const carriedTasks = carriedLessonTasks(visibleCalendarLessons(previousLessons.data), currentDate, teacherTimezone);
   const visibleItems = planner.data.items.filter(({ data }) => {
     if (!data.active || isPlannerRecurrenceTemplate(data)) return false;
     if (filter === "all") return true;
@@ -214,7 +228,7 @@ export function TeacherPlannerPage() {
     data.date === focusDate && data.active && !isPlannerRecurrenceTemplate(data)
   );
   const progressLessons = plannerLessons.filter(({ data }) => lessonDate(data, teacherTimezone) === focusDate);
-  const dayProgress = calculatePlannerDayProgress(progressItems, progressLessons);
+  const dayProgress = calculatePlannerDayProgress(progressItems, progressLessons, focusDate === currentDate ? carriedTasks : []);
   const backlogItems = planner.data.items.filter(
     ({ data }) => data.active && !isPlannerRecurrenceTemplate(data) && data.category === "someday" && !data.date,
   );
@@ -260,7 +274,6 @@ export function TeacherPlannerPage() {
     .split("|")
     .filter(Boolean)
     .map((value) => value.split(":", 1)[0]!), [recurrenceSignature]);
-  const currentDate = dateKeyForTimezone(new Date(), teacherTimezone);
 
   useEffect(() => {
     if (!teacherId || !recurrenceSignature) return;
@@ -427,7 +440,7 @@ export function TeacherPlannerPage() {
           <button className="primary-button primary-button--fit" onClick={() => openCreate()} type="button">+ Добавить</button>
         </div>
       </header>
-      {planner.error || schedule.error ? <p className="shell-notice">{planner.error ?? schedule.error}</p> : null}
+      {planner.error || schedule.error || previousLessons.error ? <p className="shell-notice">{planner.error ?? schedule.error ?? previousLessons.error}</p> : null}
       {message ? <p className="form-success" role="status">{message}</p> : null}
 
       <section className="planner-toolbar">
@@ -438,7 +451,7 @@ export function TeacherPlannerPage() {
           <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" || view === "timeline" ? -1 : view === "week" ? -7 : -28))} type="button">←</button>
           <input aria-label="Дата планера" onChange={(event) => setFocusDate(event.target.value)} type="date" value={focusDate} />
           <button className="icon-button" onClick={() => setFocusDate(addDays(focusDate, view === "day" || view === "timeline" ? 1 : view === "week" ? 7 : 28))} type="button">→</button>
-          <button className="secondary-button" onClick={() => setFocusDate(todayKey())} type="button">Сегодня</button>
+          <button className="secondary-button" onClick={() => setFocusDate(null)} type="button">Сегодня</button>
         </div>
         <div className="planner-filter" aria-label="Фильтр планера">
           {(["all", "work", "home"] as const).map((value) => <button aria-pressed={filter === value} key={value} onClick={() => setFilter(value)} type="button">{{ all: "Все", work: "Работа", home: "Дом" }[value]}</button>)}
@@ -447,6 +460,27 @@ export function TeacherPlannerPage() {
 
       <PlannerProgress progress={dayProgress} />
       <FocusTimerWidget />
+
+      {filter !== "home" && selectedDates.includes(currentDate) && carriedTasks.length ? (
+        <section className="planner-carried-tasks" aria-label="Перенесённые задачи" data-testid="planner-carried-tasks">
+          <h2>Доделать сегодня · с прошлых дней</h2>
+          <p className="workflow-hint">Незавершённые задачи остаются здесь до выполнения. Даты самих уроков в расписании не меняются.</p>
+          <div className="planner-carried-grid">
+            {carriedTasks.map(({ lesson, kind, originalDate, done }) => {
+              const name = lessonParticipantLabel(lesson.data, schedule.data.students);
+              return <div key={`${lesson.id}:${kind}`}>
+                <small>Урок {new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(dateFromKey(originalDate))}</small>
+                {kind === "lesson" ? (
+                  <article className={`planner-entry planner-entry--lesson${done ? " planner-entry--done" : ""}`}>
+                    <button className="planner-check" aria-pressed={done} aria-label={`Отметить урок — ${name}`} onClick={() => void toggleLessonPlannerCheck(lesson)} type="button">{done ? "✓" : "○"}</button>
+                    <Link className="planner-entry-copy" to={`/teacher/calendar?lesson=${lesson.id}&date=${originalDate}`}><span>🎓 Отметка в планере</span><strong>Урок — {name}</strong><small>Галочка не меняет итоги занятия</small></Link>
+                  </article>
+                ) : <PlannerLessonWorkflowTask kind={kind} lesson={lesson} studentName={name} originalDate={originalDate} onTogglePreparation={() => void toggleLessonPreparation(lesson)} />}
+              </div>;
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <div className="planner-workspace">
         <section className={`planner-calendar planner-calendar--${view}`} data-testid={`planner-${view}`}>
@@ -610,11 +644,13 @@ function PlannerLessonWorkflowTask({
   lesson,
   studentName,
   onTogglePreparation,
+  originalDate,
 }: {
   kind: "preparation" | "wrap-up";
   lesson: DocumentWithId<Lesson>;
   studentName?: string;
   onTogglePreparation(): void;
+  originalDate?: string;
 }) {
   const name = studentName ?? "Ученик";
   const preparation = kind === "preparation";
@@ -633,14 +669,14 @@ function PlannerLessonWorkflowTask({
         >
           {done ? "✓" : "○"}
         </button>
-      ) : <span aria-hidden="true" className="planner-check">{done ? "✓" : "○"}</span>}
+      ) : <Link aria-label={`Открыть итоги урока — ${name}`} className="planner-check" to={`/teacher/calendar?lesson=${lesson.id}${originalDate ? `&date=${originalDate}` : ""}`}>{done ? "✓" : "○"}</Link>}
       {preparation ? (
         <div className="planner-entry-copy">
           <span>✨ Автоматически из расписания</span>
           <strong>{title}</strong>
         </div>
       ) : (
-        <Link className="planner-entry-copy" to={`/teacher/calendar?lesson=${lesson.id}`}>
+        <Link className="planner-entry-copy" to={`/teacher/calendar?lesson=${lesson.id}${originalDate ? `&date=${originalDate}` : ""}`}>
           <span>📝 Итоги урока и домашнее задание</span>
           <strong>{title}</strong>
           <small>{done ? "Отчёт заполнен, решение по ДЗ принято" : "Открыть урок и заполнить отчёт"}</small>

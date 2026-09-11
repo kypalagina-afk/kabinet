@@ -272,6 +272,7 @@ export interface Lesson extends AuditedDocument {
   wasRescheduled?: boolean;
   plannerCompletedAt?: Timestamp | null;
   plannerPreparationCompletedAt?: Timestamp | null;
+  plannerWrapUpCompletedAt?: Timestamp | null;
 }
 
 export interface LessonOccurrenceExclusion extends AuditedDocument {

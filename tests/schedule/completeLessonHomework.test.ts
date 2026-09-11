@@ -17,7 +17,7 @@ vi.mock("firebase/firestore", () => ({
     return result;
   },
 }));
-import { completeLesson } from "../../src/lib/firebase/services/completeLesson.js";
+import { completeLesson, setLessonHomeworkResolution } from "../../src/lib/firebase/services/completeLesson.js";
 
 beforeEach(() => memory.documents.clear());
 
@@ -28,4 +28,14 @@ test.each(["assigned", "not_required", "pending", undefined])("completion preser
     lessonSummary: { homeworkResultText: null, teacherComment: null, focusNotes: [] },
   });
   expect(memory.documents.get("lessons/lesson")).toMatchObject({ status: "completed", homeworkResolution: homeworkResolution ?? "pending" });
+  expect(memory.documents.get("lessons/lesson")?.plannerWrapUpCompletedAt).toBe(homeworkResolution === "assigned" || homeworkResolution === "not_required" ? "timestamp" : null);
+});
+
+test.each(["assigned", "not_required"] as const)("records wrap-up completion time when homework is %s", async (resolution) => {
+  memory.documents.set("lessons/lesson", { teacherId: "teacher", status: "completed", homeworkResolution: "pending" });
+  await setLessonHomeworkResolution({} as Firestore, "lesson", "teacher", resolution);
+  expect(memory.documents.get("lessons/lesson")?.plannerWrapUpCompletedAt).toBe("timestamp");
+  memory.documents.get("lessons/lesson")!.plannerWrapUpCompletedAt = "original-timestamp";
+  await setLessonHomeworkResolution({} as Firestore, "lesson", "teacher", resolution);
+  expect(memory.documents.get("lessons/lesson")?.plannerWrapUpCompletedAt).toBe("original-timestamp");
 });

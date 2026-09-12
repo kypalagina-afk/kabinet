@@ -128,6 +128,7 @@ export async function completeLesson(
       taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding),
       examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b),
       homeworkResolution: input.newHomework ? "assigned" : lesson.homeworkResolution ?? "pending",
+      ...(input.newHomework ? { linkedHomeworkId: newHomeworkId, homeworkAssignedExternally: false } : {}),
       plannerWrapUpCompletedAt: input.newHomework || lesson.homeworkResolution === "assigned" || lesson.homeworkResolution === "not_required" ? serverTimestamp() : null,
       updatedAt: serverTimestamp(),
     });

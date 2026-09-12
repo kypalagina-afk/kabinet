@@ -260,6 +260,8 @@ export interface Lesson extends AuditedDocument {
   };
   examTaskNumbers?: number[];
   homeworkResolution?: "pending" | "assigned" | "not_required";
+  linkedHomeworkId?: string | null;
+  homeworkAssignedExternally?: boolean;
   conferenceUrl?: string | null;
   billingType?: "regular" | "free";
   billingIdentityId?: string;

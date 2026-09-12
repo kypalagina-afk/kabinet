@@ -194,9 +194,9 @@ export function TeacherHomePage() {
           {missingHomework.map(({ id, data }) => (
             <Action
               key={id}
-                title={`${studentName(data.studentId)} · Не выдано ДЗ`}
-              subtitle="Выдать ДЗ или отметить, что оно не требуется"
-              to={`/teacher/students/${data.studentId}?tab=homework&sourceLesson=${id}`}
+                title={`${studentName(data.studentId)} · Выдача ДЗ не отмечена`}
+                subtitle="Связать уже выданное ДЗ или изменить отметку"
+                to={`/teacher/calendar?lesson=${id}&date=${dateKeyForTimezone(data.startAt.toDate(), teacherTimezone)}`}
               warning
             />
           ))}

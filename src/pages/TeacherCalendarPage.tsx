@@ -9,7 +9,7 @@ import { TimezoneSwitcher } from "../features/schedule/TimezoneSwitcher";
 import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import { CompletePairLessonForm } from "../features/schedule/CompletePairLessonForm";
 import { LessonHomeworkBadge } from "../features/schedule/LessonHomeworkBadge";
-import { missingHomeworkParticipants } from "../features/schedule/lessonHomework";
+import { LessonHomeworkControls } from "../features/schedule/LessonHomeworkControls";
 import {
   lessonParticipantLabel,
   visibleCalendarLessons,
@@ -602,7 +602,7 @@ export function TeacherCalendarPage() {
         </button>
       </section>
 
-      <p className="workflow-hint">Жёлтая отметка «ДЗ не выдано» (на телефоне — «ДЗ!») означает, что после проведённого урока ещё нужно назначить домашнее задание. Нажмите на урок, чтобы выдать его.</p>
+      <p className="workflow-hint">Жёлтая отметка «ДЗ не отмечено» (на телефоне — «ДЗ!») означает, что выдача ДЗ не отмечена у этого урока. Нажмите на урок: можно связать уже выданное ДЗ или отметить выдачу вне платформы.</p>
       <div className="calendar-layout">
         {view === "month" ? (
           <section
@@ -798,14 +798,8 @@ export function TeacherCalendarPage() {
                 )}
               </h2>
               <p>{statusLabels[selectedLesson.data.status]}</p>
-              {missingHomeworkParticipants(selectedLesson, data.lessons).map((lesson) => (
-                <div className="lesson-homework-notice" key={lesson.id}>
-                  <strong>ДЗ не выдано · {data.students.find(({ id }) => id === lesson.data.studentId)?.data.displayName ?? "Ученик"}</strong>
-                  <Link className="secondary-button" to={`/teacher/students/${lesson.data.studentId}?tab=homework&sourceLesson=${lesson.id}`}>
-                    + Выдать ДЗ
-                  </Link>
-                </div>
-              ))}
+              <LessonHomeworkControls key={`homework-${selectedLesson.id}`} lesson={selectedLesson} studentName={data.students.find(({ id }) => id === selectedLesson.data.studentId)?.data.displayName ?? "Ученик"} teacherId={user?.uid ?? ""} homeworks={selectedStudentWorkspace.data.homeworks} loading={selectedStudentWorkspace.loading} error={selectedStudentWorkspace.error} />
+              {selectedPairedLesson ? <LessonHomeworkControls key={`homework-${selectedPairedLesson.id}`} lesson={selectedPairedLesson} studentName={data.students.find(({ id }) => id === selectedPairedLesson.data.studentId)?.data.displayName ?? "Ученик"} teacherId={user?.uid ?? ""} homeworks={selectedPairedStudentWorkspace.data.homeworks} loading={selectedPairedStudentWorkspace.loading} error={selectedPairedStudentWorkspace.error} /> : null}
               <p>{selectedLesson.data.topic ?? "Тема не указана"}</p>
               <span className="status-chip">
                 {selectedLesson.data.paymentStatus === "paid"
@@ -878,13 +872,6 @@ export function TeacherCalendarPage() {
                       {selectedLesson.data.lessonSummary.studentComment}
                     </p>
                   ) : null}
-                  <p>
-                    {selectedLesson.data.homeworkResolution === "not_required"
-                      ? "ДЗ не требуется"
-                      : selectedLesson.data.homeworkResolution === "assigned"
-                        ? "ДЗ назначено"
-                        : "ДЗ пока не выдано"}
-                  </p>
                   <Link
                     className="secondary-button"
                     to={`/teacher/students/${selectedLesson.data.studentId}?tab=lessons&lesson=${selectedLesson.id}`}

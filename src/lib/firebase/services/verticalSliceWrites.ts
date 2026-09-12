@@ -145,6 +145,8 @@ export async function createHomework(
         if (lesson.homeworkResolution !== "assigned") {
           transaction.update(lessonReference, {
             homeworkResolution: "assigned",
+            linkedHomeworkId: homeworkReference.id,
+            homeworkAssignedExternally: false,
             plannerWrapUpCompletedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -185,6 +187,8 @@ export async function createHomework(
     if (lessonReference) {
       transaction.update(lessonReference, {
         homeworkResolution: "assigned",
+        linkedHomeworkId: homeworkReference.id,
+        homeworkAssignedExternally: false,
         plannerWrapUpCompletedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -284,6 +288,8 @@ export async function deleteHomework(
     )
       batch.update(lessonReference, {
         homeworkResolution: "pending",
+        linkedHomeworkId: null,
+        homeworkAssignedExternally: false,
         plannerWrapUpCompletedAt: null,
         updatedAt: serverTimestamp(),
       });

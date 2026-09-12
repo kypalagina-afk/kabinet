@@ -1002,6 +1002,20 @@ input:focus-visible {
   .calendar-event .lesson-homework-badge__compact { display: inline; }
   .calendar-event .lesson-homework-badge { font-size: .5625rem; padding: .125rem; white-space: nowrap; }
 }
+.lesson-homework-controls {
+  display: grid;
+  gap: .6rem;
+  padding: 1rem;
+  margin: .75rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: .75rem;
+  background: var(--color-surface-soft);
+  min-width: 0;
+}
+.lesson-homework-controls p { margin: 0; }
+.lesson-homework-controls .secondary-button { font-size: .875rem; padding: .65rem .8rem; }
+.lesson-homework-actions, .lesson-homework-linked { display: grid; gap: .5rem; min-width: 0; }
+.lesson-homework-linked a { overflow-wrap: anywhere; }
 .lesson-homework-notice {
   display: grid;
   gap: .5rem;

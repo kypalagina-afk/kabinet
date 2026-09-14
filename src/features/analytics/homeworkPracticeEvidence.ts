@@ -7,18 +7,33 @@ import type {
   TeacherEvaluation,
 } from "../../lib/firebase/types.js";
 
-interface PracticeResult {
+interface AssessmentResult {
   itemId: string;
   item: Pick<Homework, "type" | "examTaskNumbers" | "examBlueprintId">;
   evaluation: Pick<TeacherEvaluation, "scoreEarned" | "scoreMax" | "checkedAt">;
+  reviewed: boolean;
 }
 
-export function homeworkPracticeEvidence(
+function taskForResult(item: AssessmentResult["item"], examKind: ExamKind, includeWritten: boolean) {
+  const numbers = item.examTaskNumbers ?? [];
+  if (item.type === "practice") return numbers.length === 1 ? numbers[0]! : null;
+  if (!includeWritten || numbers.length > 1) return null;
+  const essayTask = examKind === "ege" ? 27 : 13;
+  if (item.type === "essay") return !numbers.length || numbers[0] === essayTask ? essayTask : null;
+  if (item.type === "exposition") return examKind === "oge" && (!numbers.length || numbers[0] === 1) ? 1 : null;
+  if (["exam_written_work", "written", "writtenOther"].includes(item.type)) {
+    return numbers.length === 1 && (numbers[0] === essayTask || (examKind === "oge" && numbers[0] === 1)) ? numbers[0]! : null;
+  }
+  return null;
+}
+
+function collectHomeworkEvidence(
   homeworks: Array<DocumentWithId<Homework>>,
   submissions: Array<DocumentWithId<HomeworkSubmission>>,
   examBlueprintId: string,
   examKind: ExamKind,
   studentProgramId?: string,
+  includeWritten = false,
 ): Array<DocumentWithId<ExternalPracticeAttempt>> {
   if (!examBlueprintId) return [];
   const homeworkById = new Map(
@@ -35,15 +50,16 @@ export function homeworkPracticeEvidence(
     const evaluation = submission.teacherEvaluation;
     if (!evaluation) return [];
     // Older, single-part assignments store their score on the whole submission.
-    // Never interpret a multi-part package total as a practice-item result.
-    const results: PracticeResult[] = homework.items?.length
+    // Never interpret a multi-part package total as an individual item's result.
+    const results: AssessmentResult[] = homework.items?.length
       ? (evaluation.itemEvaluations ?? []).flatMap((result) => {
           const item = homework.items!.find((candidate) => candidate.itemId === result.itemId);
-          return item ? [{ itemId: item.itemId, item, evaluation: result }] : [];
+          return item ? [{ itemId: item.itemId, item, evaluation: result, reviewed: result.reviewStatus === "checked" || result.reviewStatus === "needs_revision" }] : [];
         })
-      : [{ itemId: "whole", item: homework, evaluation }];
+      : [{ itemId: "whole", item: homework, evaluation, reviewed: submission.status === "checked" || submission.status === "needs_revision" }];
     return results.flatMap(
-      ({ itemId, item, evaluation }) => {
+      ({ itemId, item, evaluation, reviewed }) => {
+        const taskNumber = taskForResult(item, examKind, includeWritten);
         const blueprintId = item.examBlueprintId || homework.examBlueprintId;
         // A missing legacy snapshot may use the verified active program, but an
         // explicit snapshot of a different exam must never be reinterpreted.
@@ -52,8 +68,8 @@ export function homeworkPracticeEvidence(
           : Boolean(studentProgramId && homework.studentProgramId === studentProgramId);
         if (
           submission.teacherReceipt?.items[itemId]?.received === false ||
-          item.type !== "practice" ||
-          item.examTaskNumbers.length !== 1 ||
+          taskNumber === null ||
+          (item.type !== "practice" && !reviewed) ||
           !matchesBlueprint ||
           evaluation.scoreEarned === null ||
           evaluation.scoreMax === null ||
@@ -76,7 +92,7 @@ export function homeworkPracticeEvidence(
               examBlueprintId,
               provider: "russian100",
               examKind,
-              taskNumber: item.examTaskNumbers[0]!,
+              taskNumber,
               score: evaluation.scoreEarned,
               maxScore: evaluation.scoreMax,
               accuracy:
@@ -98,4 +114,24 @@ export function homeworkPracticeEvidence(
       },
     );
   });
+}
+
+type HomeworkEvidenceArgs = [
+  homeworks: Array<DocumentWithId<Homework>>,
+  submissions: Array<DocumentWithId<HomeworkSubmission>>,
+  examBlueprintId: string,
+  examKind: ExamKind,
+  studentProgramId?: string,
+];
+
+// Keep the external practice history limited to practice; written assessments
+// are included only in the combined exam analytics. These records are derived,
+// never saved as additional Russian100 imports or duplicated in Firestore.
+export function homeworkPracticeEvidence(...args: HomeworkEvidenceArgs) {
+  return collectHomeworkEvidence(...args);
+}
+
+export function homeworkAssessmentEvidence(...args: HomeworkEvidenceArgs) {
+  const [homeworks, submissions, blueprintId, examKind, programId] = args;
+  return collectHomeworkEvidence(homeworks, submissions, blueprintId, examKind, programId, true);
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
-import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
+import { homeworkAssessmentEvidence, homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { MockAnalyticsDashboard } from "../features/analytics/MockAnalyticsDashboard";
 import {
   saveMasteryOverride,
@@ -178,9 +178,9 @@ function TeacherAnalyticsWorkspace({
   const overrides = useTeacherMasteryOverrides(teacherId, studentId);
   const coverage = useStudentTaskCoverage(studentId, teacherId);
   const practice = useExternalPracticeAttempts(teacherId, studentId);
-  const homeworkPractice = useMemo(
-    () =>
-      homeworkPracticeEvidence(
+  const { homeworkPractice, homeworkAssessments } = useMemo(
+    () => {
+      const args: Parameters<typeof homeworkAssessmentEvidence> = [
         data.homeworks,
         data.homeworkSubmissions,
         data.examBlueprint?.id ?? "",
@@ -188,7 +188,9 @@ function TeacherAnalyticsWorkspace({
           data.examBlueprint?.data.programType ??
           "oge",
         data.studentProgram?.id,
-      ),
+      ];
+      return { homeworkPractice: homeworkPracticeEvidence(...args), homeworkAssessments: homeworkAssessmentEvidence(...args) };
+    },
     [data.examBlueprint, data.homeworkSubmissions, data.homeworks, data.studentProgram?.id],
   );
   const [editing, setEditing] = useState<{
@@ -227,6 +229,7 @@ function TeacherAnalyticsWorkspace({
       /> : null}
       <MockAnalyticsDashboard
         audience="teacher"
+        examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}
         coverage={coverage}
         exams={data.mockExams}
         lessons={data.lessons.filter(({ data: lesson }) => lesson.studentProgramId === data.studentProgram?.id)}
@@ -236,7 +239,7 @@ function TeacherAnalyticsWorkspace({
             ({ data: attempt }) =>
               attempt.examBlueprintId === data.examBlueprint?.id,
           ),
-          ...homeworkPractice,
+          ...homeworkAssessments,
         ]}
         programTitle={data.programProfile?.data.title}
         secondaryScoreScale={data.examBlueprint?.data.secondaryScoreScale}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { calculateMockAnalytics } from "../features/analytics/mockAnalytics";
-import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
+import { homeworkAssessmentEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { useAuth } from "../features/auth/AuthProvider";
 import { useExternalPracticeAttempts } from "../features/external-practice/hooks";
 import { secondaryScoreForPrimary } from "../features/exams/blueprints";
@@ -42,6 +42,7 @@ export function StudentHomePage() {
       )
     : null;
   const analytics = calculateMockAnalytics(data.mockExams, {
+    examKind: data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType,
     confidenceAttempts: 3,
     weakThreshold: 45,
     strongThreshold: 75,
@@ -55,7 +56,7 @@ export function StudentHomePage() {
     ),
   }, [...practice.data.filter(
     ({ data: attempt }) => attempt.examBlueprintId === data.examBlueprint?.id,
-  ), ...homeworkPracticeEvidence(
+  ), ...homeworkAssessmentEvidence(
     data.homeworks,
     data.homeworkSubmissions,
     data.examBlueprint?.id ?? "",

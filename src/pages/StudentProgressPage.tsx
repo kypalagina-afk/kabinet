@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
-import { homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
+import { homeworkAssessmentEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import {
   MockAnalyticsDashboard,
   MockExamReport,
@@ -27,9 +27,9 @@ export function StudentProgressPage() {
     profile?.teacherId ?? "",
     studentId,
   );
-  const homeworkPractice = useMemo(
+  const homeworkAssessments = useMemo(
     () =>
-      homeworkPracticeEvidence(
+      homeworkAssessmentEvidence(
         data.homeworks,
         data.homeworkSubmissions,
         data.examBlueprint?.id ?? "",
@@ -80,6 +80,7 @@ export function StudentProgressPage() {
           />
           <MockAnalyticsDashboard
             audience="student"
+            examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}
             coverage={coverage}
             exams={data.mockExams}
             lessons={data.lessons.filter(({ data: lesson }) => lesson.studentProgramId === data.studentProgram?.id)}
@@ -89,7 +90,7 @@ export function StudentProgressPage() {
                 ({ data: attempt }) =>
                   attempt.examBlueprintId === data.examBlueprint?.id,
               ),
-              ...homeworkPractice,
+              ...homeworkAssessments,
             ]}
             taskNumbers={data.examBlueprint?.data.tasks.map(
               (item) => item.number,

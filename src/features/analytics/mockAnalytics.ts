@@ -1,11 +1,14 @@
 import type {
   DocumentWithId,
   ExamBlueprint,
+  ExamKind,
   ExternalPracticeAttempt,
   MockExam,
 } from "../../lib/firebase/types.js";
+import { mockTaskEvidence } from "./mockTaskEvidence.js";
 
 export interface AnalyticsConfig {
+  examKind?: ExamKind;
   confidenceAttempts: number;
   weakThreshold: number;
   strongThreshold: number;
@@ -74,7 +77,7 @@ export function calculateMockAnalytics(
   >();
   for (const { data: exam } of exams) {
     const evidenceAt = (exam.takenAt ?? exam.createdAt).toMillis();
-    for (const result of exam.taskResults) {
+    for (const result of mockTaskEvidence(exam, config.examKind)) {
       const current = taskMap.get(result.taskNumber) ?? {
         attempts: 0,
         earned: 0,
@@ -161,7 +164,7 @@ export function calculateMockAnalytics(
     config.totalExamTasks ||
     new Set([
       ...exams.flatMap(({ data }) =>
-        data.taskResults.map((item) => item.taskNumber),
+        mockTaskEvidence(data, config.examKind).map((item) => item.taskNumber),
       ),
       ...practiceAttempts.map(({ data }) => data.taskNumber),
     ]).size ||

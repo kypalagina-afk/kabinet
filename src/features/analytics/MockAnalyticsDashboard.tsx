@@ -1,10 +1,12 @@
 import { calculateMockAnalytics } from "./mockAnalytics";
+import { mockTaskEvidence } from "./mockTaskEvidence";
 import { latestTaskUnderstanding, understandingLabels } from "../schedule/taskUnderstanding";
 import { secondaryScoreForPrimary } from "../exams/blueprints";
 import type {
   CoverageState,
   DocumentWithId,
   ExamBlueprint,
+  ExamKind,
   EvaluationCriterion,
   ExternalPracticeAttempt,
   MockExam,
@@ -22,6 +24,7 @@ export function MockAnalyticsDashboard({
   lessons = [],
   taskNumbers,
   taskWeights,
+  examKind,
   programTitle,
   secondaryScoreScale,
   onEditMastery,
@@ -35,6 +38,7 @@ export function MockAnalyticsDashboard({
   lessons?: Array<DocumentWithId<Lesson>>;
   taskNumbers?: number[];
   taskWeights?: Record<number, number>;
+  examKind?: ExamKind;
   programTitle?: string;
   secondaryScoreScale?: ExamBlueprint["secondaryScoreScale"];
   onEditMastery?(
@@ -46,7 +50,7 @@ export function MockAnalyticsDashboard({
 }) {
   const understanding = latestTaskUnderstanding(lessons);
   const evidenceTasks = [...new Set([
-    ...exams.flatMap(({ data }) => data.taskResults.map((item) => item.taskNumber)),
+    ...exams.flatMap(({ data }) => mockTaskEvidence(data, examKind).map((item) => item.taskNumber)),
     ...coverage.map(({ data }) => data.taskNumber),
     ...masteryPublic.map(({ data }) => data.taskNumber),
     ...practiceAttempts.map(({ data }) => data.taskNumber),
@@ -66,6 +70,7 @@ export function MockAnalyticsDashboard({
     ? [...new Set(taskNumbers)].sort((a, b) => a - b)
     : evidenceTasks;
   const analytics = calculateMockAnalytics(exams, {
+    examKind,
     confidenceAttempts: 3,
     weakThreshold: 45,
     strongThreshold: 75,
@@ -145,6 +150,7 @@ export function MockAnalyticsDashboard({
       </section>
       <p className="workflow-hint" data-testid="analytics-evidence-summary">
         В расчёте: пробников {exams.length} · результатов практики и ДЗ {practiceAttempts.length}
+        . Сочинения и изложения учитываются из оценённых ДЗ и разделов пробника.
       </p>
       <section className="analytics-panel">
         <div className="panel-heading">

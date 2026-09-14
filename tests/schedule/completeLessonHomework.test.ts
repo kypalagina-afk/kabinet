@@ -17,7 +17,7 @@ vi.mock("firebase/firestore", () => ({
     return result;
   },
 }));
-import { completeLesson, setLessonHomeworkResolution } from "../../src/lib/firebase/services/completeLesson.js";
+import { completeLesson, setLessonHomeworkResolution, updateCompletedLessonSummary } from "../../src/lib/firebase/services/completeLesson.js";
 
 beforeEach(() => memory.documents.clear());
 
@@ -28,7 +28,18 @@ test.each(["assigned", "not_required", "pending", undefined])("completion preser
     lessonSummary: { homeworkResultText: null, teacherComment: null, focusNotes: [] },
   });
   expect(memory.documents.get("lessons/lesson")).toMatchObject({ status: "completed", homeworkResolution: homeworkResolution ?? "pending" });
+  expect(memory.documents.get("lessons/lesson")).toMatchObject({ lessonReportCompletedAt: "timestamp", plannerCompletedAt: "timestamp" });
   expect(memory.documents.get("lessons/lesson")?.plannerWrapUpCompletedAt).toBe(homeworkResolution === "assigned" || homeworkResolution === "not_required" ? "timestamp" : null);
+});
+
+test("editing legacy results sets missing planner timestamps and preserves them on later edits", async () => {
+  memory.documents.set("lessons/lesson", { teacherId: "teacher", status: "completed" });
+  const input = { teacherId: "teacher", lessonId: "lesson", topic: "Итоги", lessonSummary: { homeworkResultText: null, teacherComment: null, focusNotes: [] } };
+  await updateCompletedLessonSummary({} as Firestore, input);
+  expect(memory.documents.get("lessons/lesson")).toMatchObject({ lessonReportCompletedAt: "timestamp", plannerCompletedAt: "timestamp" });
+  Object.assign(memory.documents.get("lessons/lesson")!, { lessonReportCompletedAt: "first-save", plannerCompletedAt: "manual-check" });
+  await updateCompletedLessonSummary({} as Firestore, input);
+  expect(memory.documents.get("lessons/lesson")).toMatchObject({ lessonReportCompletedAt: "first-save", plannerCompletedAt: "manual-check" });
 });
 
 test.each(["assigned", "not_required"] as const)("records wrap-up completion time when homework is %s", async (resolution) => {

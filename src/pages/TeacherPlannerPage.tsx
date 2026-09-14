@@ -9,7 +9,6 @@ import { usePreviousPlannerLessons } from "../features/planner/usePreviousPlanne
 import { useTeacherSchedule } from "../features/schedule/hooks";
 import {
   lessonParticipantLabel,
-  visibleCalendarLessons,
 } from "../features/schedule/studentPairs";
 import { addCalendarDays, calendarVisibleDates } from "../features/schedule/calendarRange";
 import {
@@ -45,7 +44,9 @@ import { isPlannerRecurrenceTemplate } from "../features/planner/recurrence";
 import {
   calculatePlannerDayProgress,
   carriedLessonTasks,
-  isLessonWrapUpCompleted,
+  lessonPlannerChecks,
+  plannerLessonGroups,
+  plannerLessonMembers,
   isPlannerVisibleLesson,
   plannerProgressStage,
   type PlannerDayProgress,
@@ -209,7 +210,7 @@ export function TeacherPlannerPage() {
   const schedule = useTeacherSchedule(teacherId, range);
   const todayStart = dateRangeForTimezone(currentDate, addCalendarDays(currentDate, 1), teacherTimezone).start.getTime();
   const previousLessons = usePreviousPlannerLessons(teacherId, todayStart);
-  const carriedTasks = carriedLessonTasks(visibleCalendarLessons(previousLessons.data), currentDate, teacherTimezone);
+  const carriedTasks = carriedLessonTasks(plannerLessonGroups(previousLessons.data), currentDate, teacherTimezone);
   const visibleItems = planner.data.items.filter(({ data }) => {
     if (!data.active || isPlannerRecurrenceTemplate(data)) return false;
     if (filter === "all") return true;
@@ -217,7 +218,7 @@ export function TeacherPlannerPage() {
       ? data.category === "home" || data.category === "personal"
       : data.category === filter;
   });
-  const plannerLessons = visibleCalendarLessons(schedule.data.lessons).filter(
+  const plannerLessons = plannerLessonGroups(schedule.data.lessons).filter(
     ({ data }) => isPlannerVisibleLesson(data),
   );
   const lessons = filter === "all" || filter === "work" ? plannerLessons : [];
@@ -241,12 +242,16 @@ export function TeacherPlannerPage() {
 
   async function toggleLessonPlannerCheck(lesson: DocumentWithId<Lesson>) {
     try {
-      await setLessonPlannerCompleted(
+      if (lessonPlannerChecks(lesson.data).report) {
+        setMessage("Галочка поставлена автоматически: итоги урока уже сохранены.");
+        return;
+      }
+      await Promise.all(plannerLessonMembers(lesson).map((member) => setLessonPlannerCompleted(
         getFirebaseDb(),
         teacherId,
-        lesson.id,
-        !lesson.data.plannerCompletedAt,
-      );
+        member.id,
+        !lessonPlannerChecks(lesson.data).lesson,
+      )));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось отметить урок в планере.");
     }
@@ -254,12 +259,12 @@ export function TeacherPlannerPage() {
 
   async function toggleLessonPreparation(lesson: DocumentWithId<Lesson>) {
     try {
-      await setLessonPreparationCompleted(
+      await Promise.all(plannerLessonMembers(lesson).map((member) => setLessonPreparationCompleted(
         getFirebaseDb(),
         teacherId,
-        lesson.id,
-        !lesson.data.plannerPreparationCompletedAt,
-      );
+        member.id,
+        !lessonPlannerChecks(lesson.data).preparation,
+      )));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось отметить подготовку к уроку.");
     }
@@ -635,8 +640,8 @@ function PlannerProgress({ progress }: { progress: PlannerDayProgress }) {
 
 function PlannerLesson({ lesson, studentName, timezone, onToggle }: { lesson: DocumentWithId<Lesson>; studentName?: string; timezone: ResolvedTimezone; onToggle(): void }) {
   const duration = Math.round((lesson.data.endAt.toMillis() - lesson.data.startAt.toMillis()) / 60_000);
-  const done = Boolean(lesson.data.plannerCompletedAt);
-  return <article className={`planner-entry planner-entry--lesson${done ? " planner-entry--done" : ""}`} draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><button aria-label={done ? `Вернуть урок с ${studentName ?? "учеником"} в планер` : `Отметить урок с ${studentName ?? "учеником"} выполненным в планере`} className="planner-check" onClick={onToggle} type="button">{done ? "✓" : "○"}</button><div className="planner-entry-copy"><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)}–{lessonEndTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></div></article>;
+  const done = lessonPlannerChecks(lesson.data).lesson;
+  return <article className={`planner-entry planner-entry--lesson${done ? " planner-entry--done" : ""}`} draggable={lesson.data.status === "planned"} onDragStart={(event) => event.dataTransfer.setData("text/planner-lesson-id", lesson.id)}><button aria-label={lessonPlannerChecks(lesson.data).report ? "Итоги уже сохранены — урок отмечен автоматически" : done ? `Вернуть урок с ${studentName ?? "учеником"} в планер` : `Отметить урок с ${studentName ?? "учеником"} выполненным в планере`} className="planner-check" onClick={onToggle} type="button">{done ? "✓" : "○"}</button><div className="planner-entry-copy"><span>🎓 Урок из календаря</span><strong>{lessonTime(lesson.data, timezone)}–{lessonEndTime(lesson.data, timezone)} · {studentName ?? "Ученик"}</strong><small>{lesson.data.topic ?? "Тема не указана"} · ≈ {duration} мин</small></div></article>;
 }
 
 function PlannerLessonWorkflowTask({
@@ -646,7 +651,7 @@ function PlannerLessonWorkflowTask({
   onTogglePreparation,
   originalDate,
 }: {
-  kind: "preparation" | "wrap-up";
+  kind: "preparation" | "wrap-up" | "homework";
   lesson: DocumentWithId<Lesson>;
   studentName?: string;
   onTogglePreparation(): void;
@@ -654,10 +659,14 @@ function PlannerLessonWorkflowTask({
 }) {
   const name = studentName ?? "Ученик";
   const preparation = kind === "preparation";
+  const homework = kind === "homework";
+  const checks = lessonPlannerChecks(lesson.data);
+  const members = plannerLessonMembers(lesson);
+  const readyCount = members.filter(({ data }) => homework ? lessonPlannerChecks(data).homework : lessonPlannerChecks(data).report).length;
   const done = preparation
-    ? Boolean(lesson.data.plannerPreparationCompletedAt)
-    : isLessonWrapUpCompleted(lesson.data);
-  const title = preparation ? `Подготовить урок — ${name}` : `Завершить урок — ${name}`;
+    ? checks.preparation
+    : homework ? checks.homework : checks.report;
+  const title = preparation ? `Подготовить урок — ${name}` : homework ? `Выдать ДЗ — ${name}` : `Заполнить итоги — ${name}`;
   return (
     <article className={`planner-entry planner-entry--work planner-entry--lesson-task planner-entry--priority-high${done ? " planner-entry--done" : ""}`}>
       {preparation ? (
@@ -669,7 +678,7 @@ function PlannerLessonWorkflowTask({
         >
           {done ? "✓" : "○"}
         </button>
-      ) : <Link aria-label={`Открыть итоги урока — ${name}`} className="planner-check" to={`/teacher/calendar?lesson=${lesson.id}${originalDate ? `&date=${originalDate}` : ""}`}>{done ? "✓" : "○"}</Link>}
+      ) : <Link aria-label={`${homework ? "Открыть ДЗ" : "Открыть итоги урока"} — ${name}`} className="planner-check" to={`/teacher/calendar?lesson=${lesson.id}${originalDate ? `&date=${originalDate}` : ""}`}>{done ? "✓" : "○"}</Link>}
       {preparation ? (
         <div className="planner-entry-copy">
           <span>✨ Автоматически из расписания</span>
@@ -677,13 +686,18 @@ function PlannerLessonWorkflowTask({
         </div>
       ) : (
         <Link className="planner-entry-copy" to={`/teacher/calendar?lesson=${lesson.id}${originalDate ? `&date=${originalDate}` : ""}`}>
-          <span>📝 Итоги урока и домашнее задание</span>
+          <span>{homework ? "📝 Домашнее задание" : "📝 Итоги урока"} · автоматически</span>
           <strong>{title}</strong>
-          <small>{done ? "Отчёт заполнен, решение по ДЗ принято" : "Открыть урок и заполнить отчёт"}</small>
+          <small>{homework ? done ? "ДЗ выдано или отмечено, что не требуется" : "Открыть урок и выдать или привязать ДЗ" : done ? "Итоги сохранены" : "Открыть урок и заполнить итоги"}</small>
+          {members.length > 1 ? <small>Готово у {readyCount} из {members.length} учеников</small> : null}
         </Link>
       )}
     </article>
   );
+}
+
+function PlannerLessonFollowUps(props: Omit<Parameters<typeof PlannerLessonWorkflowTask>[0], "kind"> & { kind?: "wrap-up" }) {
+  return <><PlannerLessonWorkflowTask {...props} kind="wrap-up" /><PlannerLessonWorkflowTask {...props} kind="homework" /></>;
 }
 
 function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerItem>; onEdit(): void; onToggle(): void }) {
@@ -697,7 +711,7 @@ function PlannerCard({ item, onEdit, onToggle }: { item: DocumentWithId<PlannerI
 
 function PlannerCategoryColumn({ emoji, title, items, lessons, students, timezone, onCreate, onEdit, onToggle, onToggleLesson, onTogglePreparation }: { emoji: string; title: string; items: Array<DocumentWithId<PlannerItem>>; lessons: Array<DocumentWithId<Lesson>>; students: Array<DocumentWithId<Student>>; timezone: ResolvedTimezone; onCreate(): void; onEdit(item: DocumentWithId<PlannerItem>): void; onToggle(item: DocumentWithId<PlannerItem>): void; onToggleLesson(lesson: DocumentWithId<Lesson>): void; onTogglePreparation(lesson: DocumentWithId<Lesson>): void }) {
   const orderedLessons = [...lessons].sort((left, right) => left.data.startAt.toMillis() - right.data.startAt.toMillis());
-  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{orderedLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} timezone={timezone} />)}{orderedLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
+  return <section className="planner-category-column" data-category={title}><header><h2>{emoji} {title}</h2><button aria-label={`Добавить в ${title}`} onClick={onCreate} type="button">+</button></header><div className="planner-category-list">{orderedLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} timezone={timezone} />)}{orderedLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonFollowUps key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{sortPlannerItems(items).map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}{!lessons.length && !items.length ? <p className="content-state">Пока пусто</p> : null}</div></section>;
 }
 
 function BacklogItem({ item, today, onEdit, onMove }: { item: DocumentWithId<PlannerItem>; today: string; onEdit(): void; onMove(date: string, startTime: string | null, category: "work" | "home"): void }) {
@@ -722,7 +736,7 @@ function PlannerWeek({ dates, focusDate, items, lessons, students, timezone, onC
     const timed = dayItems.filter(({ data }) => data.startTime && data.status !== "done");
     const untimed = dayItems.filter(({ data }) => !data.startTime && data.status !== "done");
     const completed = dayItems.filter(({ data }) => data.status === "done");
-    return <article className={`planner-day planner-week-card${date === focusDate ? " planner-day--selected" : ""}`} key={date} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void onDrop(event, date)}><header><button onClick={() => onOpenDay(date)} type="button"><strong>{new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "long" }).format(dateFromKey(date))}</strong></button><button aria-label={`Добавить план ${date}`} onClick={() => onCreate(date)} type="button">+</button></header>{dayLessons.length || timed.length ? <section className="planner-week-group"><h3>По времени</h3>{dayLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} timezone={timezone} />)}{timed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{dayLessons.length || untimed.length ? <section className="planner-week-group"><h3>Задачи</h3>{dayLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{(["work", "home"] as const).map((category) => { const grouped = untimed.filter(({ data }) => category === "work" ? data.category === "work" : data.category === "home" || data.category === "personal"); return grouped.length ? <div className="planner-week-category" key={category}><span>{category === "work" ? "Работа" : "Дом"}</span>{grouped.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</div> : null; })}</section> : null}{completed.length ? <section className="planner-week-group planner-week-group--completed"><h3>Выполнено</h3>{completed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{!dayLessons.length && !dayItems.length ? <p className="content-state">Свободный день</p> : null}<button className="planner-inline-add" onClick={() => onCreate(date, null, "task")} type="button">+ Добавить</button></article>;
+    return <article className={`planner-day planner-week-card${date === focusDate ? " planner-day--selected" : ""}`} key={date} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void onDrop(event, date)}><header><button onClick={() => onOpenDay(date)} type="button"><strong>{new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "long" }).format(dateFromKey(date))}</strong></button><button aria-label={`Добавить план ${date}`} onClick={() => onCreate(date)} type="button">+</button></header>{dayLessons.length || timed.length ? <section className="planner-week-group"><h3>По времени</h3>{dayLessons.map((lesson) => <PlannerLesson key={lesson.id} lesson={lesson} onToggle={() => onToggleLesson(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} timezone={timezone} />)}{timed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{dayLessons.length || untimed.length ? <section className="planner-week-group"><h3>Задачи</h3>{dayLessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonFollowUps key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{(["work", "home"] as const).map((category) => { const grouped = untimed.filter(({ data }) => category === "work" ? data.category === "work" : data.category === "home" || data.category === "personal"); return grouped.length ? <div className="planner-week-category" key={category}><span>{category === "work" ? "Работа" : "Дом"}</span>{grouped.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</div> : null; })}</section> : null}{completed.length ? <section className="planner-week-group planner-week-group--completed"><h3>Выполнено</h3>{completed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}{!dayLessons.length && !dayItems.length ? <p className="content-state">Свободный день</p> : null}<button className="planner-inline-add" onClick={() => onCreate(date, null, "task")} type="button">+ Добавить</button></article>;
   })}</div>;
 }
 
@@ -778,7 +792,7 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
       start: plannerTimeToMinutes(lessonTime(lesson.data, timezone)),
       end: plannerTimeToMinutes(lessonEndTime(lesson.data, timezone)),
       lesson,
-      done: Boolean(lesson.data.plannerCompletedAt),
+      done: lessonPlannerChecks(lesson.data).lesson,
     })),
   ].sort((left, right) => left.start - right.start || left.end - right.end);
   const laneEnds: number[] = [];
@@ -814,7 +828,7 @@ function PlannerTimeline({ date, items, lessons, students, timezone, onCreate, o
         })}
       </div>
     </div>
-    {lessons.length || untimed.length ? <section className="planner-timeline__untimed"><div className="section-heading"><h3>Задачи дня</h3><button onClick={() => onCreate(date)} type="button">+</button></div>{lessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonWorkflowTask key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{untimed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}
+    {lessons.length || untimed.length ? <section className="planner-timeline__untimed"><div className="section-heading"><h3>Задачи дня</h3><button onClick={() => onCreate(date)} type="button">+</button></div>{lessons.flatMap((lesson) => ([<PlannerLessonWorkflowTask key={`prepare-${lesson.id}`} kind="preparation" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />, <PlannerLessonFollowUps key={`wrap-up-${lesson.id}`} kind="wrap-up" lesson={lesson} onTogglePreparation={() => onTogglePreparation(lesson)} studentName={lessonParticipantLabel(lesson.data, students)} />]))}{untimed.map((item) => <PlannerCard item={item} key={item.id} onEdit={() => onEdit(item)} onToggle={() => onToggle(item)} />)}</section> : null}
   </div>;
 }
 

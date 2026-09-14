@@ -5,6 +5,8 @@ import {
   calculatePlannerDayProgress,
   carriedLessonTasks,
   isPlannerVisibleLesson,
+  lessonPlannerChecks,
+  plannerLessonGroups,
   plannerProgressStage,
 } from "../../src/features/planner/lessonProgress.js";
 import type { DocumentWithId, Lesson, PlannerItem } from "../../src/lib/firebase/types.js";
@@ -69,12 +71,12 @@ describe("planner lesson progress", () => {
 
   test("carries unfinished lesson checks and wrap-up but not yesterday's completed preparation", () => {
     const source = previous({ plannerPreparationCompletedAt: at("2026-09-10T10:00:00Z") });
-    expect(carriedLessonTasks([source], "2026-09-11", timezone).map(({ kind }) => kind)).toEqual(["lesson", "wrap-up"]);
+    expect(carriedLessonTasks([source], "2026-09-11", timezone).map(({ kind }) => kind)).toEqual(["lesson", "wrap-up", "homework"]);
     expect(source.data.startAt.toMillis()).toBe(at("2026-09-10T12:00:00Z").toMillis());
   });
 
   test("keeps carrying across missed days without copying lessons", () => {
-    expect(carriedLessonTasks([previous()], "2026-09-15", timezone)).toHaveLength(3);
+    expect(carriedLessonTasks([previous()], "2026-09-15", timezone)).toHaveLength(4);
   });
 
   test.each(["cancelled_student", "cancelled_teacher", "rescheduled"] as const)("excludes %s lessons from carry", (status) => {
@@ -89,10 +91,10 @@ describe("planner lesson progress", () => {
 
   test("keeps today's completed carry in progress until the next local day", () => {
     const today = at("2026-09-10T18:00:00Z"); // Already September 11 in Novosibirsk.
-    const source = previous({ status: "completed", homeworkResolution: "assigned", plannerPreparationCompletedAt: today, plannerCompletedAt: today, plannerWrapUpCompletedAt: today });
+    const source = previous({ status: "completed", homeworkResolution: "assigned", plannerPreparationCompletedAt: today, plannerCompletedAt: today, lessonReportCompletedAt: today, plannerWrapUpCompletedAt: today });
     const carried = carriedLessonTasks([source], "2026-09-11", timezone);
-    expect(carried).toHaveLength(3);
-    expect(calculatePlannerDayProgress([], [], carried)).toEqual({ completed: 3, total: 3, percent: 100 });
+    expect(carried).toHaveLength(4);
+    expect(calculatePlannerDayProgress([], [], carried)).toEqual({ completed: 4, total: 4, percent: 100 });
     expect(carriedLessonTasks([source], "2026-09-12", timezone)).toEqual([]);
   });
 
@@ -103,7 +105,7 @@ describe("planner lesson progress", () => {
 
   test("includes carried work in the day denominator, without three extra tasks per lesson", () => {
     const carried = carriedLessonTasks([previous({ plannerPreparationCompletedAt: at("2026-09-10T10:00:00Z") })], "2026-09-11", timezone);
-    expect(calculatePlannerDayProgress([item("done")], [], carried)).toEqual({ completed: 1, total: 3, percent: 33 });
+    expect(calculatePlannerDayProgress([item("done")], [], carried)).toEqual({ completed: 1, total: 4, percent: 25 });
   });
 
   test("hides cancelled and replaced lesson occurrences", () => {
@@ -124,7 +126,7 @@ describe("planner lesson progress", () => {
         plannerPreparationCompletedAt: {} as Lesson["plannerPreparationCompletedAt"],
       })],
     );
-    expect(progress).toEqual({ completed: 4, total: 5, percent: 80 });
+    expect(progress).toEqual({ completed: 5, total: 6, percent: 83 });
     expect(plannerProgressStage(progress)).toBe("almost");
   });
 
@@ -135,5 +137,39 @@ describe("planner lesson progress", () => {
       [backlog],
       [lesson({ status: "cancelled_teacher" })],
     )).toEqual({ completed: 0, total: 0, percent: 0 });
+  });
+
+  test("saved lesson results automatically check the lesson and report, independently of homework", () => {
+    const source = previous({ status: "completed", homeworkResolution: "pending" });
+    expect(lessonPlannerChecks(source.data)).toEqual({ lesson: true, report: true, homework: false, preparation: false });
+    expect(calculatePlannerDayProgress([], [source])).toEqual({ completed: 2, total: 4, percent: 50 });
+    source.data.homeworkResolution = "assigned";
+    expect(calculatePlannerDayProgress([], [source])).toEqual({ completed: 3, total: 4, percent: 75 });
+    source.data.homeworkResolution = "pending";
+    expect(lessonPlannerChecks(source.data).homework).toBe(false);
+  });
+
+  test("homework resolution and manual lesson check do not invent a saved report", () => {
+    const source = previous({ plannerCompletedAt: at("2026-09-10T12:00:00Z"), homeworkResolution: "not_required" });
+    expect(lessonPlannerChecks(source.data)).toEqual({ lesson: true, report: false, homework: true, preparation: false });
+  });
+
+  test("legacy completed lessons no longer carry an unchecked lesson or report", () => {
+    expect(carriedLessonTasks([previous({ status: "completed", homeworkResolution: "assigned", plannerPreparationCompletedAt: at("2026-09-10T10:00:00Z") })], "2026-09-11", timezone)).toEqual([]);
+  });
+
+  test("paired lesson waits for both students' report and homework without changing individual records", () => {
+    const first = previous({ pairedLessonId: "second", pairedStudentId: "second-student", sharedLessonId: "shared", pairPrimary: true, status: "completed", homeworkResolution: "assigned" });
+    const second = { ...previous({ studentId: "second-student", sharedLessonId: "shared", pairedLessonId: first.id, pairedStudentId: first.data.studentId }), id: "second" };
+    let groups = plannerLessonGroups([first, second]);
+    expect(groups).toHaveLength(1);
+    expect(lessonPlannerChecks(groups[0]!.data)).toMatchObject({ lesson: false, report: false, homework: false });
+    second.data.status = "completed";
+    groups = plannerLessonGroups([first, second]);
+    expect(lessonPlannerChecks(groups[0]!.data)).toMatchObject({ lesson: true, report: true, homework: false });
+    second.data.homeworkResolution = "not_required";
+    expect(lessonPlannerChecks(plannerLessonGroups([first, second])[0]!.data).homework).toBe(true);
+    expect(first.data).not.toHaveProperty("plannerParticipants");
+    expect(first.data.homeworkResolution).toBe("assigned");
   });
 });

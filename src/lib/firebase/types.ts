@@ -275,6 +275,7 @@ export interface Lesson extends AuditedDocument {
   plannerCompletedAt?: Timestamp | null;
   plannerPreparationCompletedAt?: Timestamp | null;
   plannerWrapUpCompletedAt?: Timestamp | null;
+  lessonReportCompletedAt?: Timestamp | null;
 }
 
 export interface LessonOccurrenceExclusion extends AuditedDocument {

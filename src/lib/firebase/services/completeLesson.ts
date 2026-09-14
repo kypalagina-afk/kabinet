@@ -122,6 +122,8 @@ export async function completeLesson(
 
     transaction.update(lessonReference, {
       status: "completed",
+      lessonReportCompletedAt: serverTimestamp(),
+      plannerCompletedAt: lesson.plannerCompletedAt ?? serverTimestamp(),
       topic: input.topic,
       lessonSummary: input.lessonSummary,
       understanding: input.understanding ?? null,
@@ -190,6 +192,7 @@ export async function updateCompletedLessonSummary(db: Firestore, input: Pick<Co
     if (!lessonSnapshot.exists()) throw new Error("Lesson does not exist");
     const lesson = lessonSnapshot.data() as Lesson;
     if (lesson.teacherId !== input.teacherId || lesson.status !== "completed") throw new Error("Only an owned completed lesson can be edited");
+    transaction.update(lessonReference, { lessonReportCompletedAt: lesson.lessonReportCompletedAt ?? serverTimestamp(), plannerCompletedAt: lesson.plannerCompletedAt ?? serverTimestamp() });
     transaction.update(lessonReference, { taskUnderstanding: selectedTaskUnderstanding(input.examTaskNumbers ?? [], input.taskUnderstanding ?? lesson.taskUnderstanding) });
     transaction.update(lessonReference, { topic: input.topic.trim(), lessonSummary: input.lessonSummary, understanding: input.understanding ?? null, examTaskNumbers: [...new Set(input.examTaskNumbers ?? [])].sort((a, b) => a - b), updatedAt: serverTimestamp() });
     if (input.privateTeacherNote?.trim()) transaction.set(noteReference, { teacherId: lesson.teacherId, studentId: lesson.studentId, lessonId: input.lessonId, note: input.privateTeacherNote.trim(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(), schemaVersion: 1 }, { merge: true });

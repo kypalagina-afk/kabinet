@@ -520,6 +520,22 @@ export async function hardDeleteLessonForStudentOrPair(
   input: Parameters<typeof hardDeleteLesson>[1],
 ) {
   const lesson = await pairedLesson(db, input.lessonId);
+  if (lesson.data.pairedLessonId) {
+    // Check both sides before deleting either one (including legacy homework links).
+    const partner = await pairedLesson(db, lesson.data.pairedLessonId);
+    for (const member of [lesson, partner]) {
+      if (member.data.teacherId !== input.teacherId
+        || !["planned", "completed", "cancelled_teacher"].includes(member.data.status)
+        || member.data.rescheduledFromLessonId || member.data.rescheduledToLessonId) {
+        throw new Error("Один из уроков пары нельзя удалить в текущем статусе.");
+      }
+      const linked = await getDocs(query(collection(db, "homeworks"),
+        where("teacherId", "==", input.teacherId), where("sourceLessonId", "==", member.id)));
+      if (member.data.linkedHomeworkId || linked.docs.length) {
+        throw new Error("Сначала снимите связь с ДЗ у обоих учеников пары. ДЗ, ответы и баллы сохранятся.");
+      }
+    }
+  }
   const first = await hardDeleteLesson(db, input);
   if (lesson.data.pairedLessonId) {
     await hardDeleteLesson(db, { ...input, lessonId: lesson.data.pairedLessonId });

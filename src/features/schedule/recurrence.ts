@@ -37,6 +37,7 @@ export function generateRollingOccurrences(
   > & Pick<LessonSeries, "startsOn" | "endsOn">,
   now = new Date(),
   horizonWeeks = ROLLING_HORIZON_WEEKS,
+  includePast = false,
 ): LessonOccurrence[] {
   if (series.interval < 1 || !Number.isInteger(series.interval)) {
     throw new Error("Lesson series interval must be a positive integer");
@@ -50,7 +51,7 @@ export function generateRollingOccurrences(
 
   const today = localDateInTimezone(now, series.baseTimezone);
   const anchor = series.startsOn ?? today;
-  const firstDate = anchor > today ? anchor : today;
+  const firstDate = includePast || anchor > today ? anchor : today;
   const horizonEnd = addDays(today, horizonWeeks * 7);
   const lastDate = series.endsOn && series.endsOn < horizonEnd ? series.endsOn : horizonEnd;
   const allowedWeekdays = new Set(series.weekdays);

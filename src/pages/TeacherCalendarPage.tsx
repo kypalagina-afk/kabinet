@@ -10,6 +10,8 @@ import { CompleteLessonForm } from "../features/schedule/CompleteLessonForm";
 import { CompletePairLessonForm } from "../features/schedule/CompletePairLessonForm";
 import { LessonHomeworkBadge } from "../features/schedule/LessonHomeworkBadge";
 import { LessonHomeworkControls } from "../features/schedule/LessonHomeworkControls";
+import { CalendarHomeworkLinks } from "../features/schedule/CalendarHomeworkLinks";
+import { useHomeworkSelection } from "../features/homework/useHomeworkSelection";
 import {
   lessonParticipantLabel,
   visibleCalendarLessons,
@@ -105,6 +107,10 @@ export function TeacherCalendarPage() {
     };
   }, [focusDate, queryTimezone, view]);
   const { data, loading, error } = useTeacherSchedule(user?.uid ?? "", range);
+  const calendarHomeworks = useHomeworkSelection(user?.uid ?? "", {
+    lessonIds: view === "month" ? [] : data.lessons.map(({ id }) => id),
+    homeworkIds: view === "month" ? [] : data.lessons.flatMap(({ data: lesson }) => lesson.linkedHomeworkId ? [lesson.linkedHomeworkId] : []),
+  });
   const [selectedStudentId, setSelectedStudentId] = useState(
     () => searchParams.get("student") ?? sessionStorage.getItem("calendar-student-id") ?? "",
   );
@@ -602,7 +608,7 @@ export function TeacherCalendarPage() {
         </button>
       </section>
 
-      <p className="workflow-hint">Жёлтая отметка «ДЗ не отмечено» (на телефоне — «ДЗ!») означает, что выдача ДЗ не отмечена у этого урока. Нажмите на урок: можно связать уже выданное ДЗ или отметить выдачу вне платформы.</p>
+      <p className="workflow-hint">Жёлтая отметка означает, что выдача ДЗ у урока не отмечена. В недельном и дневном календаре плашка выданного ДЗ открывает конкретную работу и её проверку. Нажмите на урок, чтобы связать уже выданное ДЗ или отметить выдачу вне платформы.</p>
       <div className="calendar-layout">
         {view === "month" ? (
           <section
@@ -753,7 +759,9 @@ export function TeacherCalendarPage() {
                             )}
                           </strong>
                           <span>{lessonParticipantLabel(lesson.data, data.students)}</span>
-                          <LessonHomeworkBadge lesson={lesson} lessons={data.lessons} students={data.students} />
+                          <CalendarHomeworkLinks lesson={lesson} lessons={data.lessons} students={data.students}
+                            data={calendarHomeworks.data} loading={calendarHomeworks.loading} error={calendarHomeworks.error}
+                            onSelectLesson={setSelectedLessonId} />
                           <small>
                             {lesson.data.topic ?? "Тема не указана"}
                           </small>
@@ -1054,26 +1062,6 @@ export function TeacherCalendarPage() {
                     >
                       Отменить один урок
                     </button>
-                    <button
-                      className="secondary-button secondary-button--danger"
-                      data-testid="hard-delete-lesson"
-                      onClick={() => {
-                        if (!window.confirm("Удалить занятие навсегда?")) return;
-                        void runOperation(
-                          () => hardDeleteLessonForStudentOrPair(getFirebaseDb(), {
-                            lessonId: selectedLesson.id,
-                            teacherId: user?.uid ?? "",
-                          }).then((result) => {
-                            if (result.status === "applied") setSelectedLessonId(null);
-                            return result;
-                          }),
-                          "Ошибочное занятие удалено без возможности восстановления.",
-                        );
-                      }}
-                      type="button"
-                    >
-                      Удалить урок
-                    </button>
                     {selectedLesson.data.lessonSeriesId ? (
                       <button
                         className="secondary-button secondary-button--danger"
@@ -1095,6 +1083,32 @@ export function TeacherCalendarPage() {
                     ) : null}
                   </div>
                 </>
+              ) : null}
+              {["planned", "completed", "cancelled_teacher"].includes(selectedLesson.data.status)
+                && !selectedLesson.data.rescheduledFromLessonId
+                && !selectedLesson.data.rescheduledToLessonId ? (
+                <button
+                  className="secondary-button secondary-button--danger"
+                  data-testid="hard-delete-lesson"
+                  onClick={() => {
+                    const label = lessonParticipantLabel(selectedLesson.data, data.students);
+                    const date = formatDateTimeForTimezone(selectedLesson.data.startAt.toDate(), displayTimezone, { dateStyle: "long", timeStyle: "short" });
+                    if (!window.confirm(`Удалить урок «${label}» за ${date} навсегда?${selectedLesson.data.pairedLessonId ? " Урок будет удалён у обоих учеников пары." : ""} Итоги этого урока тоже будут удалены, распределение оплаченных занятий пересчитается. Остальные уроки останутся. Отменить удаление нельзя.`)) return;
+                    void runOperation(
+                      () => hardDeleteLessonForStudentOrPair(getFirebaseDb(), {
+                        lessonId: selectedLesson.id,
+                        teacherId: user?.uid ?? "",
+                      }).then((result) => {
+                        setSelectedLessonId(null);
+                        return result;
+                      }),
+                      "Урок удалён без возможности восстановления. Остальные уроки сохранены.",
+                    );
+                  }}
+                  type="button"
+                >
+                  Удалить урок
+                </button>
               ) : null}
               {selectedLesson.data.lessonSeriesId ? (
                 <button
@@ -1340,7 +1354,7 @@ export function TeacherCalendarPage() {
           <p className="eyebrow">Повторяющаяся серия</p>
           <h2>Добавить расписание</h2>
           <p>
-            Занятия создаются идемпотентно на следующие 12 недель по Москве.
+            Занятия создаются с выбранной даты, в том числе в прошлом, и на 12 недель вперёд по Москве. Существующие уроки не дублируются. Прошедшие занятия нужно отдельно отметить проведёнными.
           </p>
         </div>
         <div className="form-grid">

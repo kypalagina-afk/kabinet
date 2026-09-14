@@ -202,7 +202,8 @@ service cloud.firestore {
       allow create: if teacherCreatesOwned(request.resource.data);
       allow update: if teacherOwns(resource.data) && ownershipUnchanged();
       allow delete: if teacherOwns(resource.data)
-        && resource.data.status in ["planned", "cancelled_teacher"]
+        && resource.data.status in ["planned", "completed", "cancelled_teacher"]
+        && resource.data.get("linkedHomeworkId", null) == null
         && resource.data.rescheduledFromLessonId == null
         && resource.data.rescheduledToLessonId == null
         && recurringLessonDeleteIsSuppressed(id);

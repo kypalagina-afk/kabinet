@@ -11,6 +11,7 @@ import {
   TeacherExternalSubmissionControls,
 } from "../features/homework/TeacherEvaluationForm";
 import { useTeacherHomeworkBoard } from "../features/homework/hooks";
+import { useHomeworkSelection } from "../features/homework/useHomeworkSelection";
 import { CreateHomeworkForm } from "../features/vertical-slice/CreateHomeworkForm";
 import { useTeacherStudentPrograms } from "../features/vertical-slice/hooks";
 import { homeworkDraftFromExisting } from "../lib/firebase/services/homeworkTemplates";
@@ -45,6 +46,8 @@ export function TeacherHomeworksPage() {
     user?.uid ?? "",
   );
   const [params, setParams] = useSearchParams();
+  const selectedId = params.get("homework");
+  const selectedDetails = useHomeworkSelection(user?.uid ?? "", { homeworkIds: selectedId ? [selectedId] : [] });
   const navigate = useNavigate();
   const programs = useTeacherStudentPrograms(user?.uid ?? "");
   const requested = params.get("filter");
@@ -57,8 +60,7 @@ export function TeacherHomeworksPage() {
           (localStorage.getItem("teacher-homework-tab") as Tab | null) ??
           "active"),
   );
-  const [studentId, setStudentId] = useState("");
-  const selectedId = params.get("homework");
+  const [studentId, setStudentId] = useState(() => params.get("student") ?? "");
   const [preview, setPreview] = useState<Attachment | null>(null);
   const [copyStudent, setCopyStudent] = useState("");
   const [previewError, setPreviewError] = useState("");
@@ -91,7 +93,7 @@ export function TeacherHomeworksPage() {
     [currentTime, data.homeworks, data.submissions, studentId, tab],
   );
   const selected = selectedId
-    ? (data.homeworks.find((item) => item.id === selectedId) ?? null)
+    ? (selectedDetails.data.homeworks.find((item) => item.id === selectedId) ?? null)
     : null;
   function open(id: string) {
     const next = new URLSearchParams(params);
@@ -282,18 +284,24 @@ export function TeacherHomeworksPage() {
           Показать ещё
         </button>
       ) : null}
+      {selectedId && !selected ? (
+        <Modal className="homework-detail-modal" onClose={close} title="Домашнее задание">
+          <p role="status">{selectedDetails.loading ? "Загрузка ДЗ…" : selectedDetails.error ?? "ДЗ не найдено или удалено."}</p>
+        </Modal>
+      ) : null}
       {selected ? (
         <Modal
           className="homework-detail-modal"
           onClose={close}
           title={selected.data.title}
         >
+          <p className="eyebrow">{data.students.find(({ id }) => id === selected.data.studentId)?.data.displayName ?? "Домашнее задание ученика"}</p>
           <HomeworkDetail
             deleting={deleting}
             homework={selected}
             onDelete={() => void removeSelectedHomework()}
             onEdit={() => setEditOpen(true)}
-            submissions={data.submissions.filter(
+            submissions={selectedDetails.data.submissions.filter(
               ({ data: item }) => item.homeworkId === selected.id,
             )}
             teacherId={user?.uid ?? ""}

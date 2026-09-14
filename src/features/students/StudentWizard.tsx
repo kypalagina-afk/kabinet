@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "firebase/auth";
 import { getStudentProvisioningService } from "../../lib/firebase/services/studentProvisioning";
@@ -18,6 +18,9 @@ export function StudentWizard({
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const inFlight = useRef(false);
   const [password, setPassword] = useState("");
   const [programProfileId, setProgramProfileId] = useState(
     () => programs[0]?.id ?? "",
@@ -25,16 +28,40 @@ export function StudentWizard({
   const effectiveProgramProfileId = programProfileId || programs[0]?.id || "";
   const selectedProgram = programs.find(({ id }) => id === effectiveProgramProfileId)?.data;
 
+  function validate(allSteps = false) {
+    const scope = allSteps ? formRef.current : formRef.current?.querySelector(`[data-step="${step}"]`);
+    const fields = scope?.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select");
+    const invalid = [...(fields ?? [])].find((field) => !field.checkValidity());
+    if (!invalid) return true;
+    const invalidStep = Number(invalid.closest<HTMLElement>("[data-step]")?.dataset.step ?? step);
+    setStep(invalidStep);
+    setStatus("Проверь выделенное поле, затем продолжи.");
+    // Hidden required fields used to stop submission without a visible error.
+    requestAnimationFrame(() => { invalid.focus(); invalid.reportValidity(); });
+    return false;
+  }
+
+  function nextStep() {
+    if (!validate()) return;
+    setStatus("");
+    setStep((value) => Math.min(4, value + 1));
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (inFlight.current) return;
+    if (step < 4) { nextStep(); return; }
+    if (!validate(true)) return;
     const form = new FormData(event.currentTarget);
-    setStatus("Создаём безопасный локальный аккаунт…");
+    inFlight.current = true;
+    setSubmitting(true);
+    setStatus("Создаём аккаунт ученика…");
     try {
       const goal = String(form.get("goal"));
       const numericGoal = Number(goal.match(/\d+/)?.[0] ?? 0) || null;
       const goalType = (selectedProgram?.examKind ?? selectedProgram?.type) === "ege" ? "test_score" : "grade";
       const result = await getStudentProvisioningService().create(user, {
-        displayName: String(form.get("displayName")),
+        displayName: String(form.get("displayName")).trim(),
         classGrade: Number(form.get("classGrade")),
         programProfileId: effectiveProgramProfileId,
         goal,
@@ -42,7 +69,7 @@ export function StudentWizard({
         targetGrade: goalType === "grade" ? numericGoal : null,
         targetScore: goalType === "test_score" ? numericGoal : null,
         timezone: String(form.get("timezone")),
-        username: String(form.get("username")),
+        username: String(form.get("username")).trim().toLowerCase(),
         password,
         conferenceUrl: String(form.get("conferenceUrl") ?? ""),
         scheduleWeekday: Number(form.get("scheduleWeekday")) || undefined,
@@ -56,6 +83,9 @@ export function StudentWizard({
       setStatus(
         error instanceof Error ? error.message : "Не удалось создать ученика.",
       );
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -74,14 +104,16 @@ export function StudentWizard({
           <button
             aria-label="Закрыть"
             className="icon-button"
+            disabled={submitting}
             onClick={onClose}
             type="button"
           >
             ×
           </button>
         </div>
-        <form onSubmit={(event) => void submit(event)}>
+        <form ref={formRef} noValidate onSubmit={(event) => void submit(event)}>
           <div
+            data-step="1"
             className={
               step === 1 ? "wizard-step" : "wizard-step wizard-step--hidden"
             }
@@ -102,6 +134,7 @@ export function StudentWizard({
             </label>
           </div>
           <div
+            data-step="2"
             className={
               step === 2 ? "wizard-step" : "wizard-step wizard-step--hidden"
             }
@@ -141,14 +174,16 @@ export function StudentWizard({
             </label>
           </div>
           <div
+            data-step="3"
             className={
               step === 3 ? "wizard-step" : "wizard-step wizard-step--hidden"
             }
           >
             <label className="form-field">
               <span>Логин</span>
-              <input name="username" pattern="[a-z0-9._-]+" required />
+              <input name="username" aria-describedby="student-username-help" pattern="[a-zA-Z0-9._\-]+" title="Латинские буквы, цифры, точка, дефис или подчёркивание" autoCapitalize="none" autoCorrect="off" required />
             </label>
+            <small id="student-username-help">Латинские буквы, цифры, точка, дефис или подчёркивание.</small>
             <label className="form-field">
               <span>Пароль</span>
               <input
@@ -167,6 +202,7 @@ export function StudentWizard({
             </label>
           </div>
           <div
+            data-step="4"
             className={
               step === 4 ? "wizard-step" : "wizard-step wizard-step--hidden"
             }
@@ -202,6 +238,7 @@ export function StudentWizard({
             {step > 1 ? (
               <button
                 className="secondary-button"
+                disabled={submitting}
                 onClick={() => setStep((value) => value - 1)}
                 type="button"
               >
@@ -213,7 +250,7 @@ export function StudentWizard({
             {step < 4 ? (
               <button
                 className="primary-button primary-button--fit"
-                onClick={() => setStep((value) => value + 1)}
+                onClick={nextStep}
                 type="button"
               >
                 Далее
@@ -221,9 +258,10 @@ export function StudentWizard({
             ) : (
               <button
                 className="primary-button primary-button--fit"
+                disabled={submitting}
                 type="submit"
               >
-                Создать ученика
+                {submitting ? "Создаём…" : "Создать ученика"}
               </button>
             )}
           </div>

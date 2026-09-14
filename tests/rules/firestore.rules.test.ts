@@ -29,6 +29,7 @@ import { FirestoreScheduledLessonMaterializer } from "../../src/lib/firebase/ser
 import {
   cancelLesson,
   cancelLessonSeries,
+  createLessonSeries,
   deleteLessonSeriesFuture,
   hardDeleteLesson,
   rescheduleLesson,
@@ -1248,6 +1249,40 @@ describe("idempotent domain operations", () => {
       (await getDoc(doc(teacherDb, "lessons", "next-valid"))).data()
         ?.paymentStatus,
     ).toBe("paid");
+  });
+
+  test("teacher can delete a completed occurrence but not a linked homework or another teacher's lesson", async () => {
+    await seedFixture();
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "lessons", "completed-delete"), { ...scheduledLessonDocument(new Date("2026-08-14T07:00:00Z"), "completed"), linkedHomeworkId: null });
+      await setDoc(doc(db, "lessons", "completed-linked"), { ...scheduledLessonDocument(new Date("2026-08-21T07:00:00Z"), "completed"), linkedHomeworkId: "homework-1" });
+    });
+    const studentDb = testEnvironment.authenticatedContext(studentAuth.uid, studentAuth.token).firestore();
+    const otherDb = testEnvironment.authenticatedContext(otherTeacherAuth.uid, otherTeacherAuth.token).firestore();
+    await assertFails(deleteDoc(doc(studentDb, "lessons", "completed-delete")));
+    await assertFails(deleteDoc(doc(otherDb, "lessons", "completed-delete")));
+    const db = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore() as unknown as Firestore;
+    await assertFails(deleteDoc(doc(db, "lessons", "completed-linked")));
+    await expect(hardDeleteLesson(db, { lessonId: "completed-linked", teacherId: teacherAuth.uid })).rejects.toThrow("Сначала снимите связь");
+    expect(await hardDeleteLesson(db, { lessonId: "completed-delete", teacherId: teacherAuth.uid })).toMatchObject({ status: "applied", suppressedOccurrence: true });
+    expect((await getDoc(doc(db, "lessons", "completed-delete"))).exists()).toBe(false);
+    expect((await getDoc(doc(db, "lessons", "completed-linked"))).exists()).toBe(true);
+  });
+
+  test("backdated creation fills last week once and does not restore deleted occurrences", async () => {
+    await seedFixture();
+    const db = testEnvironment.authenticatedContext(teacherAuth.uid, teacherAuth.token).firestore() as unknown as Firestore;
+    const input = { teacherId: teacherAuth.uid, studentId: "student-1", studentProgramId: "student-1-program", weekdays: [5], interval: 1, startLocalTime: "18:00", durationMinutes: 60, baseTimezone: "Europe/Moscow", startsOn: "2026-09-10", endsOn: null };
+    const now = new Date("2026-09-14T09:00:00Z");
+    const first = await createLessonSeries(db, input, now);
+    expect(first.createdLessonIds).toHaveLength(13);
+    const pastId = first.createdLessonIds[0]!;
+    expect((await getDoc(doc(db, "lessons", pastId))).data()?.startAt.toDate().toISOString()).toBe("2026-09-11T15:00:00.000Z");
+    await hardDeleteLesson(db, { lessonId: pastId, teacherId: teacherAuth.uid });
+    const retry = await createLessonSeries(db, input, now);
+    expect(retry.createdLessonIds).toEqual([]);
+    expect((await getDoc(doc(db, "lessons", pastId))).exists()).toBe(false);
   });
 
   test("cancels the series and only future planned lessons", async () => {

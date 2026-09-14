@@ -165,27 +165,37 @@ export function materializeRollingLessonSeries(
   seriesId: string,
   series: LessonSeries,
   now = new Date(),
+  includePast = false,
 ): Promise<MaterializeLessonSeriesResult> {
   if (!series.active)
     return Promise.resolve({ createdIds: [], skippedIds: [], suppressedIds: [] });
-  const key = `${db.app.options.projectId ?? "local"}:${seriesId}`;
+  const key = `${db.app.options.projectId ?? "local"}:${seriesId}:${includePast ? "from-start" : "rolling"}`;
   const inFlight = rollingMaterializations.get(key);
   if (inFlight) return inFlight;
-  const occurrences = generateRollingOccurrences(series, now);
-  const operation = materializeLessonSeries(db, {
-    seriesId,
-    teacherId: series.teacherId,
-    studentId: series.studentId,
-    studentProgramId: series.studentProgramId,
-    pairId: series.pairId ?? null,
-    pairedStudentId: series.pairedStudentId ?? null,
-    pairedSeriesId: series.pairedSeriesId ?? null,
-    pairPrimary:
-      Boolean(series.pairId) &&
-      Boolean(series.pairedStudentId) &&
-      series.studentId.localeCompare(series.pairedStudentId!) < 0,
-    occurrences,
-  }).then(async (result) => {
+  const occurrences = generateRollingOccurrences(series, now, undefined, includePast);
+  const operation = (async () => {
+    const combined: MaterializeLessonSeriesResult = { createdIds: [], skippedIds: [], suppressedIds: [] };
+    for (let offset = 0; offset < occurrences.length; offset += MAX_OCCURRENCES_PER_TRANSACTION) {
+      const result = await materializeLessonSeries(db, {
+        seriesId,
+        teacherId: series.teacherId,
+        studentId: series.studentId,
+        studentProgramId: series.studentProgramId,
+        pairId: series.pairId ?? null,
+        pairedStudentId: series.pairedStudentId ?? null,
+        pairedSeriesId: series.pairedSeriesId ?? null,
+        pairPrimary:
+          Boolean(series.pairId) &&
+          Boolean(series.pairedStudentId) &&
+          series.studentId.localeCompare(series.pairedStudentId!) < 0,
+        occurrences: occurrences.slice(offset, offset + MAX_OCCURRENCES_PER_TRANSACTION),
+      });
+      combined.createdIds.push(...result.createdIds);
+      combined.skippedIds.push(...result.skippedIds);
+      combined.suppressedIds.push(...result.suppressedIds);
+    }
+    return combined;
+  })().then(async (result) => {
     const through = occurrences.at(-1)?.startAt ?? null;
     if (through) {
       await updateDoc(doc(db, "lessonSeries", seriesId), {

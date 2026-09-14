@@ -92,6 +92,7 @@ export async function createLessonSeries(
     seriesId,
     transactionResult.series,
     now,
+    true,
   );
   return {
     status: transactionResult.status,
@@ -221,10 +222,19 @@ export async function hardDeleteLesson(
   const preflightLesson = preflight.data() as Lesson;
   if (preflightLesson.teacherId !== input.teacherId)
     throw new Error("Lesson ownership mismatch");
-  if (preflightLesson.status !== "planned" && preflightLesson.status !== "cancelled_teacher")
-    throw new Error("Only a planned or teacher-cancelled lesson can be permanently deleted");
+  if (!["planned", "completed", "cancelled_teacher"].includes(preflightLesson.status))
+    throw new Error("Этот урок нельзя удалить. Можно удалить запланированный, проведённый или отменённый преподавателем урок.");
   if (preflightLesson.rescheduledFromLessonId || preflightLesson.rescheduledToLessonId)
     throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
+
+  const linkedHomeworks = await getDocs(query(
+    collection(db, "homeworks"),
+    where("teacherId", "==", input.teacherId),
+    where("sourceLessonId", "==", input.lessonId),
+  ));
+  if (linkedHomeworks.docs.length || preflightLesson.linkedHomeworkId) {
+    throw new Error("Сначала снимите связь с ДЗ в блоке «Домашнее задание» этого урока. Само ДЗ, ответы и баллы сохранятся.");
+  }
 
   const studentLessons = await getDocs(query(
     collection(db, "lessons"),
@@ -249,8 +259,10 @@ export async function hardDeleteLesson(
     const target = targetSnapshot.data() as Lesson;
     if (target.teacherId !== input.teacherId || target.studentId !== preflightLesson.studentId)
       throw new Error("Lesson ownership mismatch");
-    if (target.status !== "planned" && target.status !== "cancelled_teacher")
-      throw new Error("Only a planned or teacher-cancelled lesson can be permanently deleted");
+    if (!["planned", "completed", "cancelled_teacher"].includes(target.status))
+      throw new Error("Этот урок нельзя удалить в его текущем статусе.");
+    if (target.linkedHomeworkId)
+      throw new Error("Сначала снимите связь с ДЗ. Само ДЗ, ответы и баллы сохранятся.");
     if (target.rescheduledFromLessonId || target.rescheduledToLessonId)
       throw new Error("A linked rescheduled lesson must be cancelled, not deleted");
 

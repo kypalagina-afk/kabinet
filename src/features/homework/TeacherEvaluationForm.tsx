@@ -546,7 +546,7 @@ function EvaluationEditor({
                     setPracticeText(event.target.value);
                     setPracticeError("");
                   }}
-                  placeholder="Например: 10/15, 10\15, 10 из 15 или строка из Русского100"
+                  placeholder="Например: 10/15, 10\15, 10 из 15 или несколько результатов из Русского100"
                   rows={3}
                   value={practiceText}
                 />
@@ -561,7 +561,7 @@ function EvaluationEditor({
                   );
                   if (!parsed) {
                     setPracticeError(
-                      "Не удалось распознать результат. Используйте формат 10/15, 10\\15, 10 из 15 или вставьте строку из Русского100.",
+                      "Не удалось распознать результат для выбранного задания. Используйте формат 10/15, 10\\15, 10 из 15 или вставьте результаты нужного номера из Русского100.",
                     );
                     return;
                   }
@@ -573,6 +573,11 @@ function EvaluationEditor({
               >
                 Распознать результат
               </button>
+              <p className="workflow-hint">
+                Несколько результатов суммируются: 6/10 + 7/10 = 13/20.
+                Из Русского100 учитываются только выбранные номера заданий;
+                точные повторы одной попытки не дублируются.
+              </p>
               {practiceError ? (
                 <span className="form-error">{practiceError}</span>
               ) : null}

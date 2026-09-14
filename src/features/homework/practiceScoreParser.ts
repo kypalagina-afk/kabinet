@@ -5,7 +5,7 @@ export interface PracticeScore {
   maximum: number;
 }
 
-const inlineScorePattern = /(\d+(?:[.,]\d+)?)\s*(?:\/|(?:балл(?:а|ов)?\s+)?из)\s*(\d+(?:[.,]\d+)?)/iu;
+const inlineScorePattern = /(\d+(?:[.,]\d+)?)\s*(?:\/|(?:балл(?:а|ов)?\s+)?из)\s*(\d+(?:[.,]\d+)?)/giu;
 
 function numberValue(value: string): number {
   return Number(value.replace(",", "."));
@@ -21,6 +21,15 @@ function validScore(earned: number, maximum: number): PracticeScore | null {
     : null;
 }
 
+function sumScores(scores: Array<PracticeScore | null>): PracticeScore | null {
+  if (!scores.length || scores.some((score) => !score)) return null;
+  const total = scores.reduce<PracticeScore>((sum, score) => ({
+    earned: sum.earned + score!.earned,
+    maximum: sum.maximum + score!.maximum,
+  }), { earned: 0, maximum: 0 });
+  return validScore(Number(total.earned.toFixed(10)), Number(total.maximum.toFixed(10)));
+}
+
 export function parsePracticeScore(
   input: string,
   taskNumbers: number[] = [],
@@ -32,10 +41,12 @@ export function parsePracticeScore(
   const matching = taskNumbers.length
     ? russian100.filter((attempt) => taskNumbers.includes(attempt.taskNumber))
     : russian100;
-  const attempt = matching.at(-1);
-  if (attempt) return validScore(attempt.score, attempt.maxScore);
+  if (russian100.length) {
+    // No inline fallback here: it could import a result for a different task.
+    return sumScores(matching.map((attempt) => validScore(attempt.score, attempt.maxScore)));
+  }
 
-  const inline = inlineScorePattern.exec(normalized);
-  if (!inline) return null;
-  return validScore(numberValue(inline[1]!), numberValue(inline[2]!));
+  return sumScores([...normalized.matchAll(inlineScorePattern)].map((inline) =>
+    validScore(numberValue(inline[1]!), numberValue(inline[2]!)),
+  ));
 }

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  formatDateTimeForTimezone,
   resolveTimezone,
   zonedLocalDateTimeToDate,
 } from "../schedule/timezone";
@@ -21,6 +20,7 @@ import {
   type ManualPracticeDraft,
 } from "./manualImport";
 import { useExternalPracticeAttempts } from "./hooks";
+import { PracticeHistory } from "./PracticeHistory";
 
 interface ExternalPracticeTaskSummary {
   taskNumber: number;
@@ -192,44 +192,7 @@ export function ExternalPracticePanel({
           ))}
         </div>
       ) : null}
-      {combinedAttempts.length ? (
-        <details className="external-practice-history">
-          <summary>История практики · {combinedAttempts.length}</summary>
-          <div className="external-practice-history__list">
-            {combinedAttempts.map(({ id, data }) => (
-              <div key={id}>
-                <strong>
-                  №{data.taskNumber} · {data.score}/{data.maxScore}
-                </strong>
-                <span>
-                  {formatDateTimeForTimezone(
-                    data.practicedAt.toDate(),
-                    displayTimezone,
-                  )}
-                </span>
-                <span>
-                  {id.startsWith("homework:")
-                    ? "Из домашнего задания"
-                    : data.status === "completed"
-                      ? "Русский100 · завершено"
-                      : "Русский100 · не завершено"}
-                </span>
-                {importEnabled && !id.startsWith("homework:") ? (
-                  <button
-                    aria-label={`Удалить попытку №${data.taskNumber} ${data.score}/${data.maxScore}`}
-                    className="external-practice-history__delete"
-                    disabled={deletingId === id}
-                    onClick={() => void removeAttempt(id, data)}
-                    type="button"
-                  >
-                    {deletingId === id ? "Удаляем…" : "Удалить"}
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
+      <PracticeHistory attempts={combinedAttempts} timezone={displayTimezone} deletingId={deletingId} onRemove={importEnabled ? (id, data) => void removeAttempt(id, data) : undefined} />
     </section>
   );
 }

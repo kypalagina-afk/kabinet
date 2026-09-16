@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
+import { WrittenPracticePanel } from "../features/analytics/WrittenPracticePanel";
 import { homeworkAssessmentEvidence, homeworkPracticeEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import { MockAnalyticsDashboard } from "../features/analytics/MockAnalyticsDashboard";
 import {
@@ -227,6 +228,7 @@ function TeacherAnalyticsWorkspace({
         studentId={studentId}
         teacherId={teacherId}
       /> : null}
+      <WrittenPracticePanel data={data} />
       <MockAnalyticsDashboard
         audience="teacher"
         examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}
@@ -414,6 +416,7 @@ function AllStudentsAnalytics({
         homeworks={board.homeworks.filter(({ data }) =>
           visibleStudentIds.has(data.studentId),
         )}
+        studentNames={Object.fromEntries(students.map(({ id, data }) => [id, data.displayName]))}
         submissions={board.submissions.filter(({ data }) =>
           visibleStudentIds.has(data.studentId),
         )}

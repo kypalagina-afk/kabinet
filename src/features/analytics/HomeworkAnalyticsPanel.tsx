@@ -5,6 +5,7 @@ import type {
   HomeworkSubmission,
 } from "../../lib/firebase/types";
 import { calculateHomeworkAnalytics } from "./homeworkAnalytics";
+import { HomeworkReport } from "./HomeworkReport";
 
 function defaultStart() {
   const value = new Date();
@@ -19,11 +20,14 @@ export function HomeworkAnalyticsPanel({
   homeworks,
   submissions,
   teacherControls = false,
+  studentNames,
 }: {
   homeworks: Array<DocumentWithId<Homework>>;
   submissions: Array<DocumentWithId<HomeworkSubmission>>;
   teacherControls?: boolean;
+  studentNames?: Record<string, string>;
 }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const [start, setStart] = useState(() =>
     teacherControls
       ? (sessionStorage.getItem("teacher-homework-analytics-start") ??
@@ -91,15 +95,15 @@ export function HomeworkAnalyticsPanel({
         ) : null}
       </div>
       <div className="homework-analytics">
-        <article>
+        <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)}>
           <span>Выполнение ДЗ</span>
           <strong>{analytics.completionPercent}%</strong>
           <small>
             {analytics.completedCount} из {analytics.assignedCount}
             {analytics.assignedItemCount > 0 ? ` · сдано пунктов: ${analytics.receivedItemCount} из ${analytics.assignedItemCount}` : ""}
           </small>
-        </article>
-        <article>
+        </button>
+        <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)}>
           <span>Сдано вовремя</span>
           <strong>
             {analytics.onTimePercent === null
@@ -107,8 +111,8 @@ export function HomeworkAnalyticsPanel({
               : `${analytics.onTimePercent}%`}
           </strong>
           <small>по {analytics.submittedCount} отправленным</small>
-        </article>
-        <article>
+        </button>
+        <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)}>
           <span>Качество ДЗ</span>
           <strong>
             {analytics.qualityPercent === null
@@ -119,13 +123,15 @@ export function HomeworkAnalyticsPanel({
             по {analytics.qualityCount} проверенным работам
             {analytics.qualityCount < 2 ? " · пока мало данных" : ""}
           </small>
-        </article>
-        <article>
+        </button>
+        <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)}>
           <span>Проверено</span>
           <strong>{analytics.qualityCount}</strong>
           <small>работ с числовым результатом</small>
-        </article>
+        </button>
       </div>
+      <p className="workflow-hint">Нажмите на любой показатель, чтобы посмотреть {studentNames ? "ДЗ из сводки" : "все ДЗ"} и результаты по пунктам.</p>
+      {reportOpen ? <HomeworkReport homeworks={homeworks} submissions={submissions} studentNames={studentNames} onClose={() => setReportOpen(false)} /> : null}
     </section>
   );
 }

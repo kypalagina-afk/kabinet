@@ -2301,7 +2301,22 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 .task-mastery--strong { --mastery-color:#36a477; background:color-mix(in srgb,#36a477 7%,var(--color-surface)); }
 .compact-filter select { min-width:min(17.5rem,100%); }
 .homework-analytics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; }
-.homework-analytics article { display:grid; gap:.25rem; padding:1rem; border:1px solid var(--color-border); border-radius:var(--radius-sm); background:var(--color-surface-soft); }
+.homework-analytics > button { display:grid; gap:.25rem; padding:1rem; border:1px solid var(--color-border); border-radius:var(--radius-sm); background:var(--color-surface-soft); color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.homework-analytics > button:hover { border-color:var(--color-accent); }
+.homework-analytics > button:focus-visible { outline:3px solid var(--color-accent); outline-offset:3px; }
+.homework-report-modal { width:min(100%,64rem); }
+.homework-report { display:grid; gap:1rem; }
+.homework-report__assignment { padding:1rem; border:1px solid var(--color-border); border-radius:var(--radius-sm); }
+.homework-report__assignment h3 { margin:0; overflow-wrap:anywhere; }
+.homework-report__item { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr); gap:1rem; padding:.75rem 0; border-bottom:1px solid var(--color-border); }
+.homework-report__item > div { display:grid; align-content:start; gap:.3rem; overflow-wrap:anywhere; }
+.homework-report__item small { color:var(--color-muted); }
+.practice-history-month { margin-top:1rem; }
+.written-practice-list > article { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto; gap:1rem; padding:.8rem 0; border-bottom:1px solid var(--color-border); }
+.written-practice-list > article > div { display:grid; gap:.3rem; overflow-wrap:anywhere; }
+@media(max-width:47.999rem){.written-practice-list>article{grid-template-columns:1fr auto}.written-practice-list>article>div{grid-column:1/-1}.written-practice-panel>.panel-heading{flex-direction:column;align-items:stretch}.written-practice-panel .inline-control{width:100%}}
+.practice-history-month > summary { padding:.6rem; border-radius:var(--radius-sm); background:var(--color-surface-soft); text-transform:capitalize; }
+@media(max-width:47.999rem){.homework-report__item{grid-template-columns:1fr 1fr;gap:.6rem}.homework-report__item>div:first-child{grid-column:1/-1}}
 .homework-analytics strong { font-size:1.5rem; }
 .lesson-history-card--target { border-color:var(--color-accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent) 18%,transparent); }
 .student-card-tabs { display:flex; gap:.4rem; overflow-x:auto; padding-bottom:.25rem; }

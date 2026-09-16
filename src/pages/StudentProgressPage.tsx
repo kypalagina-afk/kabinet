@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { HomeworkAnalyticsPanel } from "../features/analytics/HomeworkAnalyticsPanel";
+import { WrittenPracticePanel } from "../features/analytics/WrittenPracticePanel";
 import { homeworkAssessmentEvidence } from "../features/analytics/homeworkPracticeEvidence";
 import {
   MockAnalyticsDashboard,
@@ -78,6 +79,7 @@ export function StudentProgressPage() {
             homeworks={data.homeworks}
             submissions={data.homeworkSubmissions}
           />
+          <WrittenPracticePanel data={data} />
           <MockAnalyticsDashboard
             audience="student"
             examKind={data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType}

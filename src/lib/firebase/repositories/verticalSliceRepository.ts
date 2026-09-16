@@ -131,9 +131,10 @@ function ownedQuery(
     constraints.push(where("teacherId", "==", teacherId));
   }
   if (collectionName === "lessons") constraints.push(orderBy("startAt", "desc"), limit(120));
-  if (collectionName === "homeworks") constraints.push(orderBy("assignedAt", "desc"), limit(120));
-  if (collectionName === "homeworkSubmissions") constraints.push(orderBy("updatedAt", "desc"), limit(160));
-  if (collectionName === "mockExams") constraints.push(orderBy("takenAt", "desc"), limit(50));
+  // Student-scoped analytics and its history need all assignments and attempts.
+  if (collectionName === "homeworks") constraints.push(orderBy("assignedAt", "desc"));
+  if (collectionName === "homeworkSubmissions") constraints.push(orderBy("updatedAt", "desc"));
+  if (collectionName === "mockExams") constraints.push(orderBy("takenAt", "desc"));
   if (collectionName === "studentPrograms") constraints.push(limit(10));
   return query(collection(db, collectionName), ...constraints);
 }

@@ -3,6 +3,7 @@ import type { StudentWorkspaceSnapshot } from "../../lib/firebase/repositories/v
 import { dateKeyForTimezone, formatDateTimeForTimezone, resolveTimezone } from "../schedule/timezone";
 import { monthlyHistory } from "./monthlyHistory";
 import { writtenPracticeHistory } from "./writtenPractice";
+import { WrittenScoreBreakdown } from "./WrittenScoreBreakdown";
 
 const timezone = resolveTimezone(null);
 
@@ -11,7 +12,7 @@ export function WrittenPracticePanel({ data }: { data: StudentWorkspaceSnapshot 
   const [task, setTask] = useState("all");
   const [now] = useState(() => Date.now());
   const examKind = data.examBlueprint?.data.examKind ?? data.examBlueprint?.data.programType;
-  const history = useMemo(() => examKind ? writtenPracticeHistory(data.homeworks, data.homeworkSubmissions, data.mockExams, data.examBlueprint?.id ?? "", examKind, data.studentProgram?.id) : [], [data, examKind]);
+  const history = useMemo(() => examKind ? writtenPracticeHistory(data.homeworks, data.homeworkSubmissions, data.mockExams, data.examBlueprint?.id ?? "", examKind, data.studentProgram?.id, data.examBlueprint?.data) : [], [data, examKind]);
   if (!examKind) return null;
   const cutoff = period === "all" ? -Infinity : now - Number(period) * 86400000;
   const taskNumbers = examKind === "oge" ? [1, 13] : [27];
@@ -39,6 +40,7 @@ export function WrittenPracticePanel({ data }: { data: StudentWorkspaceSnapshot 
     {months.map((month) => <details className="practice-history-month" key={month.key} open><summary>{month.label} · {month.items.length}</summary><div className="written-practice-list">{month.items.map((row) => <article key={row.id}>
       <div><strong>№{row.taskNumber} · {label(row.taskNumber)} · {row.earned}/{row.max}</strong><span>{row.title}</span></div>
       <time dateTime={dateKeyForTimezone(new Date(row.date), timezone)}>{formatDateTimeForTimezone(new Date(row.date), timezone, { dateStyle: "medium" })}</time><span>{row.source}</span>
+      <WrittenScoreBreakdown row={row} />
     </article>)}</div></details>)}
     {examKind === "oge" ? <p className="workflow-hint">Общие баллы пробника за грамотность и фактическую точность не дублируются в обеих работах.</p> : null}
   </section>;
